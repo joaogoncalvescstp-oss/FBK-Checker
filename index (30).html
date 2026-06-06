@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FBK Checker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #60a5fa;
+      letter-spacing: -0.5px;
+    }
+    header p {
+      color: #94a3b8;
+      margin-top: 6px;
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    .drop-zone {
+      border: 2px dashed #3b4a6b;
+      border-radius: 10px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #60a5fa;
+      background: #1a2540;
+    }
+    .drop-zone svg { color: #4b72b8; margin-bottom: 12px; }
+    .drop-zone p { color: #94a3b8; font-size: 0.9rem; }
+    .drop-zone strong { color: #cbd5e1; }
+    #fileInput { display: none; }
+
+    .file-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .file-tag {
+      background: #253352;
+      border: 1px solid #3b4a6b;
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 0.82rem;
+      color: #93c5fd;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .file-tag button {
+      background: none;
+      border: none;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0;
+    }
+    .file-tag button:hover { color: #f87171; }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    label.opt { color: #94a3b8; font-size: 0.88rem; display: flex; align-items: center; gap: 6px; }
+    input[type="number"] {
+      background: #0f1117;
+      border: 1px solid #3b4a6b;
+      border-radius: 6px;
+      color: #e2e8f0;
+      padding: 4px 8px;
+      width: 80px;
+      font-size: 0.88rem;
+    }
+
+    button.primary {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 24px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button.primary:hover { background: #1d4ed8; }
+    button.primary:disabled { background: #374151; color: #6b7280; cursor: not-allowed; }
+
+    button.secondary {
+      background: #1e2330;
+      color: #94a3b8;
+      border: 1px solid #3b4a6b;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    button.secondary:hover { border-color: #60a5fa; color: #e2e8f0; }
+
+    /* Stats bar */
+    .stats-bar {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .stat {
+      background: #1e2330;
+      border: 1px solid #2d3748;
+      border-radius: 10px;
+      padding: 14px 22px;
+      flex: 1;
+      min-width: 120px;
+      text-align: center;
+    }
+    .stat .num { font-size: 1.8rem; font-weight: 700; color: #60a5fa; }
+    .stat .lbl { font-size: 0.78rem; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat.warn .num { color: #f59e0b; }
+    .stat.err .num { color: #f87171; }
+    .stat.ok .num { color: #34d399; }
+
+    /* Filter bar */
+    .filter-bar {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .filter-bar input[type="text"] {
+      background: #0f1117;
+      border: 1px solid #3b4a6b;
+      border-radius: 8px;
+      color: #e2e8f0;
+      padding: 7px 12px;
+      font-size: 0.88rem;
+      flex: 1;
+      min-width: 160px;
+    }
+    .filter-bar select {
+      background: #0f1117;
+      border: 1px solid #3b4a6b;
+      border-radius: 8px;
+      color: #e2e8f0;
+      padding: 7px 10px;
+      font-size: 0.88rem;
+    }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    thead th {
+      background: #161c2a;
+      color: #94a3b8;
+      text-align: left;
+      padding: 10px 14px;
+      border-bottom: 1px solid #2d3748;
+      white-space: nowrap;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+    thead th:hover { color: #e2e8f0; }
+    thead th .sort-icon { margin-left: 4px; opacity: 0.4; }
+    thead th.sorted .sort-icon { opacity: 1; color: #60a5fa; }
+
+    tbody tr { border-bottom: 1px solid #1a2030; transition: background 0.1s; }
+    tbody tr:hover { background: #1a2540; }
+    tbody td { padding: 9px 14px; vertical-align: top; }
+
+    .pt-num { font-weight: 700; color: #93c5fd; font-family: monospace; font-size: 0.9rem; }
+    .coord { font-family: monospace; color: #cbd5e1; }
+    .diff-val { color: #f87171; font-weight: 600; }
+    .ok-val { color: #34d399; }
+
+    .badge {
+      display: inline-block;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-mismatch { background: #7f1d1d; color: #fca5a5; }
+    .badge-ok { background: #064e3b; color: #6ee7b7; }
+    .badge-missing { background: #44362a; color: #fcd34d; }
+
+    .file-col { color: #818cf8; font-size: 0.8rem; }
+    .delta { color: #f59e0b; font-size: 0.78rem; }
+
+    /* Empty state */
+    .empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: #4b5563;
+    }
+    .empty svg { margin-bottom: 16px; }
+    .empty p { font-size: 0.9rem; }
+
+    /* Export button */
+    .export-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    /* Expand row */
+    .expand-btn {
+      background: none;
+      border: none;
+      color: #60a5fa;
+      cursor: pointer;
+      font-size: 0.8rem;
+      padding: 0;
+    }
+    .detail-row td {
+      background: #131824;
+      padding: 12px 14px;
+    }
+    .detail-table {
+      width: 100%;
+      font-size: 0.82rem;
+      border-collapse: collapse;
+    }
+    .detail-table th {
+      color: #64748b;
+      font-weight: 600;
+      text-align: left;
+      padding: 4px 10px;
+      border-bottom: 1px solid #1e2a3a;
+    }
+    .detail-table td {
+      padding: 5px 10px;
+      font-family: monospace;
+      color: #cbd5e1;
+      border-bottom: 1px solid #1a2030;
+    }
+    .detail-table tr:last-child td { border-bottom: none; }
+    .hl { color: #f87171; font-weight: 700; }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1e3a5f;
+      border: 1px solid #2563eb;
+      color: #93c5fd;
+      border-radius: 8px;
+      padding: 12px 18px;
+      font-size: 0.88rem;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.3s, transform 0.3s;
+      pointer-events: none;
+      z-index: 100;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 600px) {
+      .stats-bar { gap: 10px; }
+      .stat .num { font-size: 1.3rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>FBK Checker</h1>
+  <p>Upload multiple survey FBK files — find point number mismatches in northing &amp; easting</p>
+</header>
+
+<!-- Upload card -->
+<div class="card">
+  <div class="drop-zone" id="dropZone">
+    <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+    </svg>
+    <p><strong>Drag &amp; drop FBK files here</strong></p>
+    <p>or <span style="color:#60a5fa;cursor:pointer" onclick="document.getElementById('fileInput').click()">browse files</span></p>
+    <input type="file" id="fileInput" multiple accept=".fbk,.txt,.raw,.dat" />
+  </div>
+  <div class="file-list" id="fileList"></div>
+</div>
+
+<!-- Options + Run -->
+<div class="card">
+  <div class="controls">
+    <label class="opt">
+      Tolerance (m):
+      <input type="number" id="tolerance" value="0.001" step="0.001" min="0" />
+    </label>
+    <label class="opt">
+      <input type="checkbox" id="showOk" />
+      Show matching points too
+    </label>
+    <button class="primary" id="runBtn" disabled>Check Files</button>
+    <button class="secondary" id="clearBtn">Clear</button>
+  </div>
+</div>
+
+<!-- Results -->
+<div id="results" style="display:none">
+  <div class="stats-bar" id="statsBar"></div>
+
+  <div class="card">
+    <div class="filter-bar">
+      <input type="text" id="searchBox" placeholder="Search point number or description…" oninput="renderTable()" />
+      <select id="filterType" onchange="renderTable()">
+        <option value="all">All points</option>
+        <option value="mismatch">Mismatches only</option>
+        <option value="missing">Missing in some files</option>
+        <option value="ok">Matching only</option>
+      </select>
+      <select id="filterFile" onchange="renderTable()">
+        <option value="all">All files</option>
+      </select>
+    </div>
+
+    <div class="table-wrap">
+      <table id="mainTable">
+        <thead>
+          <tr>
+            <th data-col="pt" onclick="sortBy('pt')">Point # <span class="sort-icon">↕</span></th>
+            <th data-col="status" onclick="sortBy('status')">Status <span class="sort-icon">↕</span></th>
+            <th>Files</th>
+            <th>Max ΔN (m)</th>
+            <th>Max ΔE (m)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="export-row">
+      <button class="secondary" onclick="exportCSV()">Export CSV</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let loadedFiles = [];   // {name, content}
+let pointData   = {};   // pointNum -> [{file, N, E, elev, desc, line}]
+let sortCol     = 'pt';
+let sortDir     = 1;
+
+// ── FBK Parser ─────────────────────────────────────────────────────────────
+/*
+  Handles the most common FBK record types:
+
+  NEZ   ptNum  N  E  [Z]  ["desc"]
+  SS    ptNum  offset  az  [Z]  ["desc"]   — ignored (no direct N/E)
+  STN   ptNum  [N  E  Z]  ["desc"]
+  BK    ...                               — ignored
+
+  Also handles raw-format lines where whitespace/comma delimited:
+    ptNum  N  E  [Z]  [desc]
+*/
+function parseFBK(text, filename) {
+  const points = [];
+  const lines  = text.replace(/\r/g, '').split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim();
+    if (!raw || raw.startsWith('//') || raw.startsWith('#') || raw.startsWith(';')) continue;
+
+    // Extract optional quoted description
+    let desc = '';
+    let cleaned = raw.replace(/"([^"]*)"/g, (_, d) => { desc = d; return ''; }).trim();
+
+    // Tokenise (comma or whitespace)
+    const tok = cleaned.split(/[\s,]+/).filter(Boolean);
+    if (tok.length < 3) continue;
+
+    let pt, N, E, elev = null;
+    const kw = tok[0].toUpperCase();
+
+    if (kw === 'NEZ' && tok.length >= 4) {
+      pt = tok[1]; N = parseFloat(tok[2]); E = parseFloat(tok[3]);
+      if (tok[4] !== undefined) elev = parseFloat(tok[4]);
+    } else if ((kw === 'STN') && tok.length >= 4) {
+      pt = tok[1]; N = parseFloat(tok[2]); E = parseFloat(tok[3]);
+      if (tok[4] !== undefined) elev = parseFloat(tok[4]);
+    } else if (/^[A-Z]{2,4}$/.test(kw)) {
+      // Other keyword records we don't handle — skip
+      continue;
+    } else {
+      // Raw: ptNum  N  E  [Z]  [desc]
+      if (tok.length < 3) continue;
+      pt = tok[0]; N = parseFloat(tok[1]); E = parseFloat(tok[2]);
+      if (tok[3] !== undefined && !isNaN(parseFloat(tok[3]))) elev = parseFloat(tok[3]);
+    }
+
+    if (!pt || isNaN(N) || isNaN(E)) continue;
+    points.push({ file: filename, pt: String(pt).trim(), N, E, elev, desc, lineNo: i + 1 });
+  }
+  return points;
+}
+
+// ── File loading ───────────────────────────────────────────────────────────
+function handleFiles(files) {
+  [...files].forEach(f => {
+    if (loadedFiles.find(x => x.name === f.name)) return; // already loaded
+    const reader = new FileReader();
+    reader.onload = e => {
+      loadedFiles.push({ name: f.name, content: e.target.result });
+      renderFileTags();
+      document.getElementById('runBtn').disabled = loadedFiles.length < 1;
+    };
+    reader.readAsText(f);
+  });
+}
+
+function removeFile(name) {
+  loadedFiles = loadedFiles.filter(f => f.name !== name);
+  renderFileTags();
+  document.getElementById('runBtn').disabled = loadedFiles.length < 1;
+}
+
+function renderFileTags() {
+  const el = document.getElementById('fileList');
+  el.innerHTML = loadedFiles.map(f => `
+    <span class="file-tag">
+      ${escHtml(f.name)}
+      <button onclick="removeFile('${escHtml(f.name)}')" title="Remove">×</button>
+    </span>`).join('');
+}
+
+// ── Drag & drop ────────────────────────────────────────────────────────────
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-over');
+  handleFiles(e.dataTransfer.files);
+});
+document.getElementById('fileInput').addEventListener('change', e => handleFiles(e.target.files));
+
+// ── Run check ─────────────────────────────────────────────────────────────
+document.getElementById('runBtn').addEventListener('click', runCheck);
+
+function runCheck() {
+  const tol = parseFloat(document.getElementById('tolerance').value) || 0.001;
+  pointData = {};
+
+  loadedFiles.forEach(f => {
+    const pts = parseFBK(f.content, f.name);
+    pts.forEach(p => {
+      if (!pointData[p.pt]) pointData[p.pt] = [];
+      pointData[p.pt].push(p);
+    });
+  });
+
+  populateFileFilter();
+  renderStats(tol);
+  renderTable();
+  document.getElementById('results').style.display = '';
+}
+
+function populateFileFilter() {
+  const sel = document.getElementById('filterFile');
+  sel.innerHTML = '<option value="all">All files</option>' +
+    loadedFiles.map(f => `<option value="${escHtml(f.name)}">${escHtml(f.name)}</option>`).join('');
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+function renderStats(tol) {
+  const tol_ = tol || parseFloat(document.getElementById('tolerance').value) || 0.001;
+  let mismatches = 0, missing = 0, ok = 0;
+  const totalFiles = loadedFiles.length;
+
+  Object.values(pointData).forEach(recs => {
+    const s = status(recs, tol_, totalFiles);
+    if (s === 'mismatch') mismatches++;
+    else if (s === 'missing') missing++;
+    else ok++;
+  });
+
+  const total = mismatches + missing + ok;
+  document.getElementById('statsBar').innerHTML = `
+    <div class="stat"><div class="num">${loadedFiles.length}</div><div class="lbl">Files loaded</div></div>
+    <div class="stat"><div class="num">${total}</div><div class="lbl">Unique points</div></div>
+    <div class="stat err"><div class="num">${mismatches}</div><div class="lbl">N/E mismatches</div></div>
+    <div class="stat warn"><div class="num">${missing}</div><div class="lbl">Missing in some files</div></div>
+    <div class="stat ok"><div class="num">${ok}</div><div class="lbl">Matching</div></div>
+  `;
+}
+
+// ── Status helper ──────────────────────────────────────────────────────────
+function status(recs, tol, totalFiles) {
+  if (recs.length < totalFiles) {
+    // Check if it's also a coord mismatch among what we have
+    if (hasMismatch(recs, tol)) return 'mismatch';
+    return 'missing';
+  }
+  return hasMismatch(recs, tol) ? 'mismatch' : 'ok';
+}
+
+function hasMismatch(recs, tol) {
+  if (recs.length < 2) return false;
+  const [base, ...rest] = recs;
+  return rest.some(r => Math.abs(r.N - base.N) > tol || Math.abs(r.E - base.E) > tol);
+}
+
+function maxDelta(recs, coord) {
+  if (recs.length < 2) return 0;
+  const vals = recs.map(r => r[coord]);
+  return Math.max(...vals) - Math.min(...vals);
+}
+
+// ── Table ──────────────────────────────────────────────────────────────────
+let expandedRows = new Set();
+
+function sortBy(col) {
+  if (sortCol === col) sortDir *= -1;
+  else { sortCol = col; sortDir = 1; }
+  document.querySelectorAll('thead th').forEach(th => {
+    th.classList.toggle('sorted', th.dataset.col === col);
+  });
+  renderTable();
+}
+
+function renderTable() {
+  const tol       = parseFloat(document.getElementById('tolerance').value) || 0.001;
+  const showOk    = document.getElementById('showOk').checked;
+  const search    = document.getElementById('searchBox').value.toLowerCase();
+  const fType     = document.getElementById('filterType').value;
+  const fFile     = document.getElementById('filterFile').value;
+  const totalFiles = loadedFiles.length;
+
+  let rows = Object.entries(pointData).map(([pt, recs]) => {
+    const s = status(recs, tol, totalFiles);
+    return { pt, recs, s };
+  });
+
+  // filter
+  rows = rows.filter(r => {
+    if (fType === 'mismatch' && r.s !== 'mismatch') return false;
+    if (fType === 'missing'  && r.s !== 'missing')  return false;
+    if (fType === 'ok'       && r.s !== 'ok')        return false;
+    if (!showOk && r.s === 'ok') return false;
+    if (fFile !== 'all' && !r.recs.find(x => x.file === fFile)) return false;
+    if (search && !r.pt.toLowerCase().includes(search) &&
+        !r.recs.some(x => x.desc.toLowerCase().includes(search))) return false;
+    return true;
+  });
+
+  // sort
+  rows.sort((a, b) => {
+    let av, bv;
+    if (sortCol === 'pt') {
+      av = isNaN(Number(a.pt)) ? a.pt : Number(a.pt);
+      bv = isNaN(Number(b.pt)) ? b.pt : Number(b.pt);
+    } else {
+      const order = { mismatch: 0, missing: 1, ok: 2 };
+      av = order[a.s]; bv = order[b.s];
+    }
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
+  });
+
+  const tbody = document.getElementById('tableBody');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6">
+      <div class="empty">
+        <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <p>No points match the current filters.</p>
+      </div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(({ pt, recs, s }) => {
+    const dN = maxDelta(recs, 'N').toFixed(4);
+    const dE = maxDelta(recs, 'E').toFixed(4);
+    const isExpanded = expandedRows.has(pt);
+    const badge = s === 'mismatch'
+      ? '<span class="badge badge-mismatch">MISMATCH</span>'
+      : s === 'missing'
+      ? '<span class="badge badge-missing">MISSING</span>'
+      : '<span class="badge badge-ok">OK</span>';
+
+    const fileNames = [...new Set(recs.map(r => r.file))].map(n =>
+      `<span class="file-col">${escHtml(n)}</span>`).join('<br>');
+
+    const dNHtml = s === 'mismatch' && parseFloat(dN) > 0
+      ? `<span class="diff-val">${dN}</span>` : `<span class="ok-val">${dN}</span>`;
+    const dEHtml = s === 'mismatch' && parseFloat(dE) > 0
+      ? `<span class="diff-val">${dE}</span>` : `<span class="ok-val">${dE}</span>`;
+
+    let detailHtml = '';
+    if (isExpanded) {
+      // find base N/E (first occurrence)
+      const baseN = recs[0].N, baseE = recs[0].E;
+      detailHtml = `<tr class="detail-row"><td colspan="6">
+        <table class="detail-table">
+          <thead><tr>
+            <th>File</th><th>Line</th><th>Northing</th><th>Easting</th><th>Elev</th><th>Desc</th><th>ΔN</th><th>ΔE</th>
+          </tr></thead>
+          <tbody>${recs.map((r, i) => {
+            const dn = (r.N - baseN).toFixed(4);
+            const de = (r.E - baseE).toFixed(4);
+            const nCls = i > 0 && Math.abs(r.N - baseN) > tol ? 'hl' : '';
+            const eCls = i > 0 && Math.abs(r.E - baseE) > tol ? 'hl' : '';
+            return `<tr>
+              <td class="file-col">${escHtml(r.file)}</td>
+              <td>${r.lineNo}</td>
+              <td class="${nCls}">${r.N.toFixed(4)}</td>
+              <td class="${eCls}">${r.E.toFixed(4)}</td>
+              <td>${r.elev !== null ? r.elev.toFixed(3) : '—'}</td>
+              <td>${escHtml(r.desc)}</td>
+              <td class="${i===0?'':'delta'}">${i===0?'base':dn}</td>
+              <td class="${i===0?'':'delta'}">${i===0?'base':de}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table></td></tr>`;
+    }
+
+    return `<tr>
+      <td class="pt-num">${escHtml(pt)}</td>
+      <td>${badge}</td>
+      <td>${fileNames}</td>
+      <td>${dNHtml}</td>
+      <td>${dEHtml}</td>
+      <td><button class="expand-btn" onclick="toggleExpand('${escHtml(pt)}')">${isExpanded ? '▲ Hide' : '▼ Detail'}</button></td>
+    </tr>${detailHtml}`;
+  }).join('');
+}
+
+function toggleExpand(pt) {
+  if (expandedRows.has(pt)) expandedRows.delete(pt);
+  else expandedRows.add(pt);
+  renderTable();
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────
+function exportCSV() {
+  const tol = parseFloat(document.getElementById('tolerance').value) || 0.001;
+  const totalFiles = loadedFiles.length;
+  const rows = [['Point', 'Status', 'File', 'Northing', 'Easting', 'Elevation', 'LineNo', 'Desc', 'deltaN', 'deltaE']];
+
+  Object.entries(pointData).forEach(([pt, recs]) => {
+    const s = status(recs, tol, totalFiles);
+    const baseN = recs[0].N, baseE = recs[0].E;
+    recs.forEach((r, i) => {
+      rows.push([
+        pt, s, r.file,
+        r.N.toFixed(6), r.E.toFixed(6),
+        r.elev !== null ? r.elev.toFixed(4) : '',
+        r.lineNo, r.desc,
+        i === 0 ? '0' : (r.N - baseN).toFixed(6),
+        i === 0 ? '0' : (r.E - baseE).toFixed(6)
+      ]);
+    });
+  });
+
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'fbk-mismatch-report.csv'; a.click();
+  showToast('CSV exported');
+}
+
+// ── Clear ─────────────────────────────────────────────────────────────────
+document.getElementById('clearBtn').addEventListener('click', () => {
+  loadedFiles = []; pointData = {}; expandedRows.clear();
+  document.getElementById('fileList').innerHTML = '';
+  document.getElementById('results').style.display = 'none';
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('fileInput').value = '';
+});
+
+// ── Utils ─────────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// Auto-sort on showOk toggle
+document.getElementById('showOk').addEventListener('change', renderTable);
+</script>
+</body>
+</html>
