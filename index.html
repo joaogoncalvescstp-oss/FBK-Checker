@@ -118,7 +118,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="gotoBtn" disabled>⌖ Go to point</button>
     <label class="btn file">↥ Load FBK<input type="file" id="fileInput" accept=".fbk,.txt"></label>
     <button class="btn ghost" id="fitBtn" disabled>⊡ Fit</button>
+    <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
+    <span id="fruitBadge" style="font-size:24px;margin-left:12px;cursor:pointer;transition:transform 0.2s" title="Push verified!" onclick="rotateFruit()">🍎</span>
   </div>
 
   <div class="main">
@@ -201,6 +204,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 "use strict";
 const $ = id => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
+const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
+function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
+function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';badge.textContent=randomFruit();setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
+window.addEventListener('load',()=>{$('fruitBadge').textContent=randomFruit();});
 
 /* ---------- DMS ---------- */
 function dms2deg(v){const s=Math.abs(v).toFixed(6),[d,fr]=s.split('.');
@@ -220,6 +227,39 @@ let addPt=null;                                           // add-point flow: {fi
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
+
+/* ---------- undo/redo ---------- */
+let undoStack=[], redoStack=[];                           // history for undo/redo
+function saveState(){
+  redoStack=[];
+  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),log:JSON.parse(JSON.stringify(log))});
+  if(undoStack.length>50)undoStack.shift();               // limit history to 50 states
+  updateUndoRedoButtons();
+}
+function performUndo(){
+  if(undoStack.length===0)return;
+  redoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),log:JSON.parse(JSON.stringify(log))});
+  const state=undoStack.pop();
+  PTS=state.PTS;figOrder=state.figOrder;log=state.log;
+  sel=-1;selFig=null;buildLinework();inspect();draw();
+  $('logn').textContent=log.length;
+  $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
+  updateUndoRedoButtons();hud('undo');
+}
+function performRedo(){
+  if(redoStack.length===0)return;
+  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),log:JSON.parse(JSON.stringify(log))});
+  const state=redoStack.pop();
+  PTS=state.PTS;figOrder=state.figOrder;log=state.log;
+  sel=-1;selFig=null;buildLinework();inspect();draw();
+  $('logn').textContent=log.length;
+  $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
+  updateUndoRedoButtons();hud('redo');
+}
+function updateUndoRedoButtons(){
+  $('undoBtn').disabled=undoStack.length===0;
+  $('redoBtn').disabled=redoStack.length===0;
+}
 
 /* ---------- parse + reduce ---------- */
 function parse(text){
@@ -351,10 +391,12 @@ function pickFig(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
     if(f.closed&&vs.length>1)seg(vs[vs.length-1],vs[0]);});
   return best;}
 function reorderFig(id,from,to){const f=getFig(id);if(!f)return;
+  saveState();
   const order=f.verts.map(v=>v.i);const[m]=order.splice(from,1);order.splice(to,0,m);
   figOrder[id]=order;logEdit('code',`reorder ${f.code}: vtx ${from+1}→${to+1}`);
   draw();inspectFig(getFig(id));flagDirty();}
 function reverseFig(id){const f=getFig(id);if(!f)return;
+  saveState();
   figOrder[id]=f.verts.map(v=>v.i).reverse();logEdit('code',`reverse ${f.code}`);
   draw();inspectFig(getFig(id));flagDirty();}
 function addPointToFig(figId,anchorIdx,addIdx){const f=getFig(figId);if(!f)return;
@@ -435,7 +477,7 @@ function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, th
   const T1={E:PI.E+u1.E*Tl,N:PI.N+u1.N*Tl},T2={E:PI.E+u2.E*Tl,N:PI.N+u2.N*Tl};
   return arcSamplesCenter(c,T1,T2,OC,B.Z,C.Z);}
 function strokeFigure(f,proj,color){
-  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,rect:v.rect,rt:v.rt,x:v.x};}).filter(Boolean);
+  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,so:v.so,rect:v.rect,rt:v.rt,x:v.x,steps:v.steps};}).filter(Boolean);
   if(vs.length<2)return;
   if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
     ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
@@ -443,13 +485,27 @@ function strokeFigure(f,proj,color){
     ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();return;}}
   ctx.beginPath();let started=false;
   const put=(E,N,Z)=>{const s=proj(E,N,Z);started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);};
-  let k=0;
+  let k=0,activeSteps=null;
   while(k<vs.length){const v=vs[k];
+    if(v.steps)activeSteps=v.steps;
     if(v.bc){let j=k+1;while(j<vs.length&&!vs[j].ec)j++;
       if(j<vs.length){const span=vs.slice(k,j+1);put(span[0].E,span[0].N,span[0].Z);
         const samp=sampleCurve(span);
-        if(samp)samp.forEach(s=>put(s.E,s.N,s.Z));else span.slice(1).forEach(p=>put(p.E,p.N,p.Z));
-        k=j+1;continue;}}
+        if(samp){
+          const full=[span[0],...samp,span[span.length-1]];
+          samp.forEach((s,idx)=>{
+            let outE=s.E,outN=s.N,outZ=s.Z;
+            if(activeSteps&&activeSteps.length>0){
+              const st=activeSteps[0];
+              const prevPt=full[idx],nextPt=full[idx+2];
+              let dE=nextPt.E-prevPt.E,dN=nextPt.N-prevPt.N;const L=Math.hypot(dE,dN)||1;
+              dE/=L;dN/=L;
+              outE+=dN*st.h;outN-=dE*st.h;outZ+=st.v;
+            }
+            put(outE,outN,outZ);
+          });
+        }else span.slice(1).forEach(p=>put(p.E,p.N,p.Z));
+        k=j+1;if(v.so)activeSteps=null;continue;}}
     if(v.oc&&k>=2&&k<=vs.length-3){                       // tangent arc through the OC point
       const A=vs[k-2],B=vs[k-1],C=vs[k+1],D=vs[k+2];
       const samp=fitTangentArc(B,unit(B.E-A.E,B.N-A.N),C,unit(D.E-C.E,D.N-C.N),v);
@@ -727,7 +783,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   $('fbkBtn').onclick=()=>openFbk(f.id);
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
-  $('resetBtn').onclick=()=>{delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
+  $('resetBtn').onclick=()=>{saveState();delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
 }
 function inspectInverse(){const box=$('insp');
   if(inv.a<0){box.innerHTML='<div class="empty"><b>Inverse</b><br><br>Click the <b>first</b> point.</div>';return;}
@@ -761,10 +817,11 @@ function inspectInverse(){const box=$('insp');
   $('invSwap').onclick=()=>{[inv.a,inv.b]=[inv.b,inv.a];inspectInverse();draw();};
   $('invClear').onclick=()=>{inv={a:-1,b:-1};inspectInverse();draw();};}
 function applyDesc(p){const v=$('fDesc').value.trim();if(v===p.desc)return;
+  saveState();
   logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${v}"`);
   p.desc=v;p.code=(v.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
   buildLinework();draw();inspect();flagDirty();}
-function toggleDel(p){p.deleted=!p.deleted;p.edited=true;
+function toggleDel(p){saveState();p.deleted=!p.deleted;p.edited=true;
   logEdit('del',`pt ${p.id} line ${p.srcLine+1} ${p.deleted?'deleted':'restored'}`);
   buildLinework();draw();inspect();flagDirty();}
 function reduce(p){const az=(p.ori+p.ha)%360,hd=p.sd*Math.sin(p.za*Math.PI/180),vd=p.sd*Math.cos(p.za*Math.PI/180);
@@ -803,7 +860,7 @@ function openFbk(id){const f=getFig(id);if(!f)return;
   $('fscrim').classList.add('show');ta.focus();}
 function syncHL(){const ta=$('fbkTA');$('fbkHL').innerHTML=ta.value.split('\n').map(hlLine).join('\n');
   $('fbkHL').scrollTop=ta.scrollTop;$('fbkHL').scrollLeft=ta.scrollLeft;}
-function applyFbk(){if(!fbkCtx)return;const lines=$('fbkTA').value.split('\n');
+function applyFbk(){if(!fbkCtx)return;saveState();const lines=$('fbkTA').value.split('\n');
   let n=0,bad=0;const N=Math.min(lines.length,fbkCtx.pts.length);
   for(let k=0;k<N;k++){const p=fbkCtx.pts[k];const before=finalLine(p);
     if(lines[k].trim()===before.trim())continue;
@@ -814,6 +871,7 @@ function applyFbk(){if(!fbkCtx)return;const lines=$('fbkTA').value.split('\n');
   buildLinework();draw();const f=getFig(fbkCtx.id);if(f)inspectFig(f);flagDirty();closeFbk();}
 function closeFbk(){$('fscrim').classList.remove('show');fbkCtx=null;}
 function moveTo(p,E,N){const S=PTS.find(c=>c.kind==='ctrl'&&c.id===p.stn);if(!S)return;
+  saveState();
   const hd=Math.hypot(N-S.N,E-S.E),az=(Math.atan2(E-S.E,N-S.N)*180/Math.PI+360)%360;
   const newHa=((az-p.ori)%360+360)%360,newSd=hd/Math.sin(p.za*Math.PI/180);
   logEdit('mv',`pt ${p.id} line ${p.srcLine+1}: HA ${deg2dms(p.ha)}→${deg2dms(newHa)}, SD ${p.sd.toFixed(3)}→${newSd.toFixed(3)}`);
@@ -834,6 +892,19 @@ function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Bool
   return toks.some(t=>t.toUpperCase()===code)?desc:(desc?desc+' ':'')+code;}   // ensure the line carries the figure code
 function lineWithDesc(p,d){const ln=finalLine(p);if(ln===undefined)return ln;
   return /"([^"]*)"/.test(ln)?ln.replace(/"([^"]*)"/,`"${d}"`):ln+' "'+d+'"';}
+function expandDescForExport(desc){
+  let expanded=desc;
+  const db_boc=CURB_BOC, db_fl=CURB_FL;
+  let db=null;
+  if(/\bRBCB\d*\b/.test(expanded))db=db_boc;
+  else if(/\bRCFL\d*\b/.test(expanded))db=db_fl;
+  if(db){
+    Object.keys(db).sort((a,b)=>b.length-a.length).forEach(c=>{
+      const re=new RegExp('\\b'+c.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b');
+      if(re.test(expanded))expanded=expanded.replace(re,db[c]);});
+  }
+  return expanded;
+}
 function exportFBK(){
   const editedContent={};          // lineIdx -> replacement string
   const deletedAfter=new Set();     // lineIdx -> append a Deleted marker
@@ -842,7 +913,10 @@ function exportFBK(){
   const stamp=new Date().toLocaleString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true})+' '+new Date().toLocaleDateString('en-US');
   // 1. point edits (desc / HA / SD) and deletions
   PTS.filter(p=>p.kind==='shot'&&p.edited).forEach(p=>{
-    editedContent[p.srcLine]=finalLine(p);if(p.deleted)deletedAfter.add(p.srcLine);});
+    let line=finalLine(p);
+    const match=line.match(/^(.*?)"([^"]*)"$/);
+    if(match){const expandedDesc=expandDescForExport(match[2]);line=match[1]+'"'+expandedDesc+'"';}
+    editedContent[p.srcLine]=line;if(p.deleted)deletedAfter.add(p.srcLine);});
   // 2. reorders (natural vertices only — added points handled in 2b)
   const permuted=[], nezed=[], shared=new Set();
   for(const id in figOrder){const f=getFig(id);if(!f)continue;
@@ -857,7 +931,8 @@ function exportFBK(){
       verts.forEach(p=>{
         if(figuresOfPoint(PTS.indexOf(p)).length>1)shared.add(p.id);
         if(!nezDone.has(p.id)){nezDone.add(p.id);
-          block.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${p.desc}"`);}
+          const expandedDesc=expandDescForExport(p.desc);
+          block.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${expandedDesc}"`);}
         deletedAfter.add(p.srcLine);               // archive original VA, exclude from processing
       });
       (nezBefore[slots[0]]=nezBefore[slots[0]]||[]).push(...block);
@@ -1006,6 +1081,8 @@ $('zIn').onclick=()=>zoomBy(1.25);
 $('zOut').onclick=()=>zoomBy(1/1.25);
 $('fitBtn').onclick=fit;
 $('dlBtn').onclick=exportFBK;
+$('undoBtn').onclick=performUndo;
+$('redoBtn').onclick=performRedo;
 $('gotoBtn').onclick=openGoto;
 $('gotoGo').onclick=gotoPoint;
 $('gotoCancel').onclick=closeGoto;
@@ -1021,7 +1098,11 @@ $('fbkTA').addEventListener('keydown',e=>{if(e.key==='Escape')closeFbk();
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
-window.addEventListener('keydown',e=>{if($('scrim').classList.contains('show'))return;
+window.addEventListener('keydown',e=>{
+  // undo/redo shortcuts
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
+  if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
+  if($('scrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
