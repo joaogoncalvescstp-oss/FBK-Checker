@@ -162,7 +162,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <h3>Edits <span class="n" id="logn">0</span></h3>
         <div class="logscroll" id="logbox"></div>
       </div>
-      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>H/V</b> draw the offset reveal line. RWLK1/2/3 are separate figures.</div>
+      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> draw the offset reveal line. RWLK1/2/3 are separate figures.</div>
     </div>
   </div>
 </div>
@@ -262,7 +262,8 @@ function parseDesc(desc){const map={};let cur=null;
     else if(T==='BC'||T==='PC'){if(cur)map[cur].bc=true;}
     else if(T==='EC'||T==='PT'){if(cur)map[cur].ec=true;}
     else if(T==='OC'||T==='POC'){if(cur)map[cur].oc=true;}   // point on curve (tangent fit)
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,h:null,v:null};cur=T;}
+    else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,h:null,v:null};cur=T;}
   });return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
@@ -275,7 +276,7 @@ function figures(){const figs=[];
     CODES[code].forEach(({i,f})=>{
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
       if(!run)return;                                   // no B yet → not a line
-      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,h:f.h,v:f.v});
+      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,h:f.h,v:f.v});
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
@@ -285,6 +286,7 @@ function figures(){const figs=[];
     if(ord){const byi=new Map(r.verts.map(v=>[v.i,v]));const nv=[];
       ord.forEach(i=>{if(byi.has(i)){nv.push(byi.get(i));byi.delete(i);}});
       byi.forEach(v=>nv.push(v));r.verts=nv;}
+    r.circle=r.code==='CIR'||r.verts.some(v=>v.cir);
     return r;});}
 function getFig(id){return figures().find(f=>f.id===id);}
 function figuresOfPoint(i){return figures().filter(f=>f.verts.some(v=>v.i===i));}
@@ -337,6 +339,12 @@ function sampleCurve(span){            // arc for 3-pt returns (exact), spline t
   if(span.length<2)return null;if(span.length===2)return [span[1]];
   if(span.length===3)return sampleArc(span[0],span[1],span[2]);
   return sampleSpline(span);}
+function circle3(p1,p2,p3){          // circumcircle through 3 pts → {E,N,Z,r}
+  const ax=p1.E,ay=p1.N,bx=p2.E,by=p2.N,cx=p3.E,cy=p3.N;
+  const d=2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));if(Math.abs(d)<1e-9)return null;
+  const ux=((ax*ax+ay*ay)*(by-cy)+(bx*bx+by*by)*(cy-ay)+(cx*cx+cy*cy)*(ay-by))/d;
+  const uy=((ax*ax+ay*ay)*(cx-bx)+(bx*bx+by*by)*(ax-cx)+(cx*cx+cy*cy)*(bx-ax))/d;
+  return {E:ux,N:uy,Z:(p1.Z+p2.Z+p3.Z)/3,r:Math.hypot(ax-ux,ay-uy)};}
 function unit(x,y){const l=Math.hypot(x,y)||1;return {E:x/l,N:y/l};}
 function lineIntersect(P,d,Q,e){const den=d.E*e.N-d.N*e.E;if(Math.abs(den)<1e-9)return null;
   const t=((Q.E-P.E)*e.N-(Q.N-P.N)*e.E)/den;return {E:P.E+d.E*t,N:P.N+d.N*t};}
@@ -368,7 +376,12 @@ function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, th
   return arcSamplesCenter(c,T1,T2,OC,B.Z,C.Z);}
 function strokeFigure(f,proj,color){
   const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc};}).filter(Boolean);
-  if(vs.length<2)return;ctx.beginPath();let started=false;
+  if(vs.length<2)return;
+  if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
+    ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
+      s?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]);}
+    ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();return;}}
+  ctx.beginPath();let started=false;
   const put=(E,N,Z)=>{const s=proj(E,N,Z);started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);};
   let k=0;
   while(k<vs.length){const v=vs[k];
@@ -494,7 +507,7 @@ function arrowHead(x1,y1,x2,y2,col){
   ctx.lineTo(mx-s*0.7*Math.cos(ang+0.5),my-s*0.7*Math.sin(ang+0.5));
   ctx.closePath();ctx.fill();}
 function drawArrows(proj){
-  figures().forEach(f=>{const vs=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
+  figures().forEach(f=>{if(f.circle)return;const vs=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
     const seq=(f.closed&&vs.length>1)?vs.concat([vs[0]]):vs;const col=codeColor(f.code);
     for(let k=0;k<seq.length-1;k++){const A=proj(seq[k].E,seq[k].N,seq[k].Z),B=proj(seq[k+1].E,seq[k+1].N,seq[k+1].Z);
       arrowHead(A[0],A[1],B[0],B[1],col);}});}
@@ -679,7 +692,7 @@ function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
   let out=toks;
   if(desc){const d=desc.replace(/^"|"$/g,'');
     const dd=esc(d).split(/\s+/).map(t=>{
-      if(/^(B|E|CLS|CL|BC|EC|PC|PT|OC|POC)$/i.test(t))return `<span class="t-mod">${t}</span>`;
+      if(/^(B|E|CLS|CL|BC|EC|PC|PT|OC|POC|CIR|CIRCLE)$/i.test(t))return `<span class="t-mod">${t}</span>`;
       if(/^[HV]-?[0-9.]+$/i.test(t))return `<span class="t-rev">${t}</span>`;
       return `<span class="t-code">${t}</span>`;}).join(' ');
     out+=' <span class="t-str">"</span>'+dd+'<span class="t-str">"</span>';}
