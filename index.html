@@ -263,8 +263,11 @@ function parseDesc(desc){const map={};let cur=null;
     else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false};cur=T;}
   });return map;}
 function buildLinework(){CODES={};
-  PTS.forEach((p,i)=>{if(p.kind!=='shot'||p.deleted)return;
-    const m=parseDesc(p.desc);for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});}
+  PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
+    const m=parseDesc(p.desc);for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});
+  for(const code in CODES){
+    CODES[code].sort((a,b)=>PTS[a.i].srcLine-PTS[b.i].srcLine);   // connect in file order
+    if(!CODES[code].some(e=>e.f.begin))delete CODES[code];}}      // no B anywhere → not a line
 function figures(){const figs=[];
   for(const code in CODES){let run=null;
     CODES[code].forEach(({i,f})=>{
@@ -481,12 +484,16 @@ function pick(sx,sy){let best=-1,bd=12;PTS.forEach((p,i)=>{if(p.deleted)return;
 function inspect(){const box=$('insp');
   if(sel<0){box.innerHTML='<div class="empty">Click a point to inspect it.</div>';return;}
   const p=PTS[sel];
-  if(p.kind==='ctrl'){box.innerHTML=`<div class="field"><label>Control point</label><input value="${p.desc}" disabled></div>
+  if(p.kind==='ctrl'){const fs=figuresOfPoint(sel);
+    box.innerHTML=`<div class="field"><label>${fs.length?'Coded NEZ point':'Control point'}</label><input value="${p.desc.replace(/"/g,'&quot;')}" disabled></div>
     <div class="kv"><span class="k">Pt</span><span class="v">${p.id}</span></div>
     <div class="kv"><span class="k">N</span><span class="v">${p.N.toFixed(3)}</span></div>
     <div class="kv"><span class="k">E</span><span class="v">${p.E.toFixed(3)}</span></div>
     <div class="kv"><span class="k">Z</span><span class="v">${p.Z.toFixed(3)}</span></div>
-    <div class="warnbox">Published NEZ control — not editable here.</div>`;return;}
+    ${fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:''}
+    <div class="warnbox">${fs.length?'NEZ point with a field code — drawn as linework. Coordinates are published; edit it in the FBK source.':'Published NEZ control — not editable here.'}</div>`;
+    box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
+    return;}
   box.innerHTML=`
     <div class="field"><label>Descriptor / code</label><input id="fDesc" value="${p.desc.replace(/"/g,'&quot;')}" ${is3D?'disabled':''}></div>
     <div class="kv"><span class="k">Pt #</span><span class="v">${p.id} · ${p.face}</span></div>
