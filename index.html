@@ -410,6 +410,18 @@ function removeExtra(figId,idx){const e=figExtra[figId];if(!e)return;
   figExtra[figId]=e.filter(x=>x.i!==idx);if(!figExtra[figId].length)delete figExtra[figId];
   logEdit('code',`remove added pt ${PTS[idx]?PTS[idx].id:idx} from figure`);
   draw();inspectFig(getFig(figId));flagDirty();}
+function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
+  const f=getFig(figId);if(!f)return;
+  const p1=PTS[ptIdx1],p2=PTS[ptIdx2];if(!p1||!p2)return;
+  const newE=p1.E+(p2.E-p1.E)*t,newN=p1.N+(p2.N-p1.N)*t,newZ=p1.Z+(p2.Z-p1.Z)*t;
+  const newId='INS_'+Date.now();
+  const newPt={id:newId,code:'PT',desc:'inserted',N:newN,E:newE,Z:newZ,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
+  PTS.push(newPt);const newIdx=PTS.length-1;
+  (figExtra[figId]=figExtra[figId]||[]).push({i:newIdx,after:ptIdx1});
+  logEdit('code',`inserted pt ${newId} on ${f.code} between ${p1.id} and ${p2.id}`);
+  logEdit('code',`NEZ ${newId} ${newN.toFixed(3)} ${newE.toFixed(3)} ${newZ.toFixed(3)} "inserted point"`);
+  selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();}
+
 function drawSelFig(){if(!selFig)return;const f=getFig(selFig);if(!f)return;
   const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
   ctx.lineWidth=3.5;strokeFigure(f,proj,'rgba(241,180,52,.95)');
@@ -775,6 +787,22 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     </div>
     ${is3D?'':`<button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>`}
     ${adding?`<div class="warnbox">${addPt.anchor<0?'Click a point <b>already on this line</b> (the insert anchor).':'Now click the <b>existing point</b> to add — it drops in right after the anchor.'}</div>`:''}
+    <div class="field" style="margin-top:10px"><label>Insert new point</label>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <select id="insertFrom" style="flex:1;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:6px;font:12px var(--mono)">
+          ${vs.map((o,k)=>`<option value="${k}">Pt ${k+1} (${o.p.id})</option>`).join('')}
+        </select>
+        <select id="insertTo" style="flex:1;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:6px;font:12px var(--mono)">
+          ${vs.map((o,k)=>`<option value="${k}" ${k===1?'selected':''}>${k+1}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
+        <label style="font-size:10px;color:var(--mut)">Position:</label>
+        <input id="insertPos" type="range" min="0" max="100" value="50" style="flex:1;accent-color:var(--gold)">
+        <span id="insertPosLabel" style="font-size:11px;color:var(--ink);min-width:30px">0.50</span>
+      </div>
+      <button class="btn gold" id="insertBtn" style="width:100%;margin-top:6px">⊕ Insert point</button>
+    </div>
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
     <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.</div>
     <div class="vlist">${rows}</div>`;
@@ -786,6 +814,18 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
   $('resetBtn').onclick=()=>{saveState();delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
+  if($('insertPos')){
+    const updateLabel=()=>{const t=$('insertPos').value/100;$('insertPosLabel').textContent=t.toFixed(2);};
+    $('insertPos').oninput=updateLabel;
+    $('insertBtn').onclick=()=>{
+      const from=+$('insertFrom').value,to=+$('insertTo').value;
+      if(from===to){hud('select different points');return;}
+      const p1=vs[Math.min(from,to)],p2=vs[Math.max(from,to)];
+      const t=$('insertPos').value/100;
+      insertPointOnLine(f.id,p1.i,p2.i,t);
+    };
+    updateLabel();
+  }
 }
 function inspectInverse(){const box=$('insp');
   if(inv.a<0){box.innerHTML='<div class="empty"><b>Inverse</b><br><br>Click the <b>first</b> point.</div>';return;}
