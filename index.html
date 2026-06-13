@@ -215,6 +215,8 @@ let view={x:0,y:0,s:1};                                  // 2D world->screen
 let orbit={az:0.6,el:1.0,s:1,ox:0,oy:0,ve:3,cx:0,cy:0,cz:0}; // 3D
 let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
 let figOrder={};                                          // figId -> [ptIdx,...] override
+let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
+let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
@@ -327,6 +329,12 @@ function figures(){const figs=[];
     if(ord){const byi=new Map(r.verts.map(v=>[v.i,v]));const nv=[];
       ord.forEach(i=>{if(byi.has(i)){nv.push(byi.get(i));byi.delete(i);}});
       byi.forEach(v=>nv.push(v));r.verts=nv;}
+    const extra=figExtra[r.id];                          // pull in existing points, placed after their anchor
+    if(extra)extra.forEach(x=>{
+      if(r.verts.some(v=>v.i===x.i)||!PTS[x.i]||PTS[x.i].deleted)return;
+      const nv={i:x.i,bc:false,ec:false,oc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null,added:true};
+      const ai=r.verts.findIndex(v=>v.i===x.after);
+      if(ai<0)r.verts.push(nv);else r.verts.splice(ai+1,0,nv);});
     r.circle=r.code==='CIR'||r.verts.some(v=>v.cir);
     return r;});}
 function getFig(id){return figures().find(f=>f.id===id);}
@@ -349,6 +357,17 @@ function reorderFig(id,from,to){const f=getFig(id);if(!f)return;
 function reverseFig(id){const f=getFig(id);if(!f)return;
   figOrder[id]=f.verts.map(v=>v.i).reverse();logEdit('code',`reverse ${f.code}`);
   draw();inspectFig(getFig(id));flagDirty();}
+function addPointToFig(figId,anchorIdx,addIdx){const f=getFig(figId);if(!f)return;
+  if(f.verts.some(v=>v.i===addIdx)){logEdit('code',`pt ${PTS[addIdx].id} already on ${f.code}`);inspectFig(getFig(figId));return;}
+  (figExtra[figId]=figExtra[figId]||[]).push({i:addIdx,after:anchorIdx});
+  const A=PTS[addIdx],anc=PTS[anchorIdx];
+  const cross=A.kind!=='shot'||!anc||anc.kind!=='shot'||A.stn!==anc.stn;   // outside the setup → NEZ on export
+  logEdit('code',`add pt ${A.id} to ${f.code} after pt ${anc?anc.id:'?'}${cross?' (→ NEZ on export)':''}`);
+  selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();}
+function removeExtra(figId,idx){const e=figExtra[figId];if(!e)return;
+  figExtra[figId]=e.filter(x=>x.i!==idx);if(!figExtra[figId].length)delete figExtra[figId];
+  logEdit('code',`remove added pt ${PTS[idx]?PTS[idx].id:idx} from figure`);
+  draw();inspectFig(getFig(figId));flagDirty();}
 function drawSelFig(){if(!selFig)return;const f=getFig(selFig);if(!f)return;
   const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
   ctx.lineWidth=3.5;strokeFigure(f,proj,'rgba(241,180,52,.95)');
@@ -664,21 +683,25 @@ function inspect(){const box=$('insp');
     $('delBtn').onclick=()=>toggleDel(p);}
 }
 function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="empty">Figure not found.</div>';return;}
-  const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec})).filter(o=>!o.p.deleted);
+  const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added})).filter(o=>o.p&&!o.p.deleted);
   const moved=!!figOrder[f.id];
+  const adding=addPt&&addPt.figId===f.id;
   let rows='';
   vs.forEach((o,k)=>{
     const shared=figuresOfPoint(o.i).filter(g=>g.id!==f.id).map(g=>g.code);
     const arc=o.bc?' <span class="arc">BC</span>':o.ec?' <span class="arc">EC</span>':'';
+    const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`:'';
+    const anc=adding&&addPt.anchor===o.i?' <span class="arc" style="background:#1c2a3a;color:#7fb3ff">ANCHOR</span>':'';
     const raw=(RAW[o.p.srcLine]||'').trim();
     rows+=`<div class="vrow">
       <div class="vhd">
         <span class="ord">${k+1}</span>
-        <span class="vpt">pt ${o.p.id}${arc}</span>
+        <span class="vpt">pt ${o.p.id}${arc}${tag}${anc}</span>
         <span class="vln">L${o.p.srcLine+1}</span>
         <span class="vbtns">
-          <button class="vb" data-act="up" data-k="${k}" ${k===0?'disabled':''}>▲</button>
-          <button class="vb" data-act="dn" data-k="${k}" ${k===vs.length-1?'disabled':''}>▼</button>
+          ${o.added?`<button class="vb" data-act="rm" data-i="${o.i}" title="remove from line">✕</button>`:
+            `<button class="vb" data-act="up" data-k="${k}" ${k===0?'disabled':''}>▲</button>
+          <button class="vb" data-act="dn" data-k="${k}" ${k===vs.length-1?'disabled':''}>▼</button>`}
         </span>
       </div>
       <div class="fbk">${raw.replace(/</g,'&lt;')}</div>
@@ -692,13 +715,18 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
       <button class="btn" id="revBtn">⇄ Reverse</button>
       <button class="btn" id="resetBtn" ${moved?'':'disabled'}>↺ Reset order</button>
     </div>
+    ${is3D?'':`<button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>`}
+    ${adding?`<div class="warnbox">${addPt.anchor<0?'Click a point <b>already on this line</b> (the insert anchor).':'Now click the <b>existing point</b> to add — it drops in right after the anchor.'}</div>`:''}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
-    <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted.</div>
+    <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.</div>
     <div class="vlist">${rows}</div>`;
-  box.querySelectorAll('.vb').forEach(b=>b.onclick=()=>{const k=+b.dataset.k;
-    if(b.dataset.act==='up')reorderFig(f.id,k,k-1);else reorderFig(f.id,k,k+1);});
+  box.querySelectorAll('.vb').forEach(b=>b.onclick=()=>{
+    if(b.dataset.act==='rm'){removeExtra(f.id,+b.dataset.i);return;}
+    const k=+b.dataset.k;if(b.dataset.act==='up')reorderFig(f.id,k,k-1);else reorderFig(f.id,k,k+1);});
   $('revBtn').onclick=()=>reverseFig(f.id);
   $('fbkBtn').onclick=()=>openFbk(f.id);
+  if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
+    hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
   $('resetBtn').onclick=()=>{delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
 }
 function inspectInverse(){const box=$('insp');
@@ -802,6 +830,10 @@ function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
   if(t[1]==='VA'){t[3]=deg2dms(p.ha);t[4]=p.sd.toFixed(3);t[5]=deg2dms(p.za);
     return t.slice(0,6).join(' ')+' "'+p.desc+'"';}
   return ln.replace(/"([^"]*)"/,`"${p.desc}"`);}
+function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Boolean);
+  return toks.some(t=>t.toUpperCase()===code)?desc:(desc?desc+' ':'')+code;}   // ensure the line carries the figure code
+function lineWithDesc(p,d){const ln=finalLine(p);if(ln===undefined)return ln;
+  return /"([^"]*)"/.test(ln)?ln.replace(/"([^"]*)"/,`"${d}"`):ln+' "'+d+'"';}
 function exportFBK(){
   const editedContent={};          // lineIdx -> replacement string
   const deletedAfter=new Set();     // lineIdx -> append a Deleted marker
@@ -811,10 +843,10 @@ function exportFBK(){
   // 1. point edits (desc / HA / SD) and deletions
   PTS.filter(p=>p.kind==='shot'&&p.edited).forEach(p=>{
     editedContent[p.srcLine]=finalLine(p);if(p.deleted)deletedAfter.add(p.srcLine);});
-  // 2. reorders
+  // 2. reorders (natural vertices only — added points handled in 2b)
   const permuted=[], nezed=[], shared=new Set();
   for(const id in figOrder){const f=getFig(id);if(!f)continue;
-    const verts=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);if(verts.length<2)continue;
+    const verts=f.verts.filter(v=>!v.added).map(v=>PTS[v.i]).filter(p=>!p.deleted);if(verts.length<2)continue;
     const slots=verts.map(p=>p.srcLine).slice().sort((a,b)=>a-b);
     let crosses=false;for(let L=slots[0]+1;L<slots[slots.length-1];L++){const s=(RAW[L]||'').trim();
       if(s.startsWith('STN')||s.startsWith('Used last station')){crosses=true;break;}}
@@ -831,6 +863,26 @@ function exportFBK(){
       (nezBefore[slots[0]]=nezBefore[slots[0]]||[]).push(...block);
       nezed.push(f.code+'·'+verts.length);
     }
+  }
+  // 2b. added points — existing pts pulled into a figure, placed in line order
+  for(const id in figExtra){const f=getFig(id);if(!f)continue;
+    const ord=f.verts.filter(v=>PTS[v.i]&&!PTS[v.i].deleted);
+    (figExtra[id]||[]).forEach(x=>{const A=PTS[x.i];if(!A||A.deleted)return;
+      const pos=ord.findIndex(v=>v.i===x.i);if(pos<0)return;
+      const prev=pos>0?PTS[ord[pos-1].i]:null,next=pos<ord.length-1?PTS[ord[pos+1].i]:null;
+      const d=addCodeToDesc(A.desc,f.code);
+      const neighborStn=(prev&&prev.kind==='shot'&&prev.stn)||(next&&next.kind==='shot'&&next.stn)||null;
+      const inOrder=(!prev||prev.srcLine<A.srcLine)&&(!next||A.srcLine<next.srcLine);
+      if(A.kind==='ctrl'){                            // published control: append the code to its existing NEZ (no duplicate id)
+        editedContent[A.srcLine]=lineWithDesc(A,d);permuted.push(f.code+'+'+A.id);
+      }else if(neighborStn&&A.stn===neighborStn&&inOrder){   // same setup, already in file order → just add the code in place
+        editedContent[A.srcLine]=lineWithDesc(A,d);permuted.push(f.code+'+'+A.id);
+      }else{                                          // outside the setup → NEZ record in line position, archive original
+        const anchorLine=next?next.srcLine:(prev?prev.srcLine+1:A.srcLine);
+        (nezBefore[anchorLine]=nezBefore[anchorLine]||[]).push(`NEZ ${A.id} ${A.N.toFixed(3)} ${A.E.toFixed(3)} ${A.Z.toFixed(3)} "${d}"`);
+        deletedAfter.add(A.srcLine);if(figuresOfPoint(x.i).length>1)shared.add(A.id);
+        nezed.push(f.code+'+'+A.id);}
+    });
   }
   // 3. assemble
   const result=[];
@@ -877,6 +929,13 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   if(is3D){drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey};
     const i=pick(sx,sy);if(i>=0){sel=i;selFig=null;inspect();draw();}
     else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}}return;}
+  if(addPt){const i=pick(sx,sy);const f=getFig(addPt.figId);
+    if(i<0||!f){addPt=null;hud('add-point cancelled');if(f)inspectFig(f);draw();return;}
+    if(addPt.anchor<0){
+      if(f.verts.some(v=>v.i===i)){addPt.anchor=i;hud(`anchor pt ${PTS[i].id} — now click the point to add`);}
+      else hud('pick a point already ON the line as the anchor');
+      inspectFig(getFig(addPt.figId));draw();return;}
+    addPointToFig(addPt.figId,addPt.anchor,i);addPt=null;return;}
   if(mode==='pan'){drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
   if(mode==='inv'){const i=pick(sx,sy);
@@ -924,7 +983,7 @@ function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
 function setMode(m){
-  const wasOrbit=is3D;
+  const wasOrbit=is3D;addPt=null;
   if(m==='orbit'){is3D=true;}else{is3D=false;}
   mode=(m==='orbit')?'orbit':m;
   ['Sel','Move','Pan','Zoom','Orbit','Inv'].forEach(x=>$('t'+x).classList.remove('on'));
@@ -961,7 +1020,7 @@ $('fbkTA').addEventListener('keydown',e=>{if(e.key==='Escape')closeFbk();
   if((e.ctrlKey||e.metaKey)&&e.key==='Enter')applyFbk();});
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
-  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
+  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{if($('scrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
