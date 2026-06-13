@@ -120,6 +120,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="fitBtn" disabled>⊡ Fit</button>
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
+    <button class="btn ghost" id="kdBtn" disabled title="Knockdown: for every RBCB point, find the nearest REF point, derive the curb reveal from the Z difference, and apply the knockdown to the last curb code in its description">⚙ Knockdown</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <span id="fruitBadge" style="font-size:24px;margin-left:12px;cursor:pointer;transition:transform 0.2s" title="Push verified!" onclick="rotateFruit()">🍎</span>
   </div>
@@ -331,7 +332,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','dlBtn','gotoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','dlBtn','gotoBtn','kdBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -350,6 +351,53 @@ function expandCurb(desc){
     const re=new RegExp('\\b'+c.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b');
     if(re.test(nd))nd=nd.replace(re,db[c]);});
   return nd;}
+
+/* ---------- knockdown (ported from FieldEdit-Pro) ----------
+   Per-curb-code knockdown height (ft): how far the back of curb sits relative
+   to the curb face. Used to set the final V of the curb cross-section.        */
+const CURB_KD={L612:0.06,R612:0.06,L624:0.12,R624:0.12,LPARK:0.06,RPARK:0.06,L606:0.03,R606:0.03,LD418:0.09,RD418:0.09,L618:0.09,R618:0.09};
+
+/* For each RBCB point: find the nearest REF point (first code token === REF),
+   take v = thisPoint.Z - REF.Z, then rebuild the LAST curb code in the
+   description as an H/V cross-section whose curb-face drop is (v-0.012) and
+   back-of-curb drop is (v-0.012+kd). The curb code token is replaced in place
+   by the literal H/V template, so it draws and exports without re-expansion.  */
+function applyKnockdown(){
+  if(!PTS.length){hud('load an FBK first');return;}
+  const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
+  const refs=PTS.filter(p=>!p.deleted&&/^REF\d*$/.test(refToken(p.desc)));
+  if(!refs.length){hud('no REF point found — need a point coded REF');return;}
+  let applied=0,noCode=0;
+  const changes=[];
+  PTS.forEach(p=>{
+    if(p.deleted||!/\bRBCB\d*\b/.test(p.desc))return;
+    // last curb-DB code token in this description
+    let code=null;
+    p.desc.split(/\s+/).forEach(t=>{const T=t.toUpperCase();if(CURB_BOC[T])code=T;});
+    if(!code){noCode++;return;}
+    // nearest REF by horizontal (N/E) distance
+    let best=null,bd=Infinity;
+    refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd){bd=d;best=r;}});
+    if(!best)return;
+    const v=p.Z-best.Z;                                     // chosen Z direction
+    const kd=CURB_KD[code]||0;
+    const midV=(v-0.012).toFixed(3),lastV=(v-0.012+kd).toFixed(3);
+    let tmpl=CURB_BOC[code].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
+    // replace ONLY the last occurrence of the curb code with the H/V template
+    const re=new RegExp('\\b'+code+'\\b(?![\\s\\S]*\\b'+code+'\\b)');
+    const newDesc=p.desc.replace(re,tmpl);
+    if(newDesc===p.desc)return;
+    changes.push({p,newDesc,code,v,ref:best.id});
+  });
+  if(!changes.length){hud(`no RBCB curb codes to knock down${noCode?` (${noCode} RBCB pt(s) had no curb code)`:''}`);return;}
+  saveState();
+  changes.forEach(({p,newDesc,code,v,ref})=>{
+    logEdit('code',`knockdown pt ${p.id}: ${code} v=${v.toFixed(3)} (REF ${ref})`);
+    p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
+    applied++;});
+  buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
+  hud(`Knockdown applied to ${applied} RBCB pt(s)${noCode?` · ${noCode} skipped (no curb code)`:''}`);
+}
 
 /* ---------- linework (field-to-finish) ----------
    B begins a figure, E ends (open), CLS closes. A code is ONLY a line if it
@@ -1273,6 +1321,7 @@ $('zIn').onclick=()=>zoomBy(1.25);
 $('zOut').onclick=()=>zoomBy(1/1.25);
 $('fitBtn').onclick=fit;
 $('dlBtn').onclick=exportFBK;
+$('kdBtn').onclick=applyKnockdown;
 $('undoBtn').onclick=performUndo;
 $('redoBtn').onclick=performRedo;
 $('gotoBtn').onclick=openGoto;
