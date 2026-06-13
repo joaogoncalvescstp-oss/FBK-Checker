@@ -301,7 +301,8 @@ function parseDesc(desc){const map={};let cur=null,pend=null;
     else if(T==='EC'||T==='PT'){if(cur)map[cur].ec=true;}
     else if(T==='OC'||T==='POC'){if(cur)map[cur].oc=true;}   // point on curve (tangent fit)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,steps:[],rect:null,rt:null,x:null};cur=T;}
+    else if(T==='SO'){if(cur)map[cur].so=true;}          // stop offsets at this point
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null};cur=T;}
   });return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
@@ -314,7 +315,7 @@ function figures(){const figs=[];
     CODES[code].forEach(({i,f})=>{
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
       if(!run)return;                                   // no B yet → not a line
-      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
+      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
@@ -454,6 +455,9 @@ function bounds(){const live=PTS.filter(p=>!p.deleted);
   live.forEach(p=>{b.minN=Math.min(b.minN,p.N);b.maxN=Math.max(b.maxN,p.N);
     b.minE=Math.min(b.minE,p.E);b.maxE=Math.max(b.maxE,p.E);
     b.minZ=Math.min(b.minZ,p.Z);b.maxZ=Math.max(b.maxZ,p.Z);});return b;}
+function refreshOrbitPivot(){if(!is3D)return;const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  const center=P3(orbit.cx,orbit.cy,orbit.cz);
+  orbit.ox=w/2-center[0];orbit.oy=h/2-center[1];}
 function fit(){
   const b=bounds();if(b.minN>b.maxN)return;
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,pad=60;
@@ -572,10 +576,13 @@ function offsetAt(all,k,h,v){
   let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;dE/=L;dN/=L;   // travel dir
   return {E:all[k].E+dN*h,N:all[k].N-dE*h,Z:all[k].Z+v};}               // perp-right by H, up by V
 function drawOffsets(proj){ctx.save();
-  figures().forEach(f=>{const all=[],stepsAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);});
+  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    let active=null;const per=all.map((p,k)=>{if(stepsAt[k])active=stepsAt[k];return k<startK?null:active;});
+    let active=null;const per=all.map((p,k)=>{
+      if(stopAt[k])active=null;                          // SO stops offset persistence
+      else if(stepsAt[k])active=stepsAt[k];
+      return k<startK?null:active;});
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     ctx.strokeStyle='rgba(110,224,166,.4)';ctx.lineWidth=1;ctx.setLineDash([2,3]);   // cross-section ribs
     per.forEach((s,k)=>{if(!s)return;let p0=proj(all[k].E,all[k].N,all[k].Z);
@@ -749,7 +756,7 @@ function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
   let out=toks;
   if(desc){const d=desc.replace(/^"|"$/g,'');
     const dd=esc(d).split(/\s+/).map(t=>{
-      if(/^(B|E|CLS|CL|BC|EC|PC|PT|OC|POC|CIR|CIRCLE)$/i.test(t))return `<span class="t-mod">${t}</span>`;
+      if(/^(B|E|CLS|CL|BC|EC|PC|PT|OC|POC|CIR|CIRCLE|SO)$/i.test(t))return `<span class="t-mod">${t}</span>`;
       if(/^(RECT|RT|X)(-?[0-9.]+)?$/i.test(t))return `<span class="t-mod">${t}</span>`;
       if(/^[HV]-?[0-9.]+$/i.test(t)||/^-?[0-9.]+$/.test(t))return `<span class="t-rev">${t}</span>`;
       return `<span class="t-code">${t}</span>`;}).join(' ');
@@ -854,6 +861,8 @@ let drag=null, zw=null;
 const pointers=new Map(); let pinch=null;
 cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   pointers.set(e.pointerId,{sx,sy});
+  if(e.button===1&&pointers.size===1){                    // middle mouse button pan
+    drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(pointers.size===2){                                   // begin pinch
     drag=null;if(zw){$('zwbox').style.display='none';zw=null;}
     const p=[...pointers.values()];
@@ -895,18 +904,19 @@ function endInteract(e){const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,s
       const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
       view.s=Math.min(w/((E1-E0)||1),h/((N1-N0)||1));
       view.x=w/2-((E0+E1)/2)*view.s;view.y=h/2+((N0+N1)/2)*view.s;draw();}zw=null;}
-  if(drag&&drag.move){const[E,N]=S2W(sx,sy);moveTo(PTS[drag.i],E,N);inspect();}drag=null;}
+  if(drag&&drag.move){const[E,N]=S2W(sx,sy);moveTo(PTS[drag.i],E,N);inspect();}
+  if(drag&&drag.pan&&is3D)refreshOrbitPivot();drag=null;}
 cv.addEventListener('pointerup',e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;
   if(pointers.size===0)endInteract(e);});
 cv.addEventListener('pointercancel',e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;
   if(pointers.size===0){drag=null;if(zw){$('zwbox').style.display='none';zw=null;}}});
 cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   const f=e.deltaY<0?1.12:1/1.12;
-  if(is3D){orbit.s*=f;}else{const[wx,wy]=S2W(sx,sy);view.s*=f;view.x=sx-wx*view.s;view.y=sy+wy*view.s;}draw();},{passive:false});
+  if(is3D){orbit.s*=f;refreshOrbitPivot();}else{const[wx,wy]=S2W(sx,sy);view.s*=f;view.x=sx-wx*view.s;view.y=sy+wy*view.s;}draw();},{passive:false});
 
 /* ---------- zoom buttons ---------- */
 function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
-  if(is3D){orbit.s*=f;}else{const[wx,wy]=S2W(w/2,h/2);view.s*=f;view.x=w/2-wx*view.s;view.y=h/2+wy*view.s;}draw();}
+  if(is3D){orbit.s*=f;refreshOrbitPivot();}else{const[wx,wy]=S2W(w/2,h/2);view.s*=f;view.x=w/2-wx*view.s;view.y=h/2+wy*view.s;}draw();}
 
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
