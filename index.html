@@ -143,6 +143,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <div><i style="background:var(--pt)"></i>shot</div>
         <div><i style="background:var(--gold)"></i>selected</div>
         <div><i style="background:var(--fail)"></i>deleted</div>
+        <div><i style="background:#6ee0a6"></i>H/V offset</div>
       </div>
       <div class="vex" id="vex">
         <span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
@@ -162,7 +163,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <h3>Edits <span class="n" id="logn">0</span></h3>
         <div class="logscroll" id="logbox"></div>
       </div>
-      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> draw the offset reveal line. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
+      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> + a value draw a continuous parallel offset figure (horizontal / vertical), persisting along the run. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
     </div>
   </div>
 </div>
@@ -458,7 +459,7 @@ function draw2D(){
   for(let N=Math.ceil(br[1]/step)*step;N<tl[1];N+=step){const[,y]=W2S(0,N);ctx.moveTo(0,y);ctx.lineTo(w,y);}
   ctx.strokeStyle='#16203a';ctx.stroke();
   ctx.lineWidth=1.6;figures().forEach(f=>strokeFigure(f,(E,N)=>W2S(E,N)));
-  drawReveals((E,N)=>W2S(E,N));
+  drawOffsets((E,N)=>W2S(E,N));
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
   drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();
@@ -475,7 +476,7 @@ function draw3D(){
   ctx.stroke();
   // figures in 3D
   ctx.lineWidth=1.5;figures().forEach(f=>strokeFigure(f,(E,N,Z)=>P3(E,N,Z)));
-  drawReveals((E,N,Z)=>P3(E,N,Z));
+  drawOffsets((E,N,Z)=>P3(E,N,Z));
   if(showArrows)drawArrows((E,N,Z)=>P3(E,N,Z));
   // points painter-sorted by depth, colored by elevation
   const order=PTS.map((p,i)=>({p,i,s:P3(p.E,p.N,p.Z)})).filter(o=>!o.p.deleted)
@@ -529,21 +530,26 @@ function drawArrows(proj){
     for(let k=0;k<seq.length-1;k++){const A=proj(seq[k].E,seq[k].N,seq[k].Z),B=proj(seq[k+1].E,seq[k+1].N,seq[k+1].Z);
       arrowHead(A[0],A[1],B[0],B[1],col);}});}
 
-/* ---------- H/V reveal offset linework ---------- */
-function offsetPt(all,k,h,v){
+/* ---------- H/V line offsets (continuous parallel figure) ----------
+   A horizontal (H) / vertical (V) offset begins a parallel figure at that
+   point and PERSISTS along the run, transitioning when a new value appears,
+   until the figure ends — matching Civil 3D's offset codes.                 */
+function offsetAt(all,k,h,v){
   const a=all[Math.max(0,k-1)],b=all[Math.min(all.length-1,k+1)];
   let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;dE/=L;dN/=L;   // travel dir
-  const H=h||0,V=v||0;                                                  // perp-right = (dN,-dE)
-  return {E:all[k].E+dN*H,N:all[k].N-dE*H,Z:all[k].Z-V};}
-function drawReveals(proj){ctx.save();ctx.strokeStyle='rgba(110,224,166,.75)';ctx.lineWidth=1.2;
+  return {E:all[k].E+dN*h,N:all[k].N-dE*h,Z:all[k].Z+v};}               // perp-right by H, up by V
+function drawOffsets(proj){ctx.save();
   figures().forEach(f=>{const all=[],flags=[];
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);flags.push({h:v.h,v:v.v});});
-    if(!flags.some(fl=>fl.h!=null||fl.v!=null))return;
-    const off=all.map((p,k)=>(flags[k].h!=null||flags[k].v!=null)?offsetPt(all,k,flags[k].h,flags[k].v):null);
-    ctx.setLineDash([3,3]);                                            // reveal step ticks
+    const startK=flags.findIndex(fl=>fl.h!=null||fl.v!=null);if(startK<0)return;
+    let h=0,vv=0;const off=[];                                          // persistent offset state
+    for(let k=0;k<all.length;k++){if(flags[k].h!=null)h=flags[k].h;if(flags[k].v!=null)vv=flags[k].v;
+      off.push(k<startK?null:offsetAt(all,k,h,vv));}
+    ctx.strokeStyle='rgba(110,224,166,.45)';ctx.lineWidth=1;ctx.setLineDash([3,3]);   // width ticks
     off.forEach((o,k)=>{if(!o)return;const a=proj(all[k].E,all[k].N,all[k].Z),b=proj(o.E,o.N,o.Z);
       ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();});
-    ctx.setLineDash([]);ctx.beginPath();let started=false;            // offset face line
+    ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.92)';ctx.lineWidth=1.6;   // parallel line
+    ctx.beginPath();let started=false;
     off.forEach(o=>{if(!o){started=false;return;}const s=proj(o.E,o.N,o.Z);
       started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);});
     ctx.stroke();});
