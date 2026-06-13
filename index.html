@@ -136,7 +136,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="tool" id="tOrbit" title="3D orbit (O)"><span>⟲</span><span class="sub">3D</span></button>
         <button class="tool" id="tInv" title="Inverse — click two points (I)"><span>↔</span><span class="sub">INV</span></button>
         <button class="tool" id="tCircle" title="Draw circle (C)"><span>◯</span><span class="sub">CIR</span></button>
-        <button class="tool" id="tArr" title="Toggle direction arrows (A)" style="margin-top:12px"><span>➤</span><span class="sub">DIR</span></button>
+        <button class="tool" id="tArr" title="Toggle direction arrows (A)"><span>➤</span><span class="sub">DIR</span></button>
+        <button class="tool" id="tMap" title="Toggle GIS map background (M)" style="margin-top:12px"><span>🗺</span><span class="sub">MAP</span></button>
       </div>
       <div class="zbtns">
         <button class="tool" id="zIn" title="Zoom in">＋</button>
@@ -247,6 +248,9 @@ let addPt=null;                                           // add-point flow: {fi
 let insertPt=null;                                        // insert-point flow: {figId}
 let circleTool=null;                                      // circle drawing: {centerPt:idx} or null
 let circles=[];                                           // drawn circles: [{centerIdx, radiusFt}]
+let showMap=false;                                        // GIS map background toggle
+let mapImage=null;                                        // cached map image: {img, extent:{minE,maxE,minN,maxN}}
+let mapLoading=false;                                     // map fetch in progress
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
@@ -456,11 +460,15 @@ function projectPointOnSegment(px,py,x1,y1,x2,y2){
   const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/(len*len)));
   return {t,x:x1+t*dx,y:y1+t*dy};
 }
+function getNextPointNumber(){
+  let maxNum=0;
+  PTS.forEach(p=>{const num=parseInt(p.id);if(!isNaN(num)&&num>maxNum)maxNum=num;});
+  return(maxNum+1).toString();}
 function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   const f=getFig(figId);if(!f)return;
   const p1=PTS[ptIdx1],p2=PTS[ptIdx2];if(!p1||!p2)return;
   const newE=p1.E+(p2.E-p1.E)*t,newN=p1.N+(p2.N-p1.N)*t,newZ=p1.Z+(p2.Z-p1.Z)*t;
-  const newId='INS_'+Date.now();
+  const newId=getNextPointNumber();
   const newPt={id:newId,code:'PT',desc:'inserted',N:newN,E:newE,Z:newZ,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
   PTS.push(newPt);const newIdx=PTS.length-1;
   (figExtra[figId]=figExtra[figId]||[]).push({i:newIdx,after:ptIdx1});
@@ -487,6 +495,21 @@ function drawCircles(proj){ctx.save();
     ctx.fillStyle='#ffd24a';ctx.font='600 10px ui-monospace,monospace';
     ctx.fillText(c.radiusFt.toFixed(1)+'ft',s[0]+radiusPx+4,s[1]-4);});
   ctx.restore();}
+
+function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;
+  const b=bounds();if(!b.minE)return mapLoading=false;
+  const padFrac=0.1;const pad=(b.maxE-b.minE)*padFrac;
+  const minE=b.minE-pad,maxE=b.maxE+pad,minN=b.minN-pad,maxN=b.maxN+pad;
+  const bbox=[minE,minN,maxE,maxN].join(',');const size='1024,1024';
+  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${size}&imageSR=&bboxSR=&f=image&transparentColor=ffffff`;
+  const img=new Image();img.crossOrigin='anonymous';
+  img.onload=()=>{mapImage={img,extent:{minE,maxE,minN,maxN}};mapLoading=false;draw();hud('map loaded');};
+  img.onerror=()=>{mapLoading=false;hud('map load failed');};
+  img.src=url;}
+function drawMapBackground(){if(!showMap||!mapImage)return;ctx.save();
+  const ext=mapImage.extent;
+  const[x0,y0]=W2S(ext.minE,ext.maxN),[x1,y1]=W2S(ext.maxE,ext.minN);
+  ctx.globalAlpha=0.4;ctx.drawImage(mapImage.img,x0,y0,x1-x0,y1-y0);ctx.restore();}
 
 function drawSelFig(){if(!selFig)return;const f=getFig(selFig);if(!f)return;
   const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
@@ -646,6 +669,7 @@ function draw(){is3D?draw3D():draw2D();}
 
 function draw2D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
+  if(showMap&&!mapImage)fetchMapTiles();drawMapBackground();
   const step=niceStep(50/view.s);ctx.lineWidth=1;
   const tl=S2W(0,0),br=S2W(w,h);ctx.beginPath();
   for(let E=Math.ceil(tl[0]/step)*step;E<br[0];E+=step){const[x]=W2S(E,0);ctx.moveTo(x,0);ctx.lineTo(x,h);}
@@ -1191,6 +1215,7 @@ $('tCircle').onclick=()=>{circleTool={centerPt:-1};openCircleTool();};
 $('circleCancel').onclick=closeCircleTool;
 $('circleAdd').onclick=addCircle;
 $('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
+$('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);if(showMap)fetchMapTiles();else mapImage=null;draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
