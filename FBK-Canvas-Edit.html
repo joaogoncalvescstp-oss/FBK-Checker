@@ -39,7 +39,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .tool:hover{color:var(--ink);border-color:var(--gold-dim)}
 .tool.on{background:var(--gold);color:#1b1300;border-color:var(--gold)}
 .tool .sub{font:600 7px/1 var(--mono);letter-spacing:.05em;margin-top:1px}
-.zbtns{position:absolute;left:12px;top:228px;display:flex;flex-direction:column;gap:6px}
+.zbtns{position:absolute;left:12px;top:350px;display:flex;flex-direction:column;gap:6px}
 .legend{position:absolute;right:12px;top:12px;background:rgba(7,11,22,.72);border:1px solid var(--rule);border-radius:8px;padding:9px 11px;font:600 11px var(--mono);color:var(--mut);display:grid;gap:5px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:-1px}
 .vex{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:none;align-items:center;gap:10px;background:rgba(7,11,22,.82);border:1px solid var(--rule);border-radius:8px;padding:7px 13px;font:600 11px var(--mono);color:var(--mut)}
@@ -131,6 +131,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="tool" id="tPan" title="Pan (space-drag)"><span>✋</span><span class="sub">PAN</span></button>
         <button class="tool" id="tZoom" title="Zoom window (Z)"><span>⊕</span><span class="sub">WIN</span></button>
         <button class="tool" id="tOrbit" title="3D orbit (O)"><span>⟲</span><span class="sub">3D</span></button>
+        <button class="tool" id="tInv" title="Inverse — click two points (I)"><span>↔</span><span class="sub">INV</span></button>
+        <button class="tool" id="tArr" title="Toggle direction arrows (A)" style="margin-top:12px"><span>➤</span><span class="sub">DIR</span></button>
       </div>
       <div class="zbtns">
         <button class="tool" id="zIn" title="Zoom in">＋</button>
@@ -213,6 +215,8 @@ let orbit={az:0.6,el:1.0,s:1,ox:0,oy:0,ve:3,cx:0,cy:0,cz:0}; // 3D
 let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
 let figOrder={};                                          // figId -> [ptIdx,...] override
 let flash=null;                                          // {i,t0}
+let showArrows=false;                                     // direction arrows on linework
+let inv={a:-1,b:-1};                                      // inverse: two picked point indices
 
 /* ---------- parse + reduce ---------- */
 function parse(text){
@@ -375,8 +379,9 @@ function draw2D(){
   for(let N=Math.ceil(br[1]/step)*step;N<tl[1];N+=step){const[,y]=W2S(0,N);ctx.moveTo(0,y);ctx.lineTo(w,y);}
   ctx.strokeStyle='#16203a';ctx.stroke();
   ctx.lineWidth=1.6;figures().forEach(f=>strokeFigure(f,(E,N)=>W2S(E,N)));
+  if(showArrows)drawArrows((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawSelFig();drawFlash();
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -390,6 +395,7 @@ function draw3D(){
   ctx.stroke();
   // figures in 3D
   ctx.lineWidth=1.5;figures().forEach(f=>strokeFigure(f,(E,N,Z)=>P3(E,N,Z)));
+  if(showArrows)drawArrows((E,N,Z)=>P3(E,N,Z));
   // points painter-sorted by depth, colored by elevation
   const order=PTS.map((p,i)=>({p,i,s:P3(p.E,p.N,p.Z)})).filter(o=>!o.p.deleted)
     .sort((a,bb)=>a.s[2]-bb.s[2]);
@@ -399,7 +405,7 @@ function draw3D(){
     ctx.fill();if(i===sel){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
       ctx.font='600 10px ui-monospace,monospace';ctx.fillText(p.kind==='ctrl'?p.desc.split(' ')[0]:p.id,x+7,y-6);}});
-  drawGizmo();drawSelFig();drawFlash();
+  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();
 }
 function drawPt(p,i,x,y){
   const r=p.kind==='ctrl'?5:3;
@@ -427,6 +433,42 @@ function drawFlash(){if(!flash)return;const p=PTS[flash.i];if(!p)return;
   const t=dt/1200;ctx.beginPath();ctx.arc(x,y,6+30*(1-t),0,7);
   ctx.strokeStyle=`rgba(241,180,52,${(1-t).toFixed(2)})`;ctx.lineWidth=2;ctx.stroke();
   requestAnimationFrame(draw);}
+/* ---------- direction arrows ---------- */
+function arrowHead(x1,y1,x2,y2,col){
+  const len=Math.hypot(x2-x1,y2-y1);if(len<16)return;       // segment too short
+  const mx=(x1+x2)/2,my=(y1+y2)/2,ang=Math.atan2(y2-y1,x2-x1),s=7;
+  ctx.fillStyle=col;ctx.beginPath();
+  ctx.moveTo(mx+s*Math.cos(ang),my+s*Math.sin(ang));        // tip points along travel
+  ctx.lineTo(mx-s*0.7*Math.cos(ang-0.5),my-s*0.7*Math.sin(ang-0.5));
+  ctx.lineTo(mx-s*0.7*Math.cos(ang+0.5),my-s*0.7*Math.sin(ang+0.5));
+  ctx.closePath();ctx.fill();}
+function drawArrows(proj){
+  figures().forEach(f=>{const vs=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
+    const seq=(f.closed&&vs.length>1)?vs.concat([vs[0]]):vs;const col=codeColor(f.code);
+    for(let k=0;k<seq.length-1;k++){const A=proj(seq[k].E,seq[k].N,seq[k].Z),B=proj(seq[k+1].E,seq[k+1].N,seq[k+1].Z);
+      arrowHead(A[0],A[1],B[0],B[1],col);}});}
+
+/* ---------- inverse (two-point check) ---------- */
+function fmtDMS(deg){let v=((deg%360)+360)%360;let d=Math.floor(v);let mf=(v-d)*60;
+  let m=Math.floor(mf);let s=(mf-m)*60;if(s>=59.95){s=0;m++;}if(m>=60){m=0;d++;}
+  return d+'°'+String(m).padStart(2,'0')+"'"+s.toFixed(1).padStart(4,'0')+'"';}
+function bearing(az){const a=((az%360)+360)%360;
+  if(a<90)return'N '+fmtDMS(a)+' E';if(a<180)return'S '+fmtDMS(180-a)+' E';
+  if(a<270)return'S '+fmtDMS(a-180)+' W';return'N '+fmtDMS(360-a)+' W';}
+function drawInverse(proj){if(inv.a<0||inv.b<0)return;
+  const A=PTS[inv.a],B=PTS[inv.b];if(!A||!B||A.deleted||B.deleted)return;
+  const a=proj(A.E,A.N,A.Z),b=proj(B.E,B.N,B.Z);
+  ctx.save();ctx.setLineDash([6,5]);ctx.lineWidth=2;ctx.strokeStyle='#F1B434';
+  ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);
+  [a,b].forEach(s=>{ctx.beginPath();ctx.arc(s[0],s[1],5,0,7);ctx.strokeStyle='#F1B434';ctx.lineWidth=2;ctx.stroke();});
+  const dN=B.N-A.N,dE=B.E-A.E,hd=Math.hypot(dN,dE);
+  const az=(Math.atan2(dE,dN)*180/Math.PI+360)%360;
+  const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,txt=hd.toFixed(2)+'  '+fmtDMS(az);
+  ctx.font='700 11px ui-monospace,monospace';const tw=ctx.measureText(txt).width;
+  ctx.fillStyle='rgba(7,11,22,.85)';ctx.fillRect(mx-tw/2-5,my-9,tw+10,18);
+  ctx.fillStyle='#ffe9a8';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(txt,mx,my);
+  ctx.textAlign='start';ctx.textBaseline='alphabetic';ctx.restore();}
+
 function niceStep(v){const p=Math.pow(10,Math.floor(Math.log10(v)));const n=v/p;return (n<1.5?1:n<3?2:n<7?5:10)*p;}
 function codeColor(c){let h=0;for(const ch of c)h=(h*31+ch.charCodeAt(0))%360;return `hsl(${h},55%,60%)`;}
 function elevColor(z,b){const t=(z-b.minZ)/((b.maxZ-b.minZ)||1);return `hsl(${(210-150*t)|0},70%,${(45+25*t)|0}%)`;}
@@ -504,6 +546,37 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   $('fbkBtn').onclick=()=>openFbk(f.id);
   $('resetBtn').onclick=()=>{delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
 }
+function inspectInverse(){const box=$('insp');
+  if(inv.a<0){box.innerHTML='<div class="empty"><b>Inverse</b><br><br>Click the <b>first</b> point.</div>';return;}
+  const A=PTS[inv.a];
+  if(inv.b<0){box.innerHTML=`<div class="field"><label>Inverse · from</label><input value="pt ${A.id}" disabled></div>
+    <div class="empty">Now click the <b>second</b> point.</div>`;return;}
+  const B=PTS[inv.b];
+  const dN=B.N-A.N,dE=B.E-A.E,dZ=B.Z-A.Z;
+  const hd=Math.hypot(dN,dE),sd=Math.hypot(hd,dZ);
+  const az=(Math.atan2(dE,dN)*180/Math.PI+360)%360;
+  const grade=hd?(dZ/hd*100):0;
+  const za=Math.atan2(hd,dZ)*180/Math.PI;                 // zenith from up
+  box.innerHTML=`
+    <div class="field"><label>Inverse</label>
+      <div class="fighead"><span class="figname">${A.id}</span>
+        <span class="figmeta">→ ${B.id}</span></div></div>
+    <div class="kv"><span class="k">Bearing</span><span class="v">${bearing(az)}</span></div>
+    <div class="kv"><span class="k">Azimuth</span><span class="v">${fmtDMS(az)}</span></div>
+    <div class="kv"><span class="k">Horiz dist</span><span class="v">${hd.toFixed(3)}</span></div>
+    <div class="kv"><span class="k">Slope dist</span><span class="v">${sd.toFixed(3)}</span></div>
+    <div class="kv"><span class="k">ΔN</span><span class="v">${dN.toFixed(3)}</span></div>
+    <div class="kv"><span class="k">ΔE</span><span class="v">${dE.toFixed(3)}</span></div>
+    <div class="kv"><span class="k">ΔZ</span><span class="v">${dZ.toFixed(3)}</span></div>
+    <div class="kv"><span class="k">Zenith</span><span class="v">${fmtDMS(za)}</span></div>
+    <div class="kv"><span class="k">Grade</span><span class="v">${grade.toFixed(2)}%</span></div>
+    <div class="chgrp">
+      <button class="btn" id="invSwap">⇄ Swap A↔B</button>
+      <button class="btn" id="invClear">↺ Clear</button>
+    </div>
+    <div class="note" style="padding:8px 0 0">Click any point to start a new measurement from it. Distances are in the FBK's coordinate units.</div>`;
+  $('invSwap').onclick=()=>{[inv.a,inv.b]=[inv.b,inv.a];inspectInverse();draw();};
+  $('invClear').onclick=()=>{inv={a:-1,b:-1};inspectInverse();draw();};}
 function applyDesc(p){const v=$('fDesc').value.trim();if(v===p.desc)return;
   logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${v}"`);
   p.desc=v;p.code=(v.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
@@ -648,6 +721,9 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}}return;}
   if(mode==='pan'){drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
+  if(mode==='inv'){const i=pick(sx,sy);
+    if(i>=0){if(inv.a<0||inv.b>=0)inv={a:i,b:-1};else inv.b=i;}else inv={a:-1,b:-1};
+    sel=-1;selFig=null;inspectInverse();draw();return;}
   const i=pick(sx,sy);
   if(i>=0){sel=i;selFig=null;inspect();draw();if(mode==='move'&&PTS[i].kind==='shot')drag={move:true,i};}
   else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}
@@ -692,13 +768,13 @@ function setMode(m){
   const wasOrbit=is3D;
   if(m==='orbit'){is3D=true;}else{is3D=false;}
   mode=(m==='orbit')?'orbit':m;
-  ['Sel','Move','Pan','Zoom','Orbit'].forEach(x=>$('t'+x).classList.remove('on'));
+  ['Sel','Move','Pan','Zoom','Orbit','Inv'].forEach(x=>$('t'+x).classList.remove('on'));
   $('t'+cap(m)).classList.add('on');
   $('vex').classList.toggle('show',is3D);
   $('legend').style.display=is3D?'none':'';
   cv.style.cursor=is3D?'grab':m==='pan'?'grab':m==='zoom'?'zoom-in':m==='move'?'move':'crosshair';
   if(is3D!==wasOrbit)fit();else draw();
-  if(sel>=0)inspect();
+  if(m==='inv')inspectInverse();else if(sel>=0)inspect();
 }
 const cap=s=>s[0].toUpperCase()+s.slice(1);
 $('tSel').onclick=()=>setMode('sel');
@@ -706,6 +782,8 @@ $('tMove').onclick=()=>setMode('move');
 $('tPan').onclick=()=>setMode('pan');
 $('tZoom').onclick=()=>setMode('zoom');
 $('tOrbit').onclick=()=>setMode('orbit');
+$('tInv').onclick=()=>setMode('inv');
+$('tArr').onclick=()=>{showArrows=!showArrows;$('tArr').classList.toggle('on',showArrows);draw();};
 $('zIn').onclick=()=>zoomBy(1.25);
 $('zOut').onclick=()=>zoomBy(1/1.25);
 $('fitBtn').onclick=fit;
@@ -728,7 +806,8 @@ $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new 
 window.addEventListener('keydown',e=>{if($('scrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
-  else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');
+  else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
+  else if(k==='a'){showArrows=!showArrows;$('tArr').classList.toggle('on',showArrows);draw();}
   else if(k==='f'){if(!$('fitBtn').disabled)fit();}
   else if(k==='g'){if(!$('gotoBtn').disabled)openGoto();}});
 window.addEventListener('resize',resize);
