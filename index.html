@@ -162,7 +162,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <h3>Edits <span class="n" id="logn">0</span></h3>
         <div class="logscroll" id="logbox"></div>
       </div>
-      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> draw the offset reveal line. RWLK1/2/3 are separate figures.</div>
+      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> draw the offset reveal line. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
     </div>
   </div>
 </div>
@@ -252,10 +252,15 @@ function parse(text){
 /* ---------- linework (field-to-finish) ----------
    B begins a figure, E ends (open), CLS closes. A code is ONLY a line if it
    gets a B. BC..EC spans render as arcs. H../V.. reveal tokens ignored.       */
-function parseDesc(desc){const map={};let cur=null;
+function parseDesc(desc){const map={};let cur=null,pend=null;
+  const num=t=>/^-?[0-9]+(\.[0-9]+)?$/.test(t);
   desc.split(/\s+/).forEach(tok=>{const T=tok.toUpperCase();if(!T)return;
+    if(pend&&cur&&num(T)){map[cur][pend]=+T;pend=null;return;}   // value for a pending RECT/RT/X
     const hv=T.match(/^([HV])(-?[0-9.]+)$/);             // reveal value, applies to current code
     if(hv){if(cur){if(hv[1]==='H')map[cur].h=+hv[2];else map[cur].v=+hv[2];}return;}
+    const rx=T.match(/^(RECT|RT|X)(-?[0-9.]+)?$/);       // rectangle / right-turn / extend (+value)
+    if(rx&&cur){const key=rx[1]==='RECT'?'rect':rx[1]==='RT'?'rt':'x';
+      if(rx[2]!==undefined&&rx[2]!=='')map[cur][key]=+rx[2];else pend=key;return;}
     if(T==='B'){if(cur)map[cur].begin=true;}
     else if(T==='E'){if(cur)map[cur].end=true;}
     else if(T==='CLS'||T==='CL'){if(cur)map[cur].close=true;}
@@ -263,7 +268,7 @@ function parseDesc(desc){const map={};let cur=null;
     else if(T==='EC'||T==='PT'){if(cur)map[cur].ec=true;}
     else if(T==='OC'||T==='POC'){if(cur)map[cur].oc=true;}   // point on curve (tangent fit)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,h:null,v:null};cur=T;}
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,h:null,v:null,rect:null,rt:null,x:null};cur=T;}
   });return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
@@ -276,7 +281,7 @@ function figures(){const figs=[];
     CODES[code].forEach(({i,f})=>{
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
       if(!run)return;                                   // no B yet → not a line
-      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,h:f.h,v:f.v});
+      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,h:f.h,v:f.v,rect:f.rect,rt:f.rt,x:f.x});
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
@@ -375,7 +380,7 @@ function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, th
   const T1={E:PI.E+u1.E*Tl,N:PI.N+u1.N*Tl},T2={E:PI.E+u2.E*Tl,N:PI.N+u2.N*Tl};
   return arcSamplesCenter(c,T1,T2,OC,B.Z,C.Z);}
 function strokeFigure(f,proj,color){
-  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc};}).filter(Boolean);
+  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,rect:v.rect,rt:v.rt,x:v.x};}).filter(Boolean);
   if(vs.length<2)return;
   if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
     ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
@@ -394,7 +399,19 @@ function strokeFigure(f,proj,color){
       const A=vs[k-2],B=vs[k-1],C=vs[k+1],D=vs[k+2];
       const samp=fitTangentArc(B,unit(B.E-A.E,B.N-A.N),C,unit(D.E-C.E,D.N-C.N),v);
       if(samp){samp.forEach(s=>put(s.E,s.N,s.Z));k++;continue;}}
-    put(v.E,v.N,v.Z);k++;}
+    put(v.E,v.N,v.Z);
+    const prev=k>0?vs[k-1]:null;                          // RECT / RT / X insert computed vertices
+    if(prev&&(v.rect!=null||v.rt!=null||v.x!=null)){
+      const din=unit(v.E-prev.E,v.N-prev.N),pR={E:din.N,N:-din.E};   // travel dir, right-of-travel
+      if(v.rect!=null){const o=v.rect;                    // rectangle off the incoming segment
+        put(v.E+pR.E*o,v.N+pR.N*o,v.Z);put(prev.E+pR.E*o,prev.N+pR.N*o,prev.Z);
+        put(prev.E,prev.N,prev.Z);put(v.E,v.N,v.Z);
+      }else{let cx=v.E,cy=v.N,dir=din;
+        if(v.rt!=null){cx=v.E+pR.E*v.rt;cy=v.N+pR.N*v.rt;put(cx,cy,v.Z);   // right turn (perp offset)
+          dir=unit(pR.E*(v.rt<0?-1:1),pR.N*(v.rt<0?-1:1));}                // new travel = turn dir
+        if(v.x!=null){cx+=dir.E*v.x;cy+=dir.N*v.x;put(cx,cy,v.Z);}}        // extend ahead (or short)
+    }
+    k++;}
   if(f.closed){const s=proj(vs[0].E,vs[0].N,vs[0].Z);ctx.lineTo(s[0],s[1]);}
   ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();}
 
@@ -693,7 +710,8 @@ function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
   if(desc){const d=desc.replace(/^"|"$/g,'');
     const dd=esc(d).split(/\s+/).map(t=>{
       if(/^(B|E|CLS|CL|BC|EC|PC|PT|OC|POC|CIR|CIRCLE)$/i.test(t))return `<span class="t-mod">${t}</span>`;
-      if(/^[HV]-?[0-9.]+$/i.test(t))return `<span class="t-rev">${t}</span>`;
+      if(/^(RECT|RT|X)(-?[0-9.]+)?$/i.test(t))return `<span class="t-mod">${t}</span>`;
+      if(/^[HV]-?[0-9.]+$/i.test(t)||/^-?[0-9.]+$/.test(t))return `<span class="t-rev">${t}</span>`;
       return `<span class="t-code">${t}</span>`;}).join(' ');
     out+=' <span class="t-str">"</span>'+dd+'<span class="t-str">"</span>';}
   return out;}
