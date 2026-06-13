@@ -505,12 +505,13 @@ function strokeFigure(f,proj,color){
             put(outE,outN,outZ);
           });
         }else span.slice(1).forEach(p=>put(p.E,p.N,p.Z));
-        k=j+1;if(v.so)activeSteps=null;continue;}}
+        k=j+1;if(vs[j]&&vs[j].so)activeSteps=null;continue;}}
     if(v.oc&&k>=2&&k<=vs.length-3){                       // tangent arc through the OC point
       const A=vs[k-2],B=vs[k-1],C=vs[k+1],D=vs[k+2];
       const samp=fitTangentArc(B,unit(B.E-A.E,B.N-A.N),C,unit(D.E-C.E,D.N-C.N),v);
       if(samp){samp.forEach(s=>put(s.E,s.N,s.Z));k++;continue;}}
     put(v.E,v.N,v.Z);
+    if(v.so)activeSteps=null;                            // SO stops offset after this point
     const prev=k>0?vs[k-1]:null;                          // RECT / RT / X insert computed vertices
     if(prev&&(v.rect!=null||v.rt!=null||v.x!=null)){
       const din=unit(v.E-prev.E,v.N-prev.N),pR={E:din.N,N:-din.E};   // travel dir, right-of-travel
@@ -658,9 +659,10 @@ function drawOffsets(proj){ctx.save();
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
     let active=null;const per=all.map((p,k)=>{
-      if(stopAt[k])active=null;                          // SO stops offset persistence
-      else if(stepsAt[k])active=stepsAt[k];
-      return k<startK?null:active;});
+      if(stepsAt[k])active=stepsAt[k];
+      const result=k<startK?null:active;
+      if(stopAt[k])active=null;                          // SO stops offset AFTER this point
+      return result;});
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     ctx.strokeStyle='rgba(110,224,166,.4)';ctx.lineWidth=1;ctx.setLineDash([2,3]);   // cross-section ribs
     per.forEach((s,k)=>{if(!s)return;let p0=proj(all[k].E,all[k].N,all[k].Z);
