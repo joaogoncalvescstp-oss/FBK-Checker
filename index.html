@@ -135,6 +135,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="tool" id="tZoom" title="Zoom window (Z)"><span>⊕</span><span class="sub">WIN</span></button>
         <button class="tool" id="tOrbit" title="3D orbit (O)"><span>⟲</span><span class="sub">3D</span></button>
         <button class="tool" id="tInv" title="Inverse — click two points (I)"><span>↔</span><span class="sub">INV</span></button>
+        <button class="tool" id="tCircle" title="Draw circle (C)"><span>◯</span><span class="sub">CIR</span></button>
         <button class="tool" id="tArr" title="Toggle direction arrows (A)" style="margin-top:12px"><span>➤</span><span class="sub">DIR</span></button>
       </div>
       <div class="zbtns">
@@ -200,6 +201,25 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   </div>
 </div>
 
+<!-- draw circle -->
+<div class="scrim" id="circleScrim">
+  <div class="modal">
+    <h4>Draw Circle</h4>
+    <div class="field">
+      <label>Center point</label>
+      <div style="padding:8px;background:var(--panel2);border-radius:6px;color:var(--gold);font-weight:700" id="circlePtLabel">—</div>
+    </div>
+    <div class="field">
+      <label>Radius (feet)</label>
+      <input type="number" id="circleRadius" placeholder="Enter radius" min="0" step="0.1" autocomplete="off">
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="circleCancel">Cancel</button>
+      <button class="btn gold" id="circleAdd">Add circle</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -225,6 +245,8 @@ let figOrder={};                                          // figId -> [ptIdx,...
 let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
+let circleTool=null;                                      // circle drawing: {centerPt:idx} or null
+let circles=[];                                           // drawn circles: [{centerIdx, radiusFt}]
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
@@ -447,6 +469,25 @@ function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   insertPt=null;selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();
 }
 
+function openCircleTool(){circleTool={centerPt:-1};$('circleScrim').classList.add('show');hud('click a point for circle center');}
+function closeCircleTool(){circleTool=null;$('circleScrim').classList.remove('show');}
+function addCircle(){if(!circleTool||circleTool.centerPt<0)return;
+  const r=+$('circleRadius').value;if(!r){hud('enter a radius');return;}
+  circles.push({centerIdx:circleTool.centerPt,radiusFt:r});
+  const p=PTS[circleTool.centerPt];
+  logEdit('code',`circle at pt ${p.id}: radius ${r} ft`);
+  closeCircleTool();draw();hud('circle added');}
+function drawCircles(proj){ctx.save();
+  circles.forEach(c=>{const p=PTS[c.centerIdx];if(!p)return;
+    const s=proj(p.E,p.N,p.Z);
+    const radiusM=c.radiusFt*0.3048;const scale=is3D?orbit.s:view.s;const radiusPx=radiusM*scale;
+    ctx.beginPath();ctx.arc(s[0],s[1],radiusPx,0,7);
+    ctx.strokeStyle='rgba(255,209,74,.6)';ctx.lineWidth=2;ctx.setLineDash([4,4]);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='rgba(255,209,74,.1)';ctx.fill();
+    ctx.fillStyle='#ffd24a';ctx.font='600 10px ui-monospace,monospace';
+    ctx.fillText(c.radiusFt.toFixed(1)+'ft',s[0]+radiusPx+4,s[1]-4);});
+  ctx.restore();}
+
 function drawSelFig(){if(!selFig)return;const f=getFig(selFig);if(!f)return;
   const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
   ctx.lineWidth=3.5;strokeFigure(f,proj,'rgba(241,180,52,.95)');
@@ -613,6 +654,7 @@ function draw2D(){
   ctx.lineWidth=1.6;figures().forEach(f=>strokeFigure(f,(E,N)=>W2S(E,N)));
   drawOffsets((E,N)=>W2S(E,N));
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
+  drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
   drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();
 }
@@ -630,6 +672,7 @@ function draw3D(){
   ctx.lineWidth=1.5;figures().forEach(f=>strokeFigure(f,(E,N,Z)=>P3(E,N,Z)));
   drawOffsets((E,N,Z)=>P3(E,N,Z));
   if(showArrows)drawArrows((E,N,Z)=>P3(E,N,Z));
+  drawCircles((E,N,Z)=>P3(E,N,Z));
   // points painter-sorted by depth, colored by elevation
   const order=PTS.map((p,i)=>({p,i,s:P3(p.E,p.N,p.Z)})).filter(o=>!o.p.deleted)
     .sort((a,bb)=>a.s[2]-bb.s[2]);
@@ -1057,6 +1100,9 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   if(insertPt){const seg=pickSegmentForInsert(sx,sy);
     if(seg){insertPointOnLine(seg.figId,seg.p1.i===PTS[seg.p1.i]?PTS.indexOf(seg.p1):seg.p1.i,seg.p2.i===PTS[seg.p2.i]?PTS.indexOf(seg.p2):seg.p2.i,seg.t);return;}
     else{hud('click on the line');return;}}
+  if(circleTool){const i=pick(sx,sy);
+    if(i>=0){circleTool.centerPt=i;$('circlePtLabel').textContent=`Center: ${PTS[i].id}`;$('circleRadius').value='';$('circleRadius').focus();hud(`enter radius for circle at ${PTS[i].id}`);}
+    else hud('click a point for circle center');return;}
   if(mode==='pan'){drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
   if(mode==='inv'){const i=pick(sx,sy);
@@ -1141,6 +1187,10 @@ $('fbkTA').addEventListener('input',syncHL);
 $('fbkTA').addEventListener('scroll',()=>{$('fbkHL').scrollTop=$('fbkTA').scrollTop;$('fbkHL').scrollLeft=$('fbkTA').scrollLeft;});
 $('fbkTA').addEventListener('keydown',e=>{if(e.key==='Escape')closeFbk();
   if((e.ctrlKey||e.metaKey)&&e.key==='Enter')applyFbk();});
+$('tCircle').onclick=()=>{circleTool={centerPt:-1};openCircleTool();};
+$('circleCancel').onclick=closeCircleTool;
+$('circleAdd').onclick=addCircle;
+$('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
@@ -1154,7 +1204,8 @@ window.addEventListener('keydown',e=>{
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
   else if(k==='a'){showArrows=!showArrows;$('tArr').classList.toggle('on',showArrows);draw();}
   else if(k==='f'){if(!$('fitBtn').disabled)fit();}
-  else if(k==='g'){if(!$('gotoBtn').disabled)openGoto();}});
+  else if(k==='g'){if(!$('gotoBtn').disabled)openGoto();}
+  else if(k==='c'){circleTool={centerPt:-1};openCircleTool();}});
 window.addEventListener('resize',resize);
 resize();
 </script>
