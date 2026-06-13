@@ -254,6 +254,8 @@ let mapLoading=false;                                     // map fetch in progre
 let mapErr=null;                                          // last map load error message, or null
 let mapUrl='';                                            // last requested map URL (for diagnostics)
 let mapSource='ramsey';                                   // imagery source being attempted: 'ramsey' | 'esri'
+let mapTimer=null;                                        // debounce timer for viewport-driven refetch
+let mapLastKey='';                                        // viewport key last requested (skip duplicate fetches)
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
@@ -525,11 +527,24 @@ function llToSurvey(la,lo){const phi=la*RC.D,lam=lo*RC.D;
 function llToMerc(la,lo){const R=6378137;return [R*lo*RC.D,R*Math.log(Math.tan(Math.PI/4+la*RC.D/2))];}
 function mercToLL(x,y){const R=6378137;return [(2*Math.atan(Math.exp(y/R))-Math.PI/2)/RC.D,(x/R)/RC.D];}
 
-function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;mapErr=null;hud('loading map ('+mapSource+')...');
-  const b=bounds();if(!b.minE||!b.minN||!b.maxE||!b.maxN){mapLoading=false;hud('no bounds');return;}
-  const padE=(b.maxE-b.minE)*0.08,padN=(b.maxN-b.minN)*0.08;
-  const minE=b.minE-padE,maxE=b.maxE+padE,minN=b.minN-padN,maxN=b.maxN+padN;
-  const LONG=1200,px=(bw,bh)=>[bw>=bh?LONG:Math.round(LONG*bw/bh),bh>bw?LONG:Math.round(LONG*bh/bw)];
+// the survey-coordinate rectangle currently visible on screen
+function viewportBounds(){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  const tl=S2W(0,0),br=S2W(w,h);
+  return {minE:Math.min(tl[0],br[0]),maxE:Math.max(tl[0],br[0]),
+          minN:Math.min(tl[1],br[1]),maxN:Math.max(tl[1],br[1]),w,h};}
+function viewKey(v){return [Math.round(v.minE),Math.round(v.minN),Math.round(v.maxE),Math.round(v.maxN)].join(',');}
+// re-fetch imagery for the new viewport shortly after panning/zooming stops
+function scheduleMapRefresh(){if(!showMap||is3D)return;clearTimeout(mapTimer);
+  mapTimer=setTimeout(()=>{const v=viewportBounds();if(viewKey(v)===mapLastKey&&mapImage)return;fetchMapTiles();},350);}
+function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
+  if(!PTS.length){hud('load an FBK first');return;}
+  const v=viewportBounds();mapLastKey=viewKey(v);mapLoading=true;mapErr=null;hud('loading map ('+mapSource+')...');
+  // pad the viewport ~6% so imagery covers the edges
+  const padE=(v.maxE-v.minE)*0.06||10,padN=(v.maxN-v.minN)*0.06||10;
+  const minE=v.minE-padE,maxE=v.maxE+padE,minN=v.minN-padN,maxN=v.maxN+padN;
+  // request at (near) screen resolution for crisp imagery, capped at the service max
+  const CAP=2048,longPx=Math.min(CAP,Math.round(Math.max(v.w,v.h)*devicePixelRatio*1.2));
+  const px=(bw,bh)=>bw>=bh?[longPx,Math.max(1,Math.round(longPx*bh/bw))]:[Math.max(1,Math.round(longPx*bw/bh)),longPx];
   let url,extent;
   if(mapSource==='ramsey'){
     // survey coords already match the county imagery's native SR → pass bbox directly
@@ -730,7 +745,7 @@ function draw(){is3D?draw3D():draw2D();}
 
 function draw2D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
-  if(showMap&&!mapImage)fetchMapTiles();drawMapBackground();
+  if(showMap){if(!mapImage&&!mapLoading)fetchMapTiles();else scheduleMapRefresh();}drawMapBackground();
   const step=niceStep(50/view.s);ctx.lineWidth=1;
   const tl=S2W(0,0),br=S2W(w,h);ctx.beginPath();
   for(let E=Math.ceil(tl[0]/step)*step;E<br[0];E+=step){const[x]=W2S(E,0);ctx.moveTo(x,0);ctx.lineTo(x,h);}
