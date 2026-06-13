@@ -163,7 +163,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <h3>Edits <span class="n" id="logn">0</span></h3>
         <div class="logscroll" id="logbox"></div>
       </div>
-      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> + a value draw a continuous parallel offset figure (horizontal / vertical), persisting along the run. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
+      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a curve through every point; <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> + a value draw parallel offset lines (persist along the run). <b>RBCB</b>/<b>RCFL</b> curb codes (L624, R606…) auto-expand to the curb cross-section from the built-in template DB. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
     </div>
   </div>
 </div>
@@ -260,15 +260,37 @@ function parse(text){
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
 
+/* ---------- curb template database (from FieldEdit-Pro) ----------
+   A curb code expands to a series of H/V cross-section offsets. RBCB shots
+   (rod on back of curb) use the Back-of-Curb DB; RCFL (rod on flow line) use
+   the Flow-Line DB — auto-picked from the marker in the description.          */
+const CURB_BOC={L612:"H0.5 V0.0 H0.67 V-0.5 H1.67 V-0.44",R612:"H-0.5 V0.0 H-0.67 V-0.5 H-1.67 V-0.44",L624:"H0.5 V0.0 H0.67 V-0.5 H2.67 V-0.38",R624:"H-0.5 V0.0 H-0.67 V-0.5 H-2.67 V-0.38",LPARK:"H1 V0.0 H1.17 V-0.5 H2.17 V-0.44",RPARK:"H-1 V0.0 H-1.17 V-0.5 H-2.17 V-0.44",L606:"H0.5 V0.0 H0.67 V-0.5 H1.17 V-0.47",R606:"H-0.5 V0.0 H-0.67 V-0.5 H-1.17 V-0.47",LD418:"H1 V-0.33 H2.5 V-0.24",RD418:"H-1 V-0.33 H-2.5 V-0.24",R618:"H-0.5 V0.0 H-0.67 V-0.5 H-2.18 V-0.41",L618:"H0.5 V0.0 H0.67 V-0.5 H2.18 V-0.41",L812:"H0.5 V0.0 H0.67 V-0.67 H1.67 V-0.61",R812:"H-0.5 V0.0 H-0.67 V-0.67 H-1.67 V-0.61",R818:"H0.5 V0.0 H0.67 V-0.67 H2.18 V-0.58",L818:"H-0.5 V0.0 H-0.67 V-0.67 H-2.18 V-0.58",L824:"H0.5 V0.0 H0.67 V-0.67 H2.67 V-0.55",R824:"H-0.5 V0.0 H-0.67 V-0.67 H-2.67 V-0.55",RD:"H-0.5 V0.0",LD:"H0.5 V0.0",RDPRK:"H-0.5 V0.0",LDPRK:"H0.5 V0.0",L006:"H0.5 V0.0 H0.67 V-0.02 H1.17 V0.01",R006:"H-0.5 V0.0 H-0.67 V-0.02 H-1.17 V0.01",L106:"H0.5 V0.0 H0.67 V-0.08 H1.17 V-0.05",R106:"H-0.5 V0.0 H-0.67 V-0.08 H-1.17 V-0.05",L206:"H0.5 V0.0 H0.67 V-0.17 H1.17 V-0.14",R206:"H-0.5 V0.0 H-0.67 V-0.17 H-1.17 V-0.14",L306:"H0.5 V0.0 H0.67 V-0.25 H1.17 V-0.22",R306:"H-0.5 V0.0 H-0.67 V-0.25 H-1.17 V-0.22",L406:"H0.5 V0.0 H0.67 V-0.33 H1.17 V-0.3",R406:"H-0.5 V0.0 H-0.67 V-0.33 H-1.17 V-0.3",L506:"H0.5 V0.0 H0.67 V-0.42 H1.17 V-0.39",R506:"H-0.5 V0.0 H-0.67 V-0.42 H-1.17 V-0.39",L012:"H0.5 V0.0 H0.67 V-0.02 H1.67 V0.04",R012:"H-0.5 V0.0 H-0.67 V-0.02 H-1.67 V0.04",L112:"H0.5 V0.0 H0.67 V-0.08 H1.67 V-0.02",R112:"H-0.5 V0.0 H-0.67 V-0.08 H-1.67 V-0.02",L212:"H0.5 V0.0 H0.67 V-0.17 H1.67 V-0.11",R212:"H-0.5 V0.0 H-0.67 V-0.17 H-1.67 V-0.11",L312:"H0.5 V0.0 H0.67 V-0.25 H1.67 V-0.19",R312:"H-0.5 V0.0 H-0.67 V-0.25 H-1.67 V-0.19",L412:"H0.5 V0.0 H0.67 V-0.33 H1.67 V-0.27",R412:"H-0.5 V0.0 H-0.67 V-0.33 H-1.67 V-0.27",L512:"H0.5 V0.0 H0.67 V-0.42 H1.67 V-0.36",R512:"H-0.5 V0.0 H-0.67 V-0.42 H-1.67 V-0.36",L018:"H0.5 V0.0 H0.67 V-0.02 H2.18 V0.07",R018:"H-0.5 V0.0 H-0.67 V-0.02 H-2.18 V0.07",L118:"H0.5 V0.0 H0.67 V-0.08 H2.18 V0.01",R118:"H-0.5 V0.0 H-0.67 V-0.08 H-2.18 V0.01",L218:"H0.5 V0.0 H0.67 V-0.17 H2.18 V-0.08",R218:"H-0.5 V0.0 H-0.67 V-0.17 H-2.18 V-0.08",L318:"H0.5 V0.0 H0.67 V-0.25 H2.18 V-0.16",R318:"H-0.5 V0.0 H-0.67 V-0.25 H-2.18 V-0.16",L418:"H0.5 V0.0 H0.67 V-0.33 H2.18 V-0.24",R418:"H-0.5 V0.0 H-0.67 V-0.33 H-2.18 V-0.24",L518:"H0.5 V0.0 H0.67 V-0.42 H2.18 V-0.33",R518:"H-0.5 V0.0 H-0.67 V-0.42 H-2.18 V-0.33",L024:"H0.5 V0.0 H0.67 V-0.02 H2.67 V0.1",R024:"H-0.5 V0.0 H-0.67 V-0.02 H-2.67 V0.1",L124:"H0.5 V0.0 H0.67 V-0.08 H2.67 V0.04",R124:"H-0.5 V0.0 H-0.67 V-0.08 H-2.67 V0.04",L224:"H0.5 V0.0 H0.67 V-0.17 H2.67 V-0.05",R224:"H-0.5 V0.0 H-0.67 V-0.17 H-2.67 V-0.05",L324:"H0.5 V0.0 H0.67 V-0.25 H2.67 V-0.13",R324:"H-0.5 V0.0 H-0.67 V-0.25 H-2.67 V-0.13",L424:"H0.5 V0.0 H0.67 V-0.33 H2.67 V-0.21",R424:"H-0.5 V0.0 H-0.67 V-0.33 H-2.67 V-0.21",L524:"H0.5 V0.0 H0.67 V-0.42 H2.67 V-0.3",R524:"H-0.5 V0.0 H-0.67 V-0.42 H-2.67 V-0.3"};
+const CURB_FL={L612:"H-0.67 V0.5 H-0.17 V0.5 H1 V0.06",R612:"H0.67 V0.5 H0.17 V0.5 H-1 V0.06",L624:"H-0.67 V0.5 H-0.17 V0.5 H2 V0.12",R624:"H0.67 V0.5 H0.17 V0.5 H-2 V0.12",L024:"H-0.67 V0.02 H-0.17 V0.02 H2 V0.12",R024:"H0.67 V0.02 H0.17 V0.02 H-2 V0.12",L124:"H-0.67 V0.08 H-0.17 V0.08 H2 V0.12",R124:"H0.67 V0.08 H0.17 V0.08 H-2 V0.12",L224:"H-0.67 V0.17 H-0.17 V0.17 H2 V0.12",R224:"H0.67 V0.17 H0.17 V0.17 H-2 V0.12",L324:"H-0.67 V0.25 H-0.17 V0.25 H2 V0.12",R324:"H0.67 V0.25 H0.17 V0.25 H-2 V0.12",L424:"H-0.67 V0.33 H-0.17 V0.33 H2 V0.12",R424:"H0.67 V0.33 H0.17 V0.33 H-2 V0.12",L524:"H-0.67 V0.42 H-0.17 V0.42 H2 V0.12",R524:"H0.67 V0.42 H0.17 V0.42 H-2 V0.12",LPARK:"H-1.17 V0.5 H-0.17 V0.5 H1 V0.06",RPARK:"H1.17 V0.5 H0.17 V0.5 H-1 V0.06",L606:"H-0.67 V0.5 H-0.17 V0.5 H0.5 V0.03",R606:"H0.67 V0.5 H0.17 V0.5 H-0.5 V0.03",LD418:"H-1 V0.33 H1.5 V0.09",RD418:"H1 V0.33 H-1.5 V0.09",R618:"H0.67 V0.5 H0.17 V0.5 H-1.51 V0.09",L618:"H-0.67 V0.5 H-0.17 V0.5 H1.51 V0.09",L812:"H-0.67 V0.67 H-0.17 V0.67 H1 V0.06",R812:"H0.67 V0.67 H0.17 V0.67 H-1 V0.06",R818:"H-0.67 V0.67 H-0.17 V0.67 H1.51 V0.09",L818:"H0.67 V0.67 H0.17 V0.67 H-1.51 V0.09",L824:"H-0.67 V0.67 H-0.17 V0.67 H2 V0.12",R824:"H0.67 V0.67 H0.17 V0.67 H-2 V0.12",RD:"H-0.5 V0",LD:"H0.5 V0",RDPRK:"H-0.5 V0",LDPRK:"H0.5 V0",L006:"H-0.67 V0.02 H-0.17 V0.02 H0.5 V0.03",R006:"H0.67 V0.02 H0.17 V0.02 H-0.5 V0.03",L106:"H-0.67 V0.08 H-0.17 V0.08 H0.5 V0.03",R106:"H0.67 V0.08 H0.17 V0.08 H-0.5 V0.03",L206:"H-0.67 V0.17 H-0.17 V0.17 H0.5 V0.03",R206:"H0.67 V0.17 H0.17 V0.17 H-0.5 V0.03",L306:"H-0.67 V0.25 H-0.17 V0.25 H0.5 V0.03",R306:"H0.67 V0.25 H0.17 V0.25 H-0.5 V0.03",L406:"H-0.67 V0.33 H-0.17 V0.33 H0.5 V0.03",R406:"H0.67 V0.33 H0.17 V0.33 H-0.5 V0.03",L506:"H-0.67 V0.42 H-0.17 V0.42 H0.5 V0.03",R506:"H0.67 V0.42 H0.17 V0.42 H-0.5 V0.03",L012:"H-0.67 V0.02 H-0.17 V0.02 H1 V0.06",R012:"H0.67 V0.02 H0.17 V0.02 H-1 V0.06",L112:"H-0.67 V0.08 H-0.17 V0.08 H1 V0.06",R112:"H0.67 V0.08 H0.17 V0.08 H-1 V0.06",L212:"H-0.67 V0.17 H-0.17 V0.17 H1 V0.06",R212:"H0.67 V0.17 H0.17 V0.17 H-1 V0.06",L312:"H-0.67 V0.25 H-0.17 V0.25 H1 V0.06",R312:"H0.67 V0.25 H0.17 V0.25 H-1 V0.06",L412:"H-0.67 V0.33 H-0.17 V0.33 H1 V0.06",R412:"H0.67 V0.33 H0.17 V0.33 H-1 V0.06",L512:"H-0.67 V0.42 H-0.17 V0.42 H1 V0.06",R512:"H0.67 V0.42 H0.17 V0.42 H-1 V0.06",L018:"H-0.67 V0.02 H-0.17 V0.02 H1.51 V0.09",R018:"H0.67 V0.02 H0.17 V0.02 H-1.51 V0.09",L118:"H-0.67 V0.08 H-0.17 V0.08 H1.51 V0.09",R118:"H0.67 V0.08 H0.17 V0.08 H-1.51 V0.09",L218:"H-0.67 V0.17 H-0.17 V0.17 H1.51 V0.09",R218:"H0.67 V0.17 H0.17 V0.17 H-1.51 V0.09",L318:"H-0.67 V0.25 H-0.17 V0.25 H1.51 V0.09",R318:"H0.67 V0.25 H0.17 V0.25 H-1.51 V0.09",L418:"H-0.67 V0.33 H-0.17 V0.33 H1.51 V0.09",R418:"H0.67 V0.33 H0.17 V0.33 H-1.51 V0.09",L518:"H-0.67 V0.42 H-0.17 V0.42 H1.51 V0.09",R518:"H0.67 V0.42 H0.17 V0.42 H-1.51 V0.09"};
+function expandCurb(desc){
+  let db=null;
+  if(/\bRBCB\d*\b/.test(desc))db=CURB_BOC; else if(/\bRCFL\d*\b/.test(desc))db=CURB_FL;
+  if(!db)return desc;let nd=desc;
+  Object.keys(db).sort((a,b)=>b.length-a.length).forEach(c=>{        // longest first: L624 before L6
+    const re=new RegExp('\\b'+c.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b');
+    if(re.test(nd))nd=nd.replace(re,db[c]);});
+  return nd;}
+
 /* ---------- linework (field-to-finish) ----------
    B begins a figure, E ends (open), CLS closes. A code is ONLY a line if it
-   gets a B. BC..EC spans render as arcs. H../V.. reveal tokens ignored.       */
+   gets a B. BC..EC spans render as curves. H/V tokens are cross-section
+   offset steps; curb codes expand to these via the curb DB.                   */
+function addStep(steps,axis,val){
+  if(axis==='H'){steps.push({h:val,v:0,o:true});}
+  else{const l=steps[steps.length-1];if(l&&l.o){l.v=val;l.o=false;}else steps.push({h:0,v:val});}}
 function parseDesc(desc){const map={};let cur=null,pend=null;
-  const num=t=>/^-?[0-9]+(\.[0-9]+)?$/.test(t);
+  const num=t=>/^-?(?:\d+\.?\d*|\.\d+)$/.test(t);        // accepts 5, 5.5, .5, -0.5
   desc.split(/\s+/).forEach(tok=>{const T=tok.toUpperCase();if(!T)return;
-    if(pend&&cur&&num(T)){map[cur][pend]=+T;pend=null;return;}   // value for a pending RECT/RT/X
-    const hv=T.match(/^([HV])(-?[0-9.]+)$/);             // reveal value, applies to current code
-    if(hv){if(cur){if(hv[1]==='H')map[cur].h=+hv[2];else map[cur].v=+hv[2];}return;}
+    if(pend&&cur){                                       // a value was expected
+      if(num(T)){if(pend==='H'||pend==='V')addStep(map[cur].steps,pend,+T);else map[cur][pend]=+T;pend=null;return;}
+      pend=null;}                                        // not a number → abandon, process normally
+    const hv=T.match(/^([HV])(-?[0-9.]+)$/);             // glued offset step e.g. H0.5 / V-0.5
+    if(hv&&cur){addStep(map[cur].steps,hv[1],+hv[2]);return;}
+    if((T==='H'||T==='V')&&cur){pend=T;return;}          // spaced offset e.g. H 0.5
     const rx=T.match(/^(RECT|RT|X)(-?[0-9.]+)?$/);       // rectangle / right-turn / extend (+value)
     if(rx&&cur){const key=rx[1]==='RECT'?'rect':rx[1]==='RT'?'rt':'x';
       if(rx[2]!==undefined&&rx[2]!=='')map[cur][key]=+rx[2];else pend=key;return;}
@@ -279,11 +301,11 @@ function parseDesc(desc){const map={};let cur=null,pend=null;
     else if(T==='EC'||T==='PT'){if(cur)map[cur].ec=true;}
     else if(T==='OC'||T==='POC'){if(cur)map[cur].oc=true;}   // point on curve (tangent fit)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,h:null,v:null,rect:null,rt:null,x:null};cur=T;}
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,steps:[],rect:null,rt:null,x:null};cur=T;}
   });return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
-    const m=parseDesc(p.desc);for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});
+    const m=parseDesc(expandCurb(p.desc));for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});
   for(const code in CODES){
     CODES[code].sort((a,b)=>PTS[a.i].srcLine-PTS[b.i].srcLine);   // connect in file order
     if(!CODES[code].some(e=>e.f.begin))delete CODES[code];}}      // no B anywhere → not a line
@@ -292,7 +314,7 @@ function figures(){const figs=[];
     CODES[code].forEach(({i,f})=>{
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
       if(!run)return;                                   // no B yet → not a line
-      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,h:f.h,v:f.v,rect:f.rect,rt:f.rt,x:f.x});
+      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
@@ -540,29 +562,31 @@ function drawArrows(proj){
     for(let k=0;k<seq.length-1;k++){const A=proj(seq[k].E,seq[k].N,seq[k].Z),B=proj(seq[k+1].E,seq[k+1].N,seq[k+1].Z);
       arrowHead(A[0],A[1],B[0],B[1],col);}});}
 
-/* ---------- H/V line offsets (continuous parallel figure) ----------
-   A horizontal (H) / vertical (V) offset begins a parallel figure at that
-   point and PERSISTS along the run, transitioning when a new value appears,
-   until the figure ends — matching Civil 3D's offset codes.                 */
+/* ---------- H/V offsets + curb cross-section (parallel figures) ----------
+   Each H/V step offsets the shot perpendicular by H (signed, right of travel)
+   and vertical by V. A point can carry several steps (a curb template); each
+   step index draws its own continuous parallel line ("lane"). Steps PERSIST
+   along the run until a new set appears, matching Civil 3D offset codes.      */
 function offsetAt(all,k,h,v){
   const a=all[Math.max(0,k-1)],b=all[Math.min(all.length-1,k+1)];
   let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;dE/=L;dN/=L;   // travel dir
   return {E:all[k].E+dN*h,N:all[k].N-dE*h,Z:all[k].Z+v};}               // perp-right by H, up by V
 function drawOffsets(proj){ctx.save();
-  figures().forEach(f=>{const all=[],flags=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);flags.push({h:v.h,v:v.v});});
-    const startK=flags.findIndex(fl=>fl.h!=null||fl.v!=null);if(startK<0)return;
-    let h=0,vv=0;const off=[];                                          // persistent offset state
-    for(let k=0;k<all.length;k++){if(flags[k].h!=null)h=flags[k].h;if(flags[k].v!=null)vv=flags[k].v;
-      off.push(k<startK?null:offsetAt(all,k,h,vv));}
-    ctx.strokeStyle='rgba(110,224,166,.45)';ctx.lineWidth=1;ctx.setLineDash([3,3]);   // width ticks
-    off.forEach((o,k)=>{if(!o)return;const a=proj(all[k].E,all[k].N,all[k].Z),b=proj(o.E,o.N,o.Z);
-      ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();});
-    ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.92)';ctx.lineWidth=1.6;   // parallel line
-    ctx.beginPath();let started=false;
-    off.forEach(o=>{if(!o){started=false;return;}const s=proj(o.E,o.N,o.Z);
-      started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);});
-    ctx.stroke();});
+  figures().forEach(f=>{const all=[],stepsAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);});
+    const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
+    let active=null;const per=all.map((p,k)=>{if(stepsAt[k])active=stepsAt[k];return k<startK?null:active;});
+    const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
+    ctx.strokeStyle='rgba(110,224,166,.4)';ctx.lineWidth=1;ctx.setLineDash([2,3]);   // cross-section ribs
+    per.forEach((s,k)=>{if(!s)return;let p0=proj(all[k].E,all[k].N,all[k].Z);
+      ctx.beginPath();ctx.moveTo(p0[0],p0[1]);
+      s.forEach(st=>{const o=offsetAt(all,k,st.h,st.v),sp=proj(o.E,o.N,o.Z);ctx.lineTo(sp[0],sp[1]);});ctx.stroke();});
+    ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.9)';ctx.lineWidth=1.4;     // lane lines
+    for(let L=0;L<lanes;L++){const op=per.map((s,k)=>(s&&L<s.length)?offsetAt(all,k,s[L].h,s[L].v):null);
+      ctx.beginPath();let started=false;
+      op.forEach(o=>{if(!o){started=false;return;}const s=proj(o.E,o.N,o.Z);
+        started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);});
+      ctx.stroke();}});
   ctx.restore();}
 
 /* ---------- inverse (two-point check) ---------- */
