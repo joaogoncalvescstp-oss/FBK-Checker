@@ -498,18 +498,24 @@ function drawCircles(proj){ctx.save();
 
 function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;hud('loading map...');
   const b=bounds();if(!b.minE||!b.minN||!b.maxE||!b.maxN){mapLoading=false;hud('no bounds');return;}
-  const bbox=`${b.minE},${b.minN},${b.maxE},${b.maxN}`;
-  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=512,512&imageSR=26915&bboxSR=26915&f=image`;
-  console.log('Fetching map:',url);
-  fetch(url,{mode:'cors'}).then(r=>{
-    console.log('Response status:',r.status);if(!r.ok)throw new Error('HTTP '+r.status);return r.blob();
-  }).then(blob=>{
-    console.log('Blob size:',blob.size);const url=URL.createObjectURL(blob);const img=new Image();
-    img.onload=()=>{mapImage={img,extent:{minE:b.minE,maxE:b.maxE,minN:b.minN,maxN:b.maxN}};
-      mapLoading=false;draw();hud('map loaded');console.log('Map displayed');};
-    img.onerror=e=>{mapLoading=false;hud('map image error');console.error('Image error:',e);};
-    img.src=url;
-  }).catch(e=>{mapLoading=false;hud('map error: '+e.message);console.error('Map fetch error:',e);});
+  // pad a little so the imagery extends past the linework
+  const padE=(b.maxE-b.minE)*0.08,padN=(b.maxN-b.minN)*0.08;
+  const minE=b.minE-padE,maxE=b.maxE+padE,minN=b.minN-padN,maxN=b.maxN+padN;
+  // request pixels proportional to the bbox so the photo isn't stretched
+  const bw=maxE-minE,bh=maxN-minN,LONG=1200;
+  const pxW=bw>=bh?LONG:Math.round(LONG*bw/bh),pxH=bh>bw?LONG:Math.round(LONG*bh/bw);
+  const bbox=`${minE},${minN},${maxE},${maxN}`;
+  // bboxSR/imageSR omitted on purpose → service uses its OWN native projection,
+  // which matches Ramsey County survey coordinates. f=image returns a raw PNG.
+  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${pxW},${pxH}&format=png&transparent=false&f=image`;
+  console.log('Map URL:',url);
+  // Plain <img> load — NO crossOrigin/fetch, so the browser displays the
+  // cross-origin image (it only blocks reading pixels, which we never do).
+  const img=new Image();
+  img.onload=()=>{mapImage={img,extent:{minE,maxE,minN,maxN}};mapLoading=false;draw();
+    hud('map loaded — if it shows the wrong area, the coordinate system differs');};
+  img.onerror=e=>{mapLoading=false;hud('map load failed — service blocked or offline');console.error('Map image error:',e,url);};
+  img.src=url;
 }
 function drawMapBackground(){if(!showMap||!mapImage)return;ctx.save();
   const ext=mapImage.extent;
