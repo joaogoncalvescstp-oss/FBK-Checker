@@ -240,10 +240,12 @@ function parse(text){
         const S=known[stn.id],B=known[bs];
         if(S&&B){const az=(Math.atan2(B.E-S.E,B.N-S.N)*180/Math.PI+360)%360;ori=(az-circ+360)%360;}else ori=null;}
       else if((t[0]==='F1'||t[0]==='F2')&&t[1]==='VA'&&t.length>=6&&stn){
+        if(!/^[0-9]/.test(t[2])){resolved.add(idx);return;}   // check/temp shots ("CHK IN", "Temp") have a quoted note, no pt # — QA only, not stored points
         if(resolved.has(idx))return;
         if(ori===null)return;const S=known[stn.id];if(!S)return;
         const m=ln.match(/"([^"]*)"/);const desc=m?m[1]:'';
         let ha=dms2deg(+t[3]);const sd=+t[4];let za=dms2deg(+t[5]);
+        if(!isFinite(ha)||!isFinite(sd)||!isFinite(za)){resolved.add(idx);return;}   // malformed numerics — skip rather than poison bounds with NaN
         if(t[0]==='F2'&&za>180){za=360-za;ha=(ha+180)%360;}
         const az=(ori+ha)%360,hd=sd*Math.sin(za*Math.PI/180),vd=sd*Math.cos(za*Math.PI/180);
         const N=S.N+hd*Math.cos(az*Math.PI/180),E=S.E+hd*Math.sin(az*Math.PI/180),Z=S.Z+vd+hi-prism;
@@ -450,7 +452,7 @@ function strokeFigure(f,proj,color){
   ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();}
 
 /* ---------- bounds / fit ---------- */
-function bounds(){const live=PTS.filter(p=>!p.deleted);
+function bounds(shotsOnly){const live=PTS.filter(p=>!p.deleted&&isFinite(p.N)&&isFinite(p.E)&&isFinite(p.Z)&&(!shotsOnly||p.kind==='shot'));
   let b={minN:1e15,maxN:-1e15,minE:1e15,maxE:-1e15,minZ:1e15,maxZ:-1e15};
   live.forEach(p=>{b.minN=Math.min(b.minN,p.N);b.maxN=Math.max(b.maxN,p.N);
     b.minE=Math.min(b.minE,p.E);b.maxE=Math.max(b.maxE,p.E);
@@ -459,7 +461,8 @@ function refreshOrbitPivot(){if(!is3D)return;const w=cv.width/devicePixelRatio,h
   const center=P3(orbit.cx,orbit.cy,orbit.cz);
   orbit.ox=w/2-center[0];orbit.oy=h/2-center[1];}
 function fit(){
-  const b=bounds();if(b.minN>b.maxN)return;
+  let b=bounds(true);if(b.minN>b.maxN)b=bounds(false);   // frame the surveyed topo; distant control monuments stay drawn but don't dwarf the data
+  if(b.minN>b.maxN)return;
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,pad=60;
   if(!is3D){
     const sx=(w-2*pad)/((b.maxE-b.minE)||1),sy=(h-2*pad)/((b.maxN-b.minN)||1);
