@@ -497,14 +497,14 @@ function drawCircles(proj){ctx.save();
   ctx.restore();}
 
 function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;
-  const b=bounds();if(!b.minE)return mapLoading=false;
+  const b=bounds();if(!b.minE){mapLoading=false;hud('no data to display');return;}
   const padFrac=0.1;const pad=(b.maxE-b.minE)*padFrac;
   const minE=b.minE-pad,maxE=b.maxE+pad,minN=b.minN-pad,maxN=b.maxN+pad;
-  const bbox=[minE,minN,maxE,maxN].join(',');const size='1024,1024';
-  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${size}&imageSR=&bboxSR=&f=image&transparentColor=ffffff`;
+  const bbox=[minE,minN,maxE,maxN].join(',');const size='512,512';
+  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${size}&imageSR=26915&bboxSR=26915&f=image`;
   const img=new Image();img.crossOrigin='anonymous';
   img.onload=()=>{mapImage={img,extent:{minE,maxE,minN,maxN}};mapLoading=false;draw();hud('map loaded');};
-  img.onerror=()=>{mapLoading=false;hud('map load failed');};
+  img.onerror=()=>{mapLoading=false;hud('map unavailable (network/CORS)');};
   img.src=url;}
 function drawMapBackground(){if(!showMap||!mapImage)return;ctx.save();
   const ext=mapImage.extent;
