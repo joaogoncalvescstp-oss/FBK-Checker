@@ -451,7 +451,7 @@ function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, th
   const T1={E:PI.E+u1.E*Tl,N:PI.N+u1.N*Tl},T2={E:PI.E+u2.E*Tl,N:PI.N+u2.N*Tl};
   return arcSamplesCenter(c,T1,T2,OC,B.Z,C.Z);}
 function strokeFigure(f,proj,color){
-  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,rect:v.rect,rt:v.rt,x:v.x};}).filter(Boolean);
+  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,so:v.so,rect:v.rect,rt:v.rt,x:v.x,steps:v.steps};}).filter(Boolean);
   if(vs.length<2)return;
   if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
     ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
@@ -459,13 +459,27 @@ function strokeFigure(f,proj,color){
     ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();return;}}
   ctx.beginPath();let started=false;
   const put=(E,N,Z)=>{const s=proj(E,N,Z);started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);};
-  let k=0;
+  let k=0,activeSteps=null;
   while(k<vs.length){const v=vs[k];
+    if(v.steps)activeSteps=v.steps;
     if(v.bc){let j=k+1;while(j<vs.length&&!vs[j].ec)j++;
       if(j<vs.length){const span=vs.slice(k,j+1);put(span[0].E,span[0].N,span[0].Z);
         const samp=sampleCurve(span);
-        if(samp)samp.forEach(s=>put(s.E,s.N,s.Z));else span.slice(1).forEach(p=>put(p.E,p.N,p.Z));
-        k=j+1;continue;}}
+        if(samp){
+          samp.forEach((s,idx)=>{
+            let outE=s.E,outN=s.N,outZ=s.Z;
+            if(activeSteps&&activeSteps.length>0&&idx>0){
+              const st=activeSteps[0];
+              const a=span[Math.min(idx,span.length-1)];
+              const b=span[Math.max(0,idx)];
+              const dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;
+              const dEn=dE/L,dNn=dN/L;
+              outE+=dNn*st.h;outN-=dEn*st.h;outZ+=st.v;
+            }
+            put(outE,outN,outZ);
+          });
+        }else span.slice(1).forEach(p=>put(p.E,p.N,p.Z));
+        k=j+1;if(v.so)activeSteps=null;continue;}}
     if(v.oc&&k>=2&&k<=vs.length-3){                       // tangent arc through the OC point
       const A=vs[k-2],B=vs[k-1],C=vs[k+1],D=vs[k+2];
       const samp=fitTangentArc(B,unit(B.E-A.E,B.N-A.N),C,unit(D.E-C.E,D.N-C.N),v);
