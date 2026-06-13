@@ -251,6 +251,8 @@ let circles=[];                                           // drawn circles: [{ce
 let showMap=false;                                        // GIS map background toggle
 let mapImage=null;                                        // cached map image: {img, extent:{minE,maxE,minN,maxN}}
 let mapLoading=false;                                     // map fetch in progress
+let mapErr=null;                                          // last map load error message, or null
+let mapUrl='';                                            // last requested map URL (for diagnostics)
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
@@ -496,7 +498,7 @@ function drawCircles(proj){ctx.save();
     ctx.fillText(c.radiusFt.toFixed(1)+'ft',s[0]+radiusPx+4,s[1]-4);});
   ctx.restore();}
 
-function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;hud('loading map...');
+function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;mapErr=null;hud('loading map...');
   const b=bounds();if(!b.minE||!b.minN||!b.maxE||!b.maxN){mapLoading=false;hud('no bounds');return;}
   // pad a little so the imagery extends past the linework
   const padE=(b.maxE-b.minE)*0.08,padN=(b.maxN-b.minN)*0.08;
@@ -506,17 +508,28 @@ function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;hud('loa
   const pxW=bw>=bh?LONG:Math.round(LONG*bw/bh),pxH=bh>bw?LONG:Math.round(LONG*bh/bw);
   const bbox=`${minE},${minN},${maxE},${maxN}`;
   // bboxSR/imageSR omitted on purpose → service uses its OWN native projection,
-  // which matches Ramsey County survey coordinates. f=image returns a raw PNG.
-  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${pxW},${pxH}&format=png&transparent=false&f=image`;
-  console.log('Map URL:',url);
+  // which matches the Ramsey County survey coordinates (both NAD83 Ramsey, US ft).
+  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${pxW},${pxH}&format=jpgpng&f=image`;
+  mapUrl=url;console.log('Map request URL:',url);
   // Plain <img> load — NO crossOrigin/fetch, so the browser displays the
   // cross-origin image (it only blocks reading pixels, which we never do).
   const img=new Image();
-  img.onload=()=>{mapImage={img,extent:{minE,maxE,minN,maxN}};mapLoading=false;draw();
-    hud('map loaded — if it shows the wrong area, the coordinate system differs');};
-  img.onerror=e=>{mapLoading=false;hud('map load failed — service blocked or offline');console.error('Map image error:',e,url);};
+  img.onload=()=>{mapImage={img,extent:{minE,maxE,minN,maxN}};mapErr=null;mapLoading=false;draw();
+    hud('map loaded — if the area looks wrong, the coordinate system differs');};
+  img.onerror=e=>{mapLoading=false;mapErr='County server refused the image (likely CORS/referer block).';
+    console.error('Map image error:',e,url);draw();hud('map load failed — see on-screen note');};
   img.src=url;
 }
+function drawMapError(){if(!showMap||!mapErr)return;const w=cv.width/devicePixelRatio;
+  ctx.save();const bw=Math.min(w-24,520),bx=12,by=12;
+  ctx.fillStyle='rgba(42,21,19,.94)';ctx.strokeStyle='#ff5d52';ctx.lineWidth=1;
+  ctx.fillRect(bx,by,bw,58);ctx.strokeRect(bx,by,bw,58);
+  ctx.fillStyle='#ff8a80';ctx.font='700 12px ui-monospace,monospace';
+  ctx.fillText('⚠ MAP LOAD FAILED',bx+10,by+20);
+  ctx.fillStyle='#f3d99a';ctx.font='11px ui-monospace,monospace';
+  ctx.fillText(mapErr,bx+10,by+37);
+  ctx.fillText('Open the URL logged in console (F12) directly to test the server.',bx+10,by+51);
+  ctx.restore();}
 function drawMapBackground(){if(!showMap||!mapImage)return;ctx.save();
   const ext=mapImage.extent;
   const[x0,y0]=W2S(ext.minE,ext.maxN),[x1,y1]=W2S(ext.maxE,ext.minN);
@@ -691,7 +704,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawMapError();
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
