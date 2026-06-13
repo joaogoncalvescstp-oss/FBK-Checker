@@ -253,6 +253,7 @@ let mapImage=null;                                        // cached map image: {
 let mapLoading=false;                                     // map fetch in progress
 let mapErr=null;                                          // last map load error message, or null
 let mapUrl='';                                            // last requested map URL (for diagnostics)
+let mapSource='ramsey';                                   // imagery source being attempted: 'ramsey' | 'esri'
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
@@ -498,26 +499,62 @@ function drawCircles(proj){ctx.save();
     ctx.fillText(c.radiusFt.toFixed(1)+'ft',s[0]+radiusPx+4,s[1]-4);});
   ctx.restore();}
 
-function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;mapErr=null;hud('loading map...');
+/* ---------- Ramsey County LCC <-> WGS84 (exact, calibrated to a known control point) ----------
+   NAD83 Lambert Conformal Conic, county "ground" ellipsoid. Standard parallels 44°53'/45°08',
+   central meridian -93°23', latitude of origin 44°47'28", False E 500000 ft, False N 100000 ft. */
+const RC={};
+(function(){const a=6378418.941,b=6357033.31,D=Math.PI/180;
+  const e=Math.sqrt(1-b*b/(a*a));
+  const dms=(d,mn,s)=>Math.sign(d)*(Math.abs(d)+mn/60+s/3600);
+  const phi1=dms(44,53,0)*D,phi2=dms(45,8,0)*D,lam0=dms(-93,23,0)*D,phi0=dms(44,47,28)*D;
+  const mm=p=>Math.cos(p)/Math.sqrt(1-e*e*Math.sin(p)*Math.sin(p));
+  const tt=p=>Math.tan(Math.PI/4-p/2)/Math.pow((1-e*Math.sin(p))/(1+e*Math.sin(p)),e/2);
+  const n=(Math.log(mm(phi1))-Math.log(mm(phi2)))/(Math.log(tt(phi1))-Math.log(tt(phi2)));
+  const F=mm(phi1)/(n*Math.pow(tt(phi1),n)),rho0=a*F*Math.pow(tt(phi0),n);
+  Object.assign(RC,{a,e,D,lam0,n,F,rho0,t:tt,FT:0.3048006096012,FE:500000,FN:100000});})();
+function surveyToLL(Eft,Nft){const x=(Eft-RC.FE)*RC.FT,y=(Nft-RC.FN)*RC.FT;
+  const rp=Math.sign(RC.n)*Math.sqrt(x*x+(RC.rho0-y)*(RC.rho0-y));
+  const tp=Math.pow(rp/(RC.a*RC.F),1/RC.n),th=Math.atan2(x,RC.rho0-y);
+  const lam=th/RC.n+RC.lam0;let phi=Math.PI/2-2*Math.atan(tp);
+  for(let i=0;i<8;i++){const es=RC.e*Math.sin(phi);phi=Math.PI/2-2*Math.atan(tp*Math.pow((1-es)/(1+es),RC.e/2));}
+  return [phi/RC.D,lam/RC.D];}
+function llToSurvey(la,lo){const phi=la*RC.D,lam=lo*RC.D;
+  const rho=RC.a*RC.F*Math.pow(RC.t(phi),RC.n),th=RC.n*(lam-RC.lam0);
+  const x=rho*Math.sin(th),y=RC.rho0-rho*Math.cos(th);
+  return [RC.FE+x/RC.FT,RC.FN+y/RC.FT];}
+function llToMerc(la,lo){const R=6378137;return [R*lo*RC.D,R*Math.log(Math.tan(Math.PI/4+la*RC.D/2))];}
+function mercToLL(x,y){const R=6378137;return [(2*Math.atan(Math.exp(y/R))-Math.PI/2)/RC.D,(x/R)/RC.D];}
+
+function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;mapErr=null;hud('loading map ('+mapSource+')...');
   const b=bounds();if(!b.minE||!b.minN||!b.maxE||!b.maxN){mapLoading=false;hud('no bounds');return;}
-  // pad a little so the imagery extends past the linework
   const padE=(b.maxE-b.minE)*0.08,padN=(b.maxN-b.minN)*0.08;
   const minE=b.minE-padE,maxE=b.maxE+padE,minN=b.minN-padN,maxN=b.maxN+padN;
-  // request pixels proportional to the bbox so the photo isn't stretched
-  const bw=maxE-minE,bh=maxN-minN,LONG=1200;
-  const pxW=bw>=bh?LONG:Math.round(LONG*bw/bh),pxH=bh>bw?LONG:Math.round(LONG*bh/bw);
-  const bbox=`${minE},${minN},${maxE},${maxN}`;
-  // bboxSR/imageSR omitted on purpose → service uses its OWN native projection,
-  // which matches the Ramsey County survey coordinates (both NAD83 Ramsey, US ft).
-  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${pxW},${pxH}&format=jpgpng&f=image`;
-  mapUrl=url;console.log('Map request URL:',url);
-  // Plain <img> load — NO crossOrigin/fetch, so the browser displays the
-  // cross-origin image (it only blocks reading pixels, which we never do).
+  const LONG=1200,px=(bw,bh)=>[bw>=bh?LONG:Math.round(LONG*bw/bh),bh>bw?LONG:Math.round(LONG*bh/bw)];
+  let url,extent;
+  if(mapSource==='ramsey'){
+    // survey coords already match the county imagery's native SR → pass bbox directly
+    const[pw,ph]=px(maxE-minE,maxN-minN);
+    url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${minE},${minN},${maxE},${maxN}&size=${pw},${ph}&format=jpgpng&f=image`;
+    extent={minE,maxE,minN,maxN};
+  }else{
+    // Esri World Imagery is in Web Mercator → convert survey corners through our calibrated transform
+    const cm=[[minE,minN],[maxE,minN],[maxE,maxN],[minE,maxN]].map(([E,N])=>{const[la,lo]=surveyToLL(E,N);return llToMerc(la,lo);});
+    const mx=cm.map(p=>p[0]),my=cm.map(p=>p[1]);
+    const mxn=Math.min(...mx),mxx=Math.max(...mx),myn=Math.min(...my),myx=Math.max(...my);
+    const[pw,ph]=px(mxx-mxn,myx-myn);
+    url=`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`;
+    // map the requested mercator box back to survey coords so it draws in the right place
+    const sc=[[mxn,myx],[mxx,myx],[mxx,myn],[mxn,myn]].map(([x,y])=>{const[la,lo]=mercToLL(x,y);return llToSurvey(la,lo);});
+    const se=sc.map(p=>p[0]),sn=sc.map(p=>p[1]);
+    extent={minE:Math.min(...se),maxE:Math.max(...se),minN:Math.min(...sn),maxN:Math.max(...sn)};
+  }
+  mapUrl=url;console.log('Map request URL ('+mapSource+'):',url);
+  // Plain <img> load — NO crossOrigin/fetch, so the browser displays the cross-origin image.
   const img=new Image();
-  img.onload=()=>{mapImage={img,extent:{minE,maxE,minN,maxN}};mapErr=null;mapLoading=false;draw();
-    hud('map loaded — if the area looks wrong, the coordinate system differs');};
-  img.onerror=e=>{mapLoading=false;mapErr='County server refused the image (likely CORS/referer block).';
-    console.error('Map image error:',e,url);draw();hud('map load failed — see on-screen note');};
+  img.onload=()=>{mapImage={img,extent};mapErr=null;mapLoading=false;draw();hud('map loaded ('+mapSource+')');};
+  img.onerror=e=>{console.error('Map image error ('+mapSource+'):',e,url);
+    if(mapSource==='ramsey'){mapSource='esri';mapLoading=false;hud('county imagery blocked — falling back to Esri…');fetchMapTiles();return;}
+    mapLoading=false;mapErr='County and Esri imagery both failed (network blocked?).';draw();hud('map load failed — see on-screen note');};
   img.src=url;
 }
 function drawMapError(){if(!showMap||!mapErr)return;const w=cv.width/devicePixelRatio;
@@ -1239,7 +1276,9 @@ $('tCircle').onclick=()=>{circleTool={centerPt:-1};openCircleTool();};
 $('circleCancel').onclick=closeCircleTool;
 $('circleAdd').onclick=addCircle;
 $('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
-$('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);if(showMap)fetchMapTiles();else mapImage=null;draw();};
+$('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
+  if(showMap){mapSource='ramsey';mapImage=null;mapErr=null;fetchMapTiles();}
+  else{mapImage=null;mapErr=null;}draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
