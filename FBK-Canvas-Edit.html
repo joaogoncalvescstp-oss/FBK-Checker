@@ -466,15 +466,15 @@ function strokeFigure(f,proj,color){
       if(j<vs.length){const span=vs.slice(k,j+1);put(span[0].E,span[0].N,span[0].Z);
         const samp=sampleCurve(span);
         if(samp){
+          const full=[span[0],...samp,span[span.length-1]];
           samp.forEach((s,idx)=>{
             let outE=s.E,outN=s.N,outZ=s.Z;
-            if(activeSteps&&activeSteps.length>0&&idx>0){
+            if(activeSteps&&activeSteps.length>0){
               const st=activeSteps[0];
-              const a=span[Math.min(idx,span.length-1)];
-              const b=span[Math.max(0,idx)];
-              const dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;
-              const dEn=dE/L,dNn=dN/L;
-              outE+=dNn*st.h;outN-=dEn*st.h;outZ+=st.v;
+              const prevPt=full[idx],nextPt=full[idx+2];
+              let dE=nextPt.E-prevPt.E,dN=nextPt.N-prevPt.N;const L=Math.hypot(dE,dN)||1;
+              dE/=L;dN/=L;
+              outE+=dN*st.h;outN-=dE*st.h;outZ+=st.v;
             }
             put(outE,outN,outZ);
           });
