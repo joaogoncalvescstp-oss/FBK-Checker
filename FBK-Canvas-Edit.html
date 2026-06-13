@@ -121,6 +121,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
+    <span id="fruitBadge" style="font-size:24px;margin-left:12px;cursor:pointer;transition:transform 0.2s" title="Push verified!" onclick="rotateFruit()">🍎</span>
   </div>
 
   <div class="main">
@@ -203,6 +204,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 "use strict";
 const $ = id => document.getElementById(id);
 const cv = $('cv'), ctx = cv.getContext('2d');
+const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
+function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
+function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';badge.textContent=randomFruit();setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
+window.addEventListener('load',()=>{$('fruitBadge').textContent=randomFruit();});
 
 /* ---------- DMS ---------- */
 function dms2deg(v){const s=Math.abs(v).toFixed(6),[d,fr]=s.split('.');
