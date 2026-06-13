@@ -496,16 +496,22 @@ function drawCircles(proj){ctx.save();
     ctx.fillText(c.radiusFt.toFixed(1)+'ft',s[0]+radiusPx+4,s[1]-4);});
   ctx.restore();}
 
-function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;
-  const b=bounds();if(!b.minE){mapLoading=false;hud('no data to display');return;}
-  const padFrac=0.1;const pad=(b.maxE-b.minE)*padFrac;
-  const minE=b.minE-pad,maxE=b.maxE+pad,minN=b.minN-pad,maxN=b.maxN+pad;
-  const bbox=[minE,minN,maxE,maxN].join(',');const size='512,512';
-  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${size}&imageSR=26915&bboxSR=26915&f=image`;
-  const img=new Image();img.crossOrigin='anonymous';
-  img.onload=()=>{mapImage={img,extent:{minE,maxE,minN,maxN}};mapLoading=false;draw();hud('map loaded');};
-  img.onerror=()=>{mapLoading=false;hud('map unavailable (network/CORS)');};
-  img.src=url;}
+function fetchMapTiles(){if(mapLoading||!showMap)return;mapLoading=true;hud('loading map...');
+  const b=bounds();if(!b.minE){mapLoading=false;hud('no data');return;}
+  const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  const[px0,py0]=W2S(b.minE,b.maxN),[px1,py1]=W2S(b.maxE,b.minN);
+  const mapW=Math.abs(px1-px0),mapH=Math.abs(py1-py0);
+  const bbox=[b.minE,b.minN,b.maxE,b.maxN].join(',');
+  const size=Math.max(mapW,mapH);const s=`${Math.round(size)},${Math.round(size)}`;
+  const url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${bbox}&size=${s}&imageSR=26915&bboxSR=26915&f=image&token=`;
+  fetch(url).then(r=>r.blob()).then(blob=>{
+    const url=URL.createObjectURL(blob);const img=new Image();
+    img.onload=()=>{mapImage={img,extent:{minE:b.minE,maxE:b.maxE,minN:b.minN,maxN:b.maxN}};
+      mapLoading=false;draw();hud('map loaded');};
+    img.onerror=()=>{mapLoading=false;hud('map load failed');};
+    img.src=url;
+  }).catch(e=>{mapLoading=false;hud('map error: '+e.message);console.error('Map fetch:',e);});
+}
 function drawMapBackground(){if(!showMap||!mapImage)return;ctx.save();
   const ext=mapImage.extent;
   const[x0,y0]=W2S(ext.minE,ext.maxN),[x1,y1]=W2S(ext.maxE,ext.minN);
