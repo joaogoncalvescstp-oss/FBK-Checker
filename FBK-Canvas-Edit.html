@@ -336,7 +336,8 @@ function parseDesc(desc){const map={};let cur=null,pend=null;
     else if(T==='EC'||T==='PT'){if(cur)map[cur].ec=true;}
     else if(T==='OC'||T==='POC'){if(cur)map[cur].oc=true;}   // point on curve (tangent fit)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,steps:[],rect:null,rt:null,x:null};cur=T;}
+    else if(T==='SO'){if(cur)map[cur].so=true;}   // SO = stop offset: preserve offset at this point
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null};cur=T;}
   });return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
@@ -349,7 +350,7 @@ function figures(){const figs=[];
     CODES[code].forEach(({i,f})=>{
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
       if(!run)return;                                   // no B yet → not a line
-      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
+      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
