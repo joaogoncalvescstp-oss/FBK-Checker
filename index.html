@@ -224,6 +224,7 @@ let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
 let figOrder={};                                          // figId -> [ptIdx,...] override
 let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
+let insertPt=null;                                        // insert-point flow: {figId}
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
@@ -389,7 +390,25 @@ function pickFig(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
       const d=segDist(sx,sy,A[0],A[1],B[0],B[1]);if(d<bd){bd=d;best=f;}};
     for(let k=0;k<vs.length-1;k++)seg(vs[k],vs[k+1]);
     if(f.closed&&vs.length>1)seg(vs[vs.length-1],vs[0]);});
-  return best;}
+  return best;
+}
+function pickSegmentForInsert(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
+  let best=null,bd=15;
+  if(!insertPt)return null;
+  const f=getFig(insertPt.figId);if(!f)return null;
+  const vs=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
+  for(let k=0;k<vs.length-1;k++){
+    const A=proj(vs[k].E,vs[k].N,vs[k].Z),B=proj(vs[k+1].E,vs[k+1].N,vs[k+1].Z);
+    const proj_info=projectPointOnSegment(sx,sy,A[0],A[1],B[0],B[1]);
+    const d=Math.hypot(proj_info.x-sx,proj_info.y-sy);
+    if(d<bd){bd=d;best={figId:f.id,i1:k,i2:k+1,p1:vs[k],p2:vs[k+1],t:proj_info.t};}}
+  if(f.closed&&vs.length>1){
+    const A=proj(vs[vs.length-1].E,vs[vs.length-1].N,vs[vs.length-1].Z),B=proj(vs[0].E,vs[0].N,vs[0].Z);
+    const proj_info=projectPointOnSegment(sx,sy,A[0],A[1],B[0],B[1]);
+    const d=Math.hypot(proj_info.x-sx,proj_info.y-sy);
+    if(d<bd){best={figId:f.id,i1:vs.length-1,i2:0,p1:vs[vs.length-1],p2:vs[0],t:proj_info.t};}}
+  return best;
+}
 function reorderFig(id,from,to){const f=getFig(id);if(!f)return;
   saveState();
   const order=f.verts.map(v=>v.i);const[m]=order.splice(from,1);order.splice(to,0,m);
@@ -410,6 +429,11 @@ function removeExtra(figId,idx){const e=figExtra[figId];if(!e)return;
   figExtra[figId]=e.filter(x=>x.i!==idx);if(!figExtra[figId].length)delete figExtra[figId];
   logEdit('code',`remove added pt ${PTS[idx]?PTS[idx].id:idx} from figure`);
   draw();inspectFig(getFig(figId));flagDirty();}
+function projectPointOnSegment(px,py,x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1;const len=Math.hypot(dx,dy);if(len<1e-6)return {t:0,x:x1,y:y1};
+  const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/(len*len)));
+  return {t,x:x1+t*dx,y:y1+t*dy};
+}
 function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   const f=getFig(figId);if(!f)return;
   const p1=PTS[ptIdx1],p2=PTS[ptIdx2];if(!p1||!p2)return;
@@ -420,7 +444,8 @@ function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   (figExtra[figId]=figExtra[figId]||[]).push({i:newIdx,after:ptIdx1});
   logEdit('code',`inserted pt ${newId} on ${f.code} between ${p1.id} and ${p2.id}`);
   logEdit('code',`NEZ ${newId} ${newN.toFixed(3)} ${newE.toFixed(3)} ${newZ.toFixed(3)} "inserted point"`);
-  selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();}
+  insertPt=null;selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();
+}
 
 function drawSelFig(){if(!selFig)return;const f=getFig(selFig);if(!f)return;
   const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
@@ -787,22 +812,8 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     </div>
     ${is3D?'':`<button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>`}
     ${adding?`<div class="warnbox">${addPt.anchor<0?'Click a point <b>already on this line</b> (the insert anchor).':'Now click the <b>existing point</b> to add — it drops in right after the anchor.'}</div>`:''}
-    <div class="field" style="margin-top:10px"><label>Insert new point</label>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <select id="insertFrom" style="flex:1;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:6px;font:12px var(--mono)">
-          ${vs.map((o,k)=>`<option value="${k}">Pt ${k+1} (${o.p.id})</option>`).join('')}
-        </select>
-        <select id="insertTo" style="flex:1;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:6px;font:12px var(--mono)">
-          ${vs.map((o,k)=>`<option value="${k}" ${k===1?'selected':''}>${k+1}</option>`).join('')}
-        </select>
-      </div>
-      <div style="display:flex;gap:6px;margin-top:6px;align-items:center">
-        <label style="font-size:10px;color:var(--mut)">Position:</label>
-        <input id="insertPos" type="range" min="0" max="100" value="50" style="flex:1;accent-color:var(--gold)">
-        <span id="insertPosLabel" style="font-size:11px;color:var(--ink);min-width:30px">0.50</span>
-      </div>
-      <button class="btn gold" id="insertBtn" style="width:100%;margin-top:6px">⊕ Insert point</button>
-    </div>
+    ${is3D?'':`<button class="btn ${insertPt?.figId===f.id?'gold':''}" id="insertModeBtn" style="width:100%;justify-content:center;margin-top:7px;margin-bottom:6px">${insertPt?.figId===f.id?'✕ Cancel insert':'⊕ Click line to insert point'}</button>`}
+    ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location.</div>`:''}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
     <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.</div>
     <div class="vlist">${rows}</div>`;
@@ -813,19 +824,9 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   $('fbkBtn').onclick=()=>openFbk(f.id);
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
+  if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};
+    hud(insertPt?.figId===f.id?'click on the line to insert point':'insert cancelled');inspectFig(getFig(f.id));};
   $('resetBtn').onclick=()=>{saveState();delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
-  if($('insertPos')){
-    const updateLabel=()=>{const t=$('insertPos').value/100;$('insertPosLabel').textContent=t.toFixed(2);};
-    $('insertPos').oninput=updateLabel;
-    $('insertBtn').onclick=()=>{
-      const from=+$('insertFrom').value,to=+$('insertTo').value;
-      if(from===to){hud('select different points');return;}
-      const p1=vs[Math.min(from,to)],p2=vs[Math.max(from,to)];
-      const t=$('insertPos').value/100;
-      insertPointOnLine(f.id,p1.i,p2.i,t);
-    };
-    updateLabel();
-  }
 }
 function inspectInverse(){const box=$('insp');
   if(inv.a<0){box.innerHTML='<div class="empty"><b>Inverse</b><br><br>Click the <b>first</b> point.</div>';return;}
@@ -1053,6 +1054,9 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       else hud('pick a point already ON the line as the anchor');
       inspectFig(getFig(addPt.figId));draw();return;}
     addPointToFig(addPt.figId,addPt.anchor,i);addPt=null;return;}
+  if(insertPt){const seg=pickSegmentForInsert(sx,sy);
+    if(seg){insertPointOnLine(seg.figId,seg.p1.i===PTS[seg.p1.i]?PTS.indexOf(seg.p1):seg.p1.i,seg.p2.i===PTS[seg.p2.i]?PTS.indexOf(seg.p2):seg.p2.i,seg.t);return;}
+    else{hud('click on the line');return;}}
   if(mode==='pan'){drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
   if(mode==='inv'){const i=pick(sx,sy);
