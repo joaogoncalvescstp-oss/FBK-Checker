@@ -610,10 +610,10 @@ function offsetAt(all,k,h,v){
   let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;dE/=L;dN/=L;   // travel dir
   return {E:all[k].E+dN*h,N:all[k].N-dE*h,Z:all[k].Z+v};}               // perp-right by H, up by V
 function drawOffsets(proj){ctx.save();
-  figures().forEach(f=>{const all=[],stepsAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);});
+  figures().forEach(f=>{const all=[],stepsAt=[],soAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);soAt.push(v.so||false);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    let active=null;const per=all.map((p,k)=>{if(stepsAt[k])active=stepsAt[k];return k<startK?null:active;});
+    let active=null;const per=all.map((p,k)=>{if(stepsAt[k])active=stepsAt[k];const result=k<startK?null:active;if(soAt[k])active=null;return result;});
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     ctx.strokeStyle='rgba(110,224,166,.4)';ctx.lineWidth=1;ctx.setLineDash([2,3]);   // cross-section ribs
     per.forEach((s,k)=>{if(!s)return;let p0=proj(all[k].E,all[k].N,all[k].Z);
