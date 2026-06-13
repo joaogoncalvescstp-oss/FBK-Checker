@@ -222,27 +222,37 @@ let inv={a:-1,b:-1};                                      // inverse: two picked
 /* ---------- parse + reduce ---------- */
 function parse(text){
   RAW=text.split(/\r?\n/); PTS=[]; const ctrl={};
-  let stn=null,hi=0,ori=null,prism=0;
   RAW.forEach((ln,idx)=>{const t=ln.trim().split(/\s+/);
     if(t[0]==='NEZ'){const m=ln.match(/"([^"]*)"/);
       ctrl[t[1]]={N:+t[2],E:+t[3],Z:+t[4],desc:m?m[1]:''};
       PTS.push({id:t[1],code:'CP',desc:m?m[1]:'',N:+t[2],E:+t[3],Z:+t[4],srcLine:idx,kind:'ctrl',deleted:false});}});
-  RAW.forEach((ln,idx)=>{const t=ln.trim().split(/\s+/);if(!t[0])return;
-    if(t[0]==='STN'){stn={id:t[1]};hi=+t[2];ori=null;}
-    else if(ln.startsWith('Used last station')){}
-    else if(t[0]==='PRISM'&&t.length===2){const p=+t[1];if(!isNaN(p))prism=p;}
-    else if(t[0]==='BS'&&stn){const bs=t[1],circ=t.length>2?dms2deg(+t[2]):0;
-      const S=ctrl[stn.id],B=ctrl[bs];
-      if(S&&B){const az=(Math.atan2(B.E-S.E,B.N-S.N)*180/Math.PI+360)%360;ori=(az-circ+360)%360;}else ori=null;}
-    else if((t[0]==='F1'||t[0]==='F2')&&t[1]==='VA'&&t.length>=6&&stn){
-      const m=ln.match(/"([^"]*)"/);const desc=m?m[1]:'';
-      let ha=dms2deg(+t[3]);const sd=+t[4];let za=dms2deg(+t[5]);
-      if(t[0]==='F2'&&za>180){za=360-za;ha=(ha+180)%360;}
-      if(ori===null)return;const S=ctrl[stn.id];if(!S)return;
-      const az=(ori+ha)%360,hd=sd*Math.sin(za*Math.PI/180),vd=sd*Math.cos(za*Math.PI/180);
-      const N=S.N+hd*Math.cos(az*Math.PI/180),E=S.E+hd*Math.sin(az*Math.PI/180),Z=S.Z+vd+hi-prism;
-      PTS.push({id:t[2],code:(desc.split(/\s+/)[0]||'').toUpperCase(),desc,N,E,Z,srcLine:idx,kind:'shot',
-        stn:stn.id,hi,ori,ha,sd,za,prism,sN:S.N,sE:S.E,sZ:S.Z,face:t[0],deleted:false,edited:false});}});
+  // station coords come from NEZ control OR from a point that was shot earlier (e.g. MAG setups);
+  // resolve setups in repeated passes so a reduced point can serve as a later station.
+  const known={};for(const id in ctrl)known[id]={N:ctrl[id].N,E:ctrl[id].E,Z:ctrl[id].Z};
+  const resolved=new Set();let added=true,guard=0;
+  while(added&&guard++<12){added=false;
+    let stn=null,hi=0,ori=null,prism=0;
+    RAW.forEach((ln,idx)=>{const t=ln.trim().split(/\s+/);if(!t[0])return;
+      if(t[0]==='STN'){stn={id:t[1]};hi=+t[2];ori=null;}
+      else if(ln.startsWith('Used last station')){}
+      else if(t[0]==='PRISM'&&t.length===2){const p=+t[1];if(!isNaN(p))prism=p;}
+      else if(t[0]==='BS'&&stn){const bs=t[1],circ=t.length>2?dms2deg(+t[2]):0;
+        const S=known[stn.id],B=known[bs];
+        if(S&&B){const az=(Math.atan2(B.E-S.E,B.N-S.N)*180/Math.PI+360)%360;ori=(az-circ+360)%360;}else ori=null;}
+      else if((t[0]==='F1'||t[0]==='F2')&&t[1]==='VA'&&t.length>=6&&stn){
+        if(resolved.has(idx))return;
+        if(ori===null)return;const S=known[stn.id];if(!S)return;
+        const m=ln.match(/"([^"]*)"/);const desc=m?m[1]:'';
+        let ha=dms2deg(+t[3]);const sd=+t[4];let za=dms2deg(+t[5]);
+        if(t[0]==='F2'&&za>180){za=360-za;ha=(ha+180)%360;}
+        const az=(ori+ha)%360,hd=sd*Math.sin(za*Math.PI/180),vd=sd*Math.cos(za*Math.PI/180);
+        const N=S.N+hd*Math.cos(az*Math.PI/180),E=S.E+hd*Math.sin(az*Math.PI/180),Z=S.Z+vd+hi-prism;
+        PTS.push({id:t[2],code:(desc.split(/\s+/)[0]||'').toUpperCase(),desc,N,E,Z,srcLine:idx,kind:'shot',
+          stn:stn.id,hi,ori,ha,sd,za,prism,sN:S.N,sE:S.E,sZ:S.Z,face:t[0],deleted:false,edited:false});
+        resolved.add(idx);added=true;
+        if(!known[t[2]])known[t[2]]={N,E,Z};        // this point can now anchor a later setup
+      }});
+  }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
   ['fitBtn','dlBtn','gotoBtn'].forEach(b=>$(b).disabled=false);
