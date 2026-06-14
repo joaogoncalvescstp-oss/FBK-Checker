@@ -1156,10 +1156,11 @@ function exportFBK(expandCodes=true){
   const stamp=new Date().toLocaleString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true})+' '+new Date().toLocaleDateString('en-US');
   // 1. point edits (desc / HA / SD) and deletions
   PTS.filter(p=>p.kind==='shot'&&p.edited).forEach(p=>{
+    if(p.deleted){deletedAfter.add(p.srcLine);return;}
     let line=finalLine(p);
     const match=line.match(/^(.*?)"([^"]*)"$/);
     if(match){const expandedDesc=expandCodes?expandDescForExport(match[2]):match[2];line=match[1]+'"'+expandedDesc+'"';}
-    editedContent[p.srcLine]=line;if(p.deleted)deletedAfter.add(p.srcLine);});
+    editedContent[p.srcLine]=line;});
   // 2. reorders (natural vertices only — added points handled in 2b)
   const permuted=[], nezed=[], shared=new Set();
   for(const id in figOrder){const f=getFig(id);if(!f)continue;
