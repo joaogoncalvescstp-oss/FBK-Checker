@@ -397,10 +397,13 @@ function applyKnockdown(){
       const oldTmpl=CURB_BOC[activeCode].replace(/\s+/g,'\\s+');
       re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
       newDesc=p.desc.replace(re,tmpl);}
-    // if still no match, insert template after RBCB code
+    // if still no match, remove any H/V templates and insert after RBCB
     if(newDesc===p.desc){
+      // remove any H/V offset sequences: H[val] V[val] patterns
+      let cleaned=p.desc.replace(/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/g,'').trim();
+      // insert new template right after RBCB code
       re=/\bRBCB\d*\b/;
-      newDesc=p.desc.replace(re,(m)=>m+' '+tmpl);
+      newDesc=cleaned.replace(re,(m)=>m+' '+tmpl);
     }
     changes.push({p,newDesc,activeCode,v,ref:best.id});
   });
