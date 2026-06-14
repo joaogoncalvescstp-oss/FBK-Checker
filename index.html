@@ -375,9 +375,10 @@ function applyKnockdown(){
     let code=null;
     p.desc.split(/\s+/).forEach(t=>{const T=t.toUpperCase();if(CURB_BOC[T])code=T;});
     if(!code){noCode++;return;}
-    // nearest REF by horizontal (N/E) distance
+    // nearest REF by horizontal (N/E) distance, within 1.2 feet radius
     let best=null,bd=Infinity;
-    refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd){bd=d;best=r;}});
+    const maxSearchRadius=1.2;
+    refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
     if(!best)return;
     const v=p.Z-best.Z;                                     // chosen Z direction
     const kd=CURB_KD[code]||0;
