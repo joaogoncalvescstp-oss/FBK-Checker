@@ -254,6 +254,33 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   </div>
 </div>
 
+<!-- insert point by regular COGO -->
+<div class="scrim" id="simplCogoScrim">
+  <div class="modal">
+    <h4>Add Point (COGO)</h4>
+    <div class="field">
+      <label>Easting (E)</label>
+      <input type="number" id="simplCogoE" placeholder="Enter E coordinate" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Northing (N)</label>
+      <input type="number" id="simplCogoN" placeholder="Enter N coordinate" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Elevation (Z)</label>
+      <input type="number" id="simplCogoZ" placeholder="Enter elevation" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Code/Description</label>
+      <input type="text" id="simplCogoCode" placeholder="e.g., CP CONTROL POINT" autocomplete="off">
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="simplCogoCancel">Cancel</button>
+      <button class="btn gold" id="simplCogoAdd">Add Point</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -293,6 +320,7 @@ let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
 let cogoCtx=null;                                          // COGO insertion dialog context: {figId}
+let simplCogoCtx=null;                                     // simple COGO add point context
 
 /* ---------- undo/redo ---------- */
 let undoStack=[], redoStack=[];                           // history for undo/redo
@@ -619,6 +647,26 @@ function insertCogoPoint(){
   logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "COGO inserted"`);
   buildLinework();draw();closeCogoDialog();selFig=cogoCtx.figId;sel=-1;inspectFig(f);flagDirty();
   hud(`COGO point ${newId} inserted`);}
+
+function openSimplCogoDialog(){
+  $('simplCogoE').value='';$('simplCogoN').value='';$('simplCogoZ').value='';$('simplCogoCode').value='';
+  simplCogoCtx={};$('simplCogoScrim').classList.add('show');$('simplCogoE').focus();
+  hud('enter coordinates and code for new point');}
+function closeSimplCogoDialog(){simplCogoCtx=null;$('simplCogoScrim').classList.remove('show');}
+function addSimplCogoPoint(){
+  if(!simplCogoCtx)return;
+  const E=parseFloat($('simplCogoE').value),N=parseFloat($('simplCogoN').value),Z=parseFloat($('simplCogoZ').value);
+  const code=$('simplCogoCode').value.trim();
+  if(!isFinite(E)||!isFinite(N)||!isFinite(Z)){hud('enter valid coordinates');return;}
+  if(!code){hud('enter a code or description');return;}
+  saveState();
+  const newId=getNextPointNumber();
+  const newPt={id:newId,code:code.split(/\s+/)[0].toUpperCase(),desc:code,N:N,E:E,Z:Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
+  PTS.push(newPt);
+  logEdit('code',`added COGO point ${newId}: ${code}`);
+  logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${code}"`);
+  buildLinework();draw();closeSimplCogoDialog();sel=-1;selFig=null;inspect();flagDirty();
+  hud(`point ${newId} added`);}
 
 function openCircleTool(){circleTool={centerPt:-1};$('circleScrim').classList.add('show');hud('click a point for circle center');}
 function closeCircleTool(){circleTool=null;$('circleScrim').classList.remove('show');}
@@ -1139,9 +1187,11 @@ function inspectInverse(){const box=$('insp');
       <button class="btn" id="invSwap">⇄ Swap A↔B</button>
       <button class="btn" id="invClear">↺ Clear</button>
     </div>
+    <button class="btn gold" id="simplCogoBtn" style="width:100%;justify-content:center;margin-top:10px">◈ Add Point (COGO)</button>
     <div class="note" style="padding:8px 0 0">Click any point to start a new measurement from it. Distances are in the FBK's coordinate units.</div>`;
   $('invSwap').onclick=()=>{[inv.a,inv.b]=[inv.b,inv.a];inspectInverse();draw();};
-  $('invClear').onclick=()=>{inv={a:-1,b:-1};inspectInverse();draw();};}
+  $('invClear').onclick=()=>{inv={a:-1,b:-1};inspectInverse();draw();};
+  if($('simplCogoBtn'))$('simplCogoBtn').onclick=()=>openSimplCogoDialog();}
 function applyDesc(p){const v=$('fDesc').value.trim();if(v===p.desc)return;
   saveState();
   logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${v}"`);
@@ -1437,6 +1487,9 @@ $('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
 $('cogoCancel').onclick=closeCogoDialog;
 $('cogoInsert').onclick=insertCogoPoint;
 $('cogoScrim').onclick=e=>{if(e.target===$('cogoScrim'))closeCogoDialog();};
+$('simplCogoCancel').onclick=closeSimplCogoDialog;
+$('simplCogoAdd').onclick=addSimplCogoPoint;
+$('simplCogoScrim').onclick=e=>{if(e.target===$('simplCogoScrim'))closeSimplCogoDialog();};
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
   if(showMap){mapSource='ramsey';mapImage=null;mapErr=null;fetchMapTiles();}
   else{mapImage=null;mapErr=null;}draw();};
