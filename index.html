@@ -50,6 +50,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .scroll{overflow:auto;flex:1;padding:12px 14px}
 .empty{color:var(--mut);font-size:13px;text-align:center;padding:40px 14px;line-height:1.6}
 .field{margin-bottom:11px}
+.field3{display:flex;gap:7px}
+.field3 .field{flex:1;margin-bottom:11px}
 .field label{display:block;font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-bottom:4px}
 .field input{width:100%;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:7px 9px;font:13px var(--mono)}
 .field input:focus{outline:none;border-color:var(--gold-dim)}
@@ -124,7 +126,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -289,7 +291,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:4};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:5};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1118,35 +1120,51 @@ function pick(sx,sy){let best=-1,bd=12;PTS.forEach((p,i)=>{if(p.deleted)return;
 function inspect(){const box=$('insp');
   if(sel<0){box.innerHTML='<div class="empty">Click a point to inspect it.</div>';return;}
   const p=PTS[sel];
+  const esc=s=>(s||'').replace(/"/g,'&quot;');
   if(p.kind==='ctrl'){const fs=figuresOfPoint(sel);
-    box.innerHTML=`<div class="field"><label>${fs.length?'Coded NEZ point':'Control point'}</label><input value="${p.desc.replace(/"/g,'&quot;')}" disabled></div>
-    <div class="kv"><span class="k">Pt</span><span class="v">${p.id}</span></div>
-    <div class="kv"><span class="k">N</span><span class="v">${p.N.toFixed(3)}</span></div>
-    <div class="kv"><span class="k">E</span><span class="v">${p.E.toFixed(3)}</span></div>
-    <div class="kv"><span class="k">Z</span><span class="v">${p.Z.toFixed(3)}</span></div>
+    const inserted=p.srcLine<0;
+    box.innerHTML=`<div class="field"><label>${fs.length?'Coded NEZ point — descriptor':'Control point — descriptor'}</label><input id="fDesc" value="${esc(p.desc)}" ${is3D?'disabled':''}></div>
+    <div class="field"><label>Pt #</label><input id="eId" value="${esc(p.id)}" ${is3D?'disabled':''}></div>
+    <div class="field3">
+      <div class="field"><label>N</label><input id="eN" type="number" step="0.001" value="${p.N.toFixed(3)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>E</label><input id="eE" type="number" step="0.001" value="${p.E.toFixed(3)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>Z</label><input id="eZ" type="number" step="0.001" value="${p.Z.toFixed(3)}" ${is3D?'disabled':''}></div>
+    </div>
+    <div class="kv"><span class="k">source</span><span class="v">${inserted?'inserted (NEZ on export)':'NEZ line '+(p.srcLine+1)}</span></div>
     ${fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:''}
-    <div class="warnbox">${fs.length?'NEZ point with a field code — drawn as linework. Coordinates are published; edit it in the FBK source.':'Published NEZ control — not editable here.'}</div>`;
+    ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>':`
+    <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
+      <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete'}</button></div>
+    <div class="note" style="padding:8px 0 0">Edits republish this NEZ record on export (coords, code &amp; point #).</div>`}`;
     box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
+    if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
+      ['fDesc','eId','eN','eE','eZ'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
+      $('delBtn').onclick=()=>toggleDel(p);}
     return;}
   box.innerHTML=`
-    <div class="field"><label>Descriptor / code</label><input id="fDesc" value="${p.desc.replace(/"/g,'&quot;')}" ${is3D?'disabled':''}></div>
-    <div class="kv"><span class="k">Pt #</span><span class="v">${p.id} · ${p.face}</span></div>
-    <div class="kv"><span class="k">From STN</span><span class="v">${p.stn} (HI ${p.hi.toFixed(3)})</span></div>
-    <div class="kv"><span class="k">N / E</span><span class="v">${p.N.toFixed(3)} / ${p.E.toFixed(3)}</span></div>
-    <div class="kv"><span class="k">Z</span><span class="v">${p.Z.toFixed(3)}</span></div>
-    <div class="kv"><span class="k">HA</span><span class="v">${deg2dms(p.ha)}</span></div>
-    <div class="kv"><span class="k">SD</span><span class="v">${p.sd.toFixed(3)}</span></div>
-    <div class="kv"><span class="k">ZA</span><span class="v">${deg2dms(p.za)}</span></div>
+    <div class="field"><label>Descriptor / code</label><input id="fDesc" value="${esc(p.desc)}" ${is3D?'disabled':''}></div>
+    <div class="field"><label>Pt #</label><input id="eId" value="${esc(p.id)}" ${is3D?'disabled':''}></div>
+    <div class="field3">
+      <div class="field"><label>N</label><input id="eN" type="number" step="0.001" value="${p.N.toFixed(3)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>E</label><input id="eE" type="number" step="0.001" value="${p.E.toFixed(3)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>Z</label><input id="eZ" type="number" step="0.001" value="${p.Z.toFixed(3)}" ${is3D?'disabled':''}></div>
+    </div>
+    <div class="field3">
+      <div class="field"><label>HA</label><input id="eHA" value="${deg2dms(p.ha)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>SD</label><input id="eSD" type="number" step="0.001" value="${p.sd.toFixed(3)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>ZA</label><input id="eZA" value="${deg2dms(p.za)}" ${is3D?'disabled':''}></div>
+    </div>
+    <div class="kv"><span class="k">From STN</span><span class="v">${p.stn} (HI ${p.hi.toFixed(3)}) · ${p.face}</span></div>
     <div class="kv"><span class="k">src line</span><span class="v">${p.srcLine+1}</span></div>
     ${(()=>{const fs=figuresOfPoint(sel);return fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:'';})()}
-    ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit codes or move.</div>':`
-    <div class="chgrp"><button class="btn" id="applyDesc">Apply code</button>
+    ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit codes or coordinates.</div>':`
+    <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete shot'}</button></div>
-    <div class="note" style="padding:8px 0 0">Multiple codes on one point: space-separate them, e.g. <b>RWLK2 RMONO B</b> — the point joins both figures.</div>
+    <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.</div>
     ${mode==='move'?'<div class="warnbox">Move active — dragging rewrites HA &amp; SD on line '+(p.srcLine+1)+'.</div>':''}`}`;
   box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
-  if(!is3D){$('applyDesc').onclick=()=>applyDesc(p);
-    $('fDesc').onkeydown=e=>{if(e.key==='Enter')applyDesc(p);};
+  if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
+    ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
     $('delBtn').onclick=()=>toggleDel(p);}
 }
 function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="empty">Figure not found.</div>';return;}
@@ -1238,6 +1256,42 @@ function applyDesc(p){const v=$('fDesc').value.trim();if(v===p.desc)return;
   logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${v}"`);
   p.desc=v;p.code=(v.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
   buildLinework();draw();inspect();flagDirty();}
+/* Back-solve a shot's HA/SD/ZA so the VA observation reproduces an exact N/E/Z.
+   Inverse of reduce(): uses the stored station origin, orientation, HI & prism. */
+function setShotFromNEZ(p,N,E,Z){
+  const dN=N-p.sN,dE=E-p.sE,hd=Math.hypot(dN,dE);
+  const az=(Math.atan2(dE,dN)*180/Math.PI+360)%360;
+  const dz=Z-p.sZ-p.hi+p.prism;                       // vertical, instrument → target
+  p.ha=((az-p.ori)%360+360)%360;p.sd=Math.hypot(hd,dz);
+  p.za=(Math.atan2(hd,dz)*180/Math.PI+360)%360;        // zenith from vertical
+  p.N=N;p.E=E;p.Z=Z;}
+/* Apply every editable field from the inspector to the selected point and make
+   the change show up in the exported FBK. */
+function applyPointEdit(p){
+  const N=parseFloat($('eN').value),E=parseFloat($('eE').value),Z=parseFloat($('eZ').value);
+  if(!isFinite(N)||!isFinite(E)||!isFinite(Z)){hud('enter valid N/E/Z');return;}
+  const id=($('eId').value||'').trim()||p.id;
+  const desc=$('fDesc').value.trim();
+  const oldId=p.id;
+  saveState();
+  if(p.kind==='shot'){
+    const haV=dms2deg($('eHA').value),sdV=parseFloat($('eSD').value),zaV=dms2deg($('eZA').value);
+    // detect edits by comparing inputs to the rendered values (no DMS round-trip drift)
+    const coordChg=$('eN').value.trim()!==p.N.toFixed(3)||$('eE').value.trim()!==p.E.toFixed(3)||$('eZ').value.trim()!==p.Z.toFixed(3);
+    const angChg=$('eHA').value.trim()!==deg2dms(p.ha)||$('eSD').value.trim()!==p.sd.toFixed(3)||$('eZA').value.trim()!==deg2dms(p.za);
+    if(angChg&&!coordChg&&isFinite(haV)&&isFinite(sdV)&&isFinite(zaV)){
+      p.ha=haV;p.sd=sdV;p.za=zaV;reduce(p);          // angle/dist edit → recompute coords
+    }else if(coordChg){
+      setShotFromNEZ(p,N,E,Z);                         // coordinate edit → re-solve the VA shot
+    }
+    p.rawOverride=undefined;
+  }else{                                               // ctrl / NEZ / inserted point
+    p.N=N;p.E=E;p.Z=Z;
+    if(p.srcLine>=0)p.rawOverride=`NEZ ${id} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${desc}"`;
+  }
+  p.id=id;p.desc=desc;p.code=(desc.split(/\s+/)[0]||'').toUpperCase()||p.code;p.edited=true;
+  logEdit('code',`pt ${oldId}${oldId!==id?' → '+id:''} line ${p.srcLine+1}: N ${p.N.toFixed(3)} E ${p.E.toFixed(3)} Z ${p.Z.toFixed(3)} "${desc}"`);
+  buildLinework();draw();inspect();flagDirty();}
 function toggleDel(p){saveState();p.deleted=!p.deleted;p.edited=true;
   logEdit('del',`pt ${p.id} line ${p.srcLine+1} ${p.deleted?'deleted':'restored'}`);
   buildLinework();draw();inspect();flagDirty();}
@@ -1302,7 +1356,7 @@ function flagDirty(){$('dlBtn').classList.add('gold');$('dlRawBtn').classList.ad
 function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
   let ln=RAW[p.srcLine];if(ln===undefined)return ln;
   const t=ln.split(/\s+/);
-  if(t[1]==='VA'){t[3]=deg2dms(p.ha);t[4]=p.sd.toFixed(3);t[5]=deg2dms(p.za);
+  if(t[1]==='VA'){t[2]=p.id;t[3]=deg2dms(p.ha);t[4]=p.sd.toFixed(3);t[5]=deg2dms(p.za);
     return t.slice(0,6).join(' ')+' "'+p.desc+'"';}
   return ln.replace(/"([^"]*)"/,`"${p.desc}"`);}
 function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Boolean);
@@ -1329,9 +1383,9 @@ function exportFBK(expandCodes=true){
   const nezDone=new Set();          // pt ids already emitted as NEZ
   const stamp=new Date().toLocaleString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',hour12:true})+' '+new Date().toLocaleDateString('en-US');
   // 1. point edits (desc / HA / SD) and deletions
-  PTS.filter(p=>p.kind==='shot'&&p.edited).forEach(p=>{
+  PTS.filter(p=>(p.kind==='shot'||p.kind==='ctrl')&&p.edited&&p.srcLine>=0).forEach(p=>{
     if(p.deleted){deletedAfter.add(p.srcLine);return;}
-    let line=finalLine(p);
+    let line=finalLine(p);if(line===undefined)return;
     const match=line.match(/^(.*?)"([^"]*)"$/);
     if(match){const expandedDesc=expandCodes?expandDescForExport(match[2]):match[2];line=match[1]+'"'+expandedDesc+'"';}
     editedContent[p.srcLine]=line;});

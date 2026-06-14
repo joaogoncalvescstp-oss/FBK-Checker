@@ -18,6 +18,7 @@ first and follow it on every task in this repo.
     | 2 | 🍌 BANANA | RCFL flow-line knockdown |
     | 3 | 🍇 GRAPE | RCFL knockdown only at points with their own curb code |
     | 4 | 🍊 ORANGE | COGO insert keeps proper FBK format (code + moved B/E) |
+    | 5 | 🍓 STRAWBERRY | editable inspector: any field edit reflects to the FBK |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
