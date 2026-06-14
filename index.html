@@ -368,44 +368,47 @@ function applyKnockdown(){
   const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
   const refs=PTS.filter(p=>!p.deleted&&/^REF\d*$/.test(refToken(p.desc)));
   if(!refs.length){hud('no REF point found — need a point coded REF');return;}
-  let applied=0,noCode=0;
+  let applied=0,lastCode=null;
   const changes=[];
+  // iterate through points in order to track persistent curb codes
   PTS.forEach(p=>{
-    if(p.deleted||!/\bRBCB\d*\b/.test(p.desc))return;
-    // last curb-DB code token in this description
+    if(p.deleted)return;
+    // update persistent code state from current description
     let code=null;
     p.desc.split(/\s+/).forEach(t=>{const T=t.toUpperCase();if(CURB_BOC[T])code=T;});
-    // if no explicit curb code found, use default R612 for RBCB
-    if(!code)code='R612';
+    if(code)lastCode=code;
+    // if this is an RBCB point, apply knockdown with the last known curb code
+    if(!/\bRBCB\d*\b/.test(p.desc))return;
+    const activeCode=code||lastCode||'R612';  // use current, last, or default
     // nearest REF by horizontal (N/E) distance, within 1.2 feet radius
     let best=null,bd=Infinity;
     const maxSearchRadius=1.2;
     refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
     if(!best)return;
-    const v=p.Z-best.Z;                                     // chosen Z direction
-    const kd=CURB_KD[code]||0;
+    const v=p.Z-best.Z;
+    const kd=CURB_KD[activeCode]||0;
     const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
-    let tmpl=CURB_BOC[code].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
+    let tmpl=CURB_BOC[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
     // try replacing the bare code name first
-    let re=new RegExp('\\b'+code+'\\b(?![\\s\\S]*\\b'+code+'\\b)');
+    let re=new RegExp('\\b'+activeCode+'\\b(?![\\s\\S]*\\b'+activeCode+'\\b)');
     let newDesc=p.desc.replace(re,tmpl);
     // if code name not found, try replacing the existing expanded template pattern
     if(newDesc===p.desc){
-      const oldTmpl=CURB_BOC[code].replace(/\s+/g,'\\s+');
+      const oldTmpl=CURB_BOC[activeCode].replace(/\s+/g,'\\s+');
       re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
       newDesc=p.desc.replace(re,tmpl);}
     // if still no match, append the template to the description
     if(newDesc===p.desc)newDesc=p.desc+' '+tmpl;
-    changes.push({p,newDesc,code,v,ref:best.id});
+    changes.push({p,newDesc,activeCode,v,ref:best.id});
   });
-  if(!changes.length){hud(`no RBCB curb codes to knock down${noCode?` (${noCode} RBCB pt(s) had no curb code)`:''}`);return;}
+  if(!changes.length){hud('no RBCB curb codes to knock down');return;}
   saveState();
-  changes.forEach(({p,newDesc,code,v,ref})=>{
-    logEdit('code',`knockdown pt ${p.id}: ${code} v=${v.toFixed(3)} (REF ${ref})`);
+  changes.forEach(({p,newDesc,activeCode,v,ref})=>{
+    logEdit('code',`knockdown pt ${p.id}: ${activeCode} v=${v.toFixed(3)} (REF ${ref})`);
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
     applied++;});
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
-  hud(`Knockdown applied to ${applied} RBCB pt(s)${noCode?` · ${noCode} skipped (no curb code)`:''}`);
+  hud(`Knockdown applied to ${applied} RBCB pt(s)`);
 }
 
 /* ---------- linework (field-to-finish) ----------
