@@ -383,9 +383,14 @@ function applyKnockdown(){
     const kd=CURB_KD[code]||0;
     const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
     let tmpl=CURB_BOC[code].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
-    // replace ONLY the last occurrence of the curb code with the H/V template
-    const re=new RegExp('\\b'+code+'\\b(?![\\s\\S]*\\b'+code+'\\b)');
-    const newDesc=p.desc.replace(re,tmpl);
+    // try replacing the bare code name first
+    let re=new RegExp('\\b'+code+'\\b(?![\\s\\S]*\\b'+code+'\\b)');
+    let newDesc=p.desc.replace(re,tmpl);
+    // if code name not found, try replacing the existing expanded template pattern
+    if(newDesc===p.desc){
+      const oldTmpl=CURB_BOC[code].replace(/\s+/g,'\\s+');
+      re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
+      newDesc=p.desc.replace(re,tmpl);}
     if(newDesc===p.desc)return;
     changes.push({p,newDesc,code,v,ref:best.id});
   });
