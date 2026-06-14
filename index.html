@@ -166,6 +166,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
           <b>SEL</b> edits the descriptor code that drives linework, or deletes a shot.<br>
           <b>3D</b> orbits the survey by elevation — inspect only; switch back to a 2D tool to edit.</div>
       </div>
+      <div style="padding:8px;display:flex;gap:8px;">
+        <button class="btn gold" id="simplCogoBtn" style="flex:1;justify-content:center" disabled>◈ Add Point (COGO)</button>
+      </div>
       <div class="log">
         <h3>Edits <span class="n" id="logn">0</span></h3>
         <div class="logscroll" id="logbox"></div>
@@ -254,6 +257,33 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   </div>
 </div>
 
+<!-- simple cogo - add point to file -->
+<div class="scrim" id="simplCogoScrim">
+  <div class="modal">
+    <h4>Add Point (COGO)</h4>
+    <div class="field">
+      <label>Northing (N)</label>
+      <input type="number" id="simplCogoN" placeholder="Enter N coordinate" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Easting (E)</label>
+      <input type="number" id="simplCogoE" placeholder="Enter E coordinate" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Elevation (Z)</label>
+      <input type="number" id="simplCogoZ" placeholder="Enter elevation" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Code/Description</label>
+      <input type="text" id="simplCogoCode" placeholder="e.g., CP CONTROL POINT" autocomplete="off">
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="simplCogoCancel">Cancel</button>
+      <button class="btn gold" id="simplCogoAdd">Add Point</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -293,6 +323,7 @@ let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
 let cogoCtx=null;                                          // COGO insertion dialog context: {figId}
+let simplCogoCtx=null;                                     // Simple COGO dialog context
 
 /* ---------- undo/redo ---------- */
 let undoStack=[], redoStack=[];                           // history for undo/redo
@@ -365,7 +396,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','dlBtn','dlRawBtn','gotoBtn','kdBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','dlBtn','dlRawBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -619,6 +650,24 @@ function insertCogoPoint(){
   logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "COGO inserted"`);
   buildLinework();draw();closeCogoDialog();selFig=cogoCtx.figId;sel=-1;inspectFig(f);flagDirty();
   hud(`COGO point ${newId} inserted`);}
+
+function openSimplCogoDialog(){
+  $('simplCogoN').value='';$('simplCogoE').value='';$('simplCogoZ').value='';$('simplCogoCode').value='';
+  simplCogoCtx={};$('simplCogoScrim').classList.add('show');$('simplCogoN').focus();
+  hud('enter coordinates for new point');}
+function closeSimplCogoDialog(){simplCogoCtx=null;$('simplCogoScrim').classList.remove('show');}
+function addSimplCogoPoint(){
+  const N=parseFloat($('simplCogoN').value),E=parseFloat($('simplCogoE').value),Z=parseFloat($('simplCogoZ').value);
+  const desc=($('simplCogoCode').value||'').trim();
+  if(!isFinite(N)||!isFinite(E)||!isFinite(Z)){hud('enter valid coordinates');return;}
+  saveState();
+  const newId=getNextPointNumber();
+  const newPt={id:newId,code:'NEZ',desc:desc,N:N,E:E,Z:Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
+  PTS.push(newPt);
+  logEdit('code',`added COGO pt ${newId}`);
+  logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${desc||''}"`);
+  buildLinework();draw();closeSimplCogoDialog();sel=-1;selFig=null;inspect();flagDirty();
+  hud(`point ${newId} added`);}
 
 function openCircleTool(){circleTool={centerPt:-1};$('circleScrim').classList.add('show');hud('click a point for circle center');}
 function closeCircleTool(){circleTool=null;$('circleScrim').classList.remove('show');}
@@ -1416,6 +1465,7 @@ $('fitBtn').onclick=fit;
 $('dlBtn').onclick=exportFBK;
 $('dlRawBtn').onclick=()=>exportFBK(false);
 $('kdBtn').onclick=applyKnockdown;
+$('simplCogoBtn').onclick=()=>{if(!$('simplCogoBtn').disabled)openSimplCogoDialog();};
 $('undoBtn').onclick=performUndo;
 $('redoBtn').onclick=performRedo;
 $('gotoBtn').onclick=openGoto;
@@ -1437,6 +1487,9 @@ $('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
 $('cogoCancel').onclick=closeCogoDialog;
 $('cogoInsert').onclick=insertCogoPoint;
 $('cogoScrim').onclick=e=>{if(e.target===$('cogoScrim'))closeCogoDialog();};
+$('simplCogoCancel').onclick=closeSimplCogoDialog;
+$('simplCogoAdd').onclick=addSimplCogoPoint;
+$('simplCogoScrim').onclick=e=>{if(e.target===$('simplCogoScrim'))closeSimplCogoDialog();};
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
   if(showMap){mapSource='ramsey';mapImage=null;mapErr=null;fetchMapTiles();}
   else{mapImage=null;mapErr=null;}draw();};
