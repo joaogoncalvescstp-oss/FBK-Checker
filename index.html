@@ -122,6 +122,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn ghost" id="kdBtn" disabled title="Knockdown: for every RBCB point, find the nearest REF point, derive the curb reveal from the Z difference, and apply the knockdown to the last curb code in its description">⚙ Knockdown</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
+    <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <span id="fruitBadge" style="font-size:24px;margin-left:12px;cursor:pointer;transition:transform 0.2s" title="Push verified!" onclick="rotateFruit()">🍎</span>
   </div>
 
@@ -332,7 +333,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','dlBtn','gotoBtn','kdBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','dlBtn','dlRawBtn','gotoBtn','kdBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -1123,7 +1124,7 @@ function moveTo(p,E,N){const S=PTS.find(c=>c.kind==='ctrl'&&c.id===p.stn);if(!S)
 function logEdit(type,msg){log.push({type,msg});$('logn').textContent=log.length;
   const d=document.createElement('div');d.className='le '+type;
   d.innerHTML=msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);}
-function flagDirty(){$('dlBtn').classList.add('gold');}
+function flagDirty(){$('dlBtn').classList.add('gold');$('dlRawBtn').classList.add('gold');}
 function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
   let ln=RAW[p.srcLine];if(ln===undefined)return ln;
   const t=ln.split(/\s+/);
@@ -1147,7 +1148,7 @@ function expandDescForExport(desc){
   }
   return expanded;
 }
-function exportFBK(){
+function exportFBK(expandCodes=true){
   const editedContent={};          // lineIdx -> replacement string
   const deletedAfter=new Set();     // lineIdx -> append a Deleted marker
   const nezBefore={};               // lineIdx -> [NEZ strings]
@@ -1157,7 +1158,7 @@ function exportFBK(){
   PTS.filter(p=>p.kind==='shot'&&p.edited).forEach(p=>{
     let line=finalLine(p);
     const match=line.match(/^(.*?)"([^"]*)"$/);
-    if(match){const expandedDesc=expandDescForExport(match[2]);line=match[1]+'"'+expandedDesc+'"';}
+    if(match){const expandedDesc=expandCodes?expandDescForExport(match[2]):match[2];line=match[1]+'"'+expandedDesc+'"';}
     editedContent[p.srcLine]=line;if(p.deleted)deletedAfter.add(p.srcLine);});
   // 2. reorders (natural vertices only — added points handled in 2b)
   const permuted=[], nezed=[], shared=new Set();
@@ -1173,7 +1174,7 @@ function exportFBK(){
       verts.forEach(p=>{
         if(figuresOfPoint(PTS.indexOf(p)).length>1)shared.add(p.id);
         if(!nezDone.has(p.id)){nezDone.add(p.id);
-          const expandedDesc=expandDescForExport(p.desc);
+          const expandedDesc=expandCodes?expandDescForExport(p.desc):p.desc;
           block.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${expandedDesc}"`);}
         deletedAfter.add(p.srcLine);               // archive original VA, exclude from processing
       });
@@ -1209,8 +1210,8 @@ function exportFBK(){
     if(deletedAfter.has(L))result.push('Deleted '+stamp);
   }
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+'_EDITED.fbk';a.click();
-  logEdit('code',`exported ${result.length} lines · ${log.length} edits`);
+  a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
+  logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?''?' (codes unapplied)':''}`);
   if(permuted.length)logEdit('code',`reordered in-setup: ${[...new Set(permuted)].join(', ')}`);
   if(nezed.length)logEdit('mv',`cross-setup → NEZ: ${nezed.join(', ')} (originals archived as Deleted)`);
   if(shared.size)logEdit('del',`shared pts NEZ-moved, check other figures: ${[...shared].join(', ')}`);}
@@ -1329,6 +1330,7 @@ $('zIn').onclick=()=>zoomBy(1.25);
 $('zOut').onclick=()=>zoomBy(1/1.25);
 $('fitBtn').onclick=fit;
 $('dlBtn').onclick=exportFBK;
+$('dlRawBtn').onclick=()=>exportFBK(false);
 $('kdBtn').onclick=applyKnockdown;
 $('undoBtn').onclick=performUndo;
 $('redoBtn').onclick=performRedo;
