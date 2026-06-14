@@ -502,6 +502,7 @@ function addPointToFig(figId,anchorIdx,addIdx){const f=getFig(figId);if(!f)retur
   (figExtra[figId]=figExtra[figId]||[]).push({i:addIdx,after:anchorIdx});
   const A=PTS[addIdx],anc=PTS[anchorIdx];
   const cross=A.kind!=='shot'||!anc||anc.kind!=='shot'||A.stn!==anc.stn;   // outside the setup → NEZ on export
+  A.desc=addCodeToDesc(A.desc,f.code);A.code=(A.desc.split(/\s+/)[0]||'').toUpperCase();A.edited=true;
   logEdit('code',`add pt ${A.id} to ${f.code} after pt ${anc?anc.id:'?'}${cross?' (→ NEZ on export)':''}`);
   selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();}
 function removeExtra(figId,idx){const e=figExtra[figId];if(!e)return;
@@ -522,11 +523,12 @@ function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   const p1=PTS[ptIdx1],p2=PTS[ptIdx2];if(!p1||!p2)return;
   const newE=p1.E+(p2.E-p1.E)*t,newN=p1.N+(p2.N-p1.N)*t,newZ=p1.Z+(p2.Z-p1.Z)*t;
   const newId=getNextPointNumber();
-  const newPt={id:newId,code:'PT',desc:'inserted',N:newN,E:newE,Z:newZ,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
+  const newDesc=f.code+' inserted';
+  const newPt={id:newId,code:f.code,desc:newDesc,N:newN,E:newE,Z:newZ,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
   PTS.push(newPt);const newIdx=PTS.length-1;
   (figExtra[figId]=figExtra[figId]||[]).push({i:newIdx,after:ptIdx1});
   logEdit('code',`inserted pt ${newId} on ${f.code} between ${p1.id} and ${p2.id}`);
-  logEdit('code',`NEZ ${newId} ${newN.toFixed(3)} ${newE.toFixed(3)} ${newZ.toFixed(3)} "inserted point"`);
+  logEdit('code',`NEZ ${newId} ${newN.toFixed(3)} ${newE.toFixed(3)} ${newZ.toFixed(3)} "${newDesc}"`);
   insertPt=null;selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();
 }
 
