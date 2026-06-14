@@ -76,6 +76,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .figtag:hover{border-color:var(--gold)}
 .vlist{margin-top:10px;display:flex;flex-direction:column;gap:7px}
 .vrow{background:var(--panel2);border:1px solid var(--rule);border-radius:6px;overflow:hidden}
+.vrow.draggable{cursor:grab}
+.vrow.dragging{opacity:.45;cursor:grabbing}
+.vrow.dropbefore{box-shadow:inset 0 3px 0 0 var(--gold)}
+.vrow.dropafter{box-shadow:inset 0 -3px 0 0 var(--gold)}
+.ord.grip{cursor:grab}
 .vhd{display:flex;align-items:center;gap:8px;padding:6px 9px;flex-wrap:wrap}
 .ord{width:20px;height:20px;border-radius:50%;background:var(--gold);color:#1b1300;font:700 11px var(--mono);display:grid;place-items:center;flex:none}
 .vpt{font:600 12px var(--mono);color:var(--ink)}
@@ -126,7 +131,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -291,7 +296,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:6};
+const VERSION={fruit:'🥝',name:'KIWI',build:7};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1179,9 +1184,9 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`:'';
     const anc=adding&&addPt.anchor===o.i?' <span class="arc" style="background:#1c2a3a;color:#7fb3ff">ANCHOR</span>':'';
     const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(o.p.desc,f.code)}"`:pointFbkLine(o.p)).trim();
-    rows+=`<div class="vrow">
+    rows+=`<div class="vrow draggable" draggable="true" data-k="${k}">
       <div class="vhd">
-        <span class="ord">${k+1}</span>
+        <span class="ord grip" title="drag to reorder">${k+1}</span>
         <span class="vpt">pt ${o.p.id}${arc}${tag}${anc}</span>
         <span class="vln">L${o.p.srcLine+1}</span>
         <span class="vbtns">
@@ -1210,11 +1215,29 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     <label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
       <input type="checkbox" id="nezChk" ${figNEZ[f.id]?'checked':''} style="width:15px;height:15px;cursor:pointer">
       Render line as NEZ (setup-independent)</label>
-    <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.<br><br>Tick <b>Render line as NEZ</b> to export <i>every</i> vertex on this line as an NEZ coordinate record — the linework no longer depends on which setup each point was shot from.</div>
+    <div class="warnbox"><b>Drag a row</b> (grab the number) to drop it anywhere in the draw order, or nudge with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.<br><br>Tick <b>Render line as NEZ</b> to export <i>every</i> vertex on this line as an NEZ coordinate record — the linework no longer depends on which setup each point was shot from.</div>
     <div class="vlist">${rows}</div>`;
   box.querySelectorAll('.vb').forEach(b=>b.onclick=()=>{
     if(b.dataset.act==='rm'){removeExtra(f.id,+b.dataset.i);return;}
     const k=+b.dataset.k;if(b.dataset.act==='up')reorderFig(f.id,k,k-1);else reorderFig(f.id,k,k+1);});
+  // drag a vertex row to drop it anywhere in the draw order
+  let dragK=-1;
+  const clearDrop=()=>box.querySelectorAll('.vrow').forEach(r=>r.classList.remove('dragging','dropbefore','dropafter'));
+  box.querySelectorAll('.vrow').forEach(row=>{
+    row.addEventListener('dragstart',e=>{dragK=+row.dataset.k;row.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',String(dragK));}catch(_){}});
+    row.addEventListener('dragend',()=>{dragK=-1;clearDrop();});
+    row.addEventListener('dragover',e=>{if(dragK<0)return;e.preventDefault();e.dataTransfer.dropEffect='move';
+      const k=+row.dataset.k;row.classList.remove('dropbefore','dropafter');if(k===dragK)return;
+      const r=row.getBoundingClientRect();const after=(e.clientY-r.top)>r.height/2;
+      row.classList.add(after?'dropafter':'dropbefore');});
+    row.addEventListener('dragleave',()=>row.classList.remove('dropbefore','dropafter'));
+    row.addEventListener('drop',e=>{e.preventDefault();if(dragK<0)return;
+      const from=dragK,k=+row.dataset.k;dragK=-1;clearDrop();if(k===from)return;
+      const r=row.getBoundingClientRect();const after=(e.clientY-r.top)>r.height/2;
+      const insertPos=after?k+1:k;const to=insertPos>from?insertPos-1:insertPos;
+      if(to!==from)reorderFig(f.id,from,to);});
+  });
   $('revBtn').onclick=()=>reverseFig(f.id);
   $('fbkBtn').onclick=()=>openFbk(f.id);
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};

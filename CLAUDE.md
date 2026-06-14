@@ -20,6 +20,7 @@ first and follow it on every task in this repo.
     | 4 | 🍊 ORANGE | COGO insert keeps proper FBK format (code + moved B/E) |
     | 5 | 🍓 STRAWBERRY | editable inspector: any field edit reflects to the FBK |
     | 6 | 🍒 CHERRY | inserted pt shows formatted line in review; per-line "render as NEZ" checkbox |
+    | 7 | 🥝 KIWI | drag-and-drop vertex rows to set draw order in the line editor |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
