@@ -1207,8 +1207,8 @@ function exportFBK(expandCodes=true){
   const result=[];
   for(let L=0;L<RAW.length;L++){
     if(nezBefore[L])result.push(...nezBefore[L]);
-    result.push(editedContent[L]!==undefined?editedContent[L]:RAW[L]);
-    if(deletedAfter.has(L))result.push('Deleted '+stamp);
+    if(!deletedAfter.has(L)){result.push(editedContent[L]!==undefined?editedContent[L]:RAW[L]);}
+    else{result.push('Deleted '+stamp);}
   }
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
