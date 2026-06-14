@@ -223,6 +223,37 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   </div>
 </div>
 
+<!-- insert point by COGO -->
+<div class="scrim" id="cogoScrim">
+  <div class="modal">
+    <h4>Insert Point by COGO</h4>
+    <div class="field">
+      <label>Northing (N)</label>
+      <input type="number" id="cogoN" placeholder="Enter N coordinate" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Easting (E)</label>
+      <input type="number" id="cogoE" placeholder="Enter E coordinate" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Elevation (Z)</label>
+      <input type="number" id="cogoZ" placeholder="Enter elevation" step="0.001" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Position in line (0=start)</label>
+      <input type="number" id="cogoPos" placeholder="0 for start, or point index" min="0" step="1" autocomplete="off">
+    </div>
+    <div class="field" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="cogoAtEnd" style="width:16px;height:16px;cursor:pointer">
+      <label style="margin:0;cursor:pointer">Place at end of line (shift E→CLS)</label>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="cogoCancel">Cancel</button>
+      <button class="btn gold" id="cogoInsert">Insert Point</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -261,6 +292,7 @@ let mapLastKey='';                                        // viewport key last r
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
+let cogoCtx=null;                                          // COGO insertion dialog context: {figId}
 
 /* ---------- undo/redo ---------- */
 let undoStack=[], redoStack=[];                           // history for undo/redo
@@ -549,6 +581,44 @@ function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   logEdit('code',`NEZ ${newId} ${newN.toFixed(3)} ${newE.toFixed(3)} ${newZ.toFixed(3)} "${newDesc}"`);
   insertPt=null;selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();
 }
+
+function openCogoDialog(figId){
+  const f=getFig(figId);if(!f)return;
+  const verts=f.verts.filter(v=>!PTS[v.i].deleted);
+  $('cogoN').value='';$('cogoE').value='';$('cogoZ').value='';$('cogoPos').value='0';$('cogoAtEnd').checked=false;
+  cogoCtx={figId};$('cogoScrim').classList.add('show');$('cogoN').focus();
+  hud(`enter coordinates for point to insert into ${f.code} (${verts.length} current vertices)`);}
+function closeCogoDialog(){cogoCtx=null;$('cogoScrim').classList.remove('show');}
+function insertCogoPoint(){
+  if(!cogoCtx||!cogoCtx.figId)return;
+  const N=parseFloat($('cogoN').value),E=parseFloat($('cogoE').value),Z=parseFloat($('cogoZ').value);
+  const atEnd=$('cogoAtEnd').checked;
+  const pos=atEnd?-1:parseInt($('cogoPos').value)||0;
+  if(!isFinite(N)||!isFinite(E)||!isFinite(Z)){hud('enter valid coordinates');return;}
+  const f=getFig(cogoCtx.figId);if(!f)return;
+  saveState();
+  const newId=getNextPointNumber();
+  const newPt={id:newId,code:'NEZ',desc:'COGO inserted',N:N,E:E,Z:Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
+  PTS.push(newPt);const newIdx=PTS.length-1;
+  // handle B/BC conversion and E/CLS for position
+  if(pos===0&&f.verts.length>0){
+    const firstPt=PTS[f.verts[0].i];
+    if(firstPt.desc.includes(' B ')||firstPt.desc.endsWith(' B')){
+      firstPt.desc=firstPt.desc.replace(/\bB\b/,'BC');firstPt.edited=true;
+      logEdit('code',`shifted pt ${firstPt.id}: B → BC (insert at start)`);}
+  }
+  if(atEnd&&f.verts.length>0){
+    const lastPt=PTS[f.verts[f.verts.length-1].i];
+    if(lastPt.desc.includes(' E ')||lastPt.desc.endsWith(' E')){
+      lastPt.desc=lastPt.desc.replace(/\bE\b/,'CLS');lastPt.edited=true;
+      logEdit('code',`shifted pt ${lastPt.id}: E → CLS (insert at end)`);}
+  }
+  const insertAfter=atEnd?(f.verts.length>0?f.verts[f.verts.length-1].i:-1):(pos>0&&pos<=f.verts.length?f.verts[pos-1].i:-1);
+  (figExtra[cogoCtx.figId]=figExtra[cogoCtx.figId]||[]).push({i:newIdx,after:insertAfter});
+  logEdit('code',`inserted COGO pt ${newId} at position ${atEnd?'end':pos} on ${f.code}`);
+  logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "COGO inserted"`);
+  buildLinework();draw();closeCogoDialog();selFig=cogoCtx.figId;sel=-1;inspectFig(f);flagDirty();
+  hud(`COGO point ${newId} inserted`);}
 
 function openCircleTool(){circleTool={centerPt:-1};$('circleScrim').classList.add('show');hud('click a point for circle center');}
 function closeCircleTool(){circleTool=null;$('circleScrim').classList.remove('show');}
@@ -1023,8 +1093,9 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     </div>
     ${is3D?'':`<button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>`}
     ${adding?`<div class="warnbox">${addPt.anchor<0?'Click a point <b>already on this line</b> (the insert anchor).':'Now click the <b>existing point</b> to add — it drops in right after the anchor.'}</div>`:''}
-    ${is3D?'':`<button class="btn ${insertPt?.figId===f.id?'gold':''}" id="insertModeBtn" style="width:100%;justify-content:center;margin-top:7px;margin-bottom:6px">${insertPt?.figId===f.id?'✕ Cancel insert':'⊕ Click line to insert point'}</button>`}
+    ${is3D?'':`<button class="btn ${insertPt?.figId===f.id?'gold':''}" id="insertModeBtn" style="width:100%;justify-content:center;margin-top:7px">${insertPt?.figId===f.id?'✕ Cancel insert':'⊕ Click line to insert point'}</button>`}
     ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location.</div>`:''}
+    ${is3D?'':`<button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>`}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
     <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.</div>
     <div class="vlist">${rows}</div>`;
@@ -1037,6 +1108,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
   if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};
     hud(insertPt?.figId===f.id?'click on the line to insert point':'insert cancelled');inspectFig(getFig(f.id));};
+  if($('cogoBtn'))$('cogoBtn').onclick=()=>openCogoDialog(f.id);
   $('resetBtn').onclick=()=>{saveState();delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
 }
 function inspectInverse(){const box=$('insp');
@@ -1362,6 +1434,9 @@ $('tCircle').onclick=()=>{circleTool={centerPt:-1};openCircleTool();};
 $('circleCancel').onclick=closeCircleTool;
 $('circleAdd').onclick=addCircle;
 $('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
+$('cogoCancel').onclick=closeCogoDialog;
+$('cogoInsert').onclick=insertCogoPoint;
+$('cogoScrim').onclick=e=>{if(e.target===$('cogoScrim'))closeCogoDialog();};
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
   if(showMap){mapSource='ramsey';mapImage=null;mapErr=null;fetchMapTiles();}
   else{mapImage=null;mapErr=null;}draw();};
