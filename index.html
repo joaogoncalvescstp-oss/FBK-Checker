@@ -126,7 +126,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -291,7 +291,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:5};
+const VERSION={fruit:'🍒',name:'CHERRY',build:6};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -311,6 +311,7 @@ let orbit={az:0.6,el:1.0,s:1,ox:0,oy:0,ve:3,cx:0,cy:0,cz:0}; // 3D
 let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
 let figOrder={};                                          // figId -> [ptIdx,...] override
 let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
+let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
 let circleTool=null;                                      // circle drawing: {centerPt:idx} or null
@@ -333,15 +334,15 @@ let simplCogoCtx=null;                                     // Simple COGO dialog
 let undoStack=[], redoStack=[];                           // history for undo/redo
 function saveState(){
   redoStack=[];
-  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),log:JSON.parse(JSON.stringify(log))});
+  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   if(undoStack.length>50)undoStack.shift();               // limit history to 50 states
   updateUndoRedoButtons();
 }
 function performUndo(){
   if(undoStack.length===0)return;
-  redoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),log:JSON.parse(JSON.stringify(log))});
+  redoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   const state=undoStack.pop();
-  PTS=state.PTS;figOrder=state.figOrder;log=state.log;
+  PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
   sel=-1;selFig=null;buildLinework();inspect();draw();
   $('logn').textContent=log.length;
   $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
@@ -349,9 +350,9 @@ function performUndo(){
 }
 function performRedo(){
   if(redoStack.length===0)return;
-  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),log:JSON.parse(JSON.stringify(log))});
+  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   const state=redoStack.pop();
-  PTS=state.PTS;figOrder=state.figOrder;log=state.log;
+  PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
   sel=-1;selFig=null;buildLinework();inspect();draw();
   $('logn').textContent=log.length;
   $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
@@ -1177,7 +1178,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     const arc=o.bc?' <span class="arc">BC</span>':o.ec?' <span class="arc">EC</span>':'';
     const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`:'';
     const anc=adding&&addPt.anchor===o.i?' <span class="arc" style="background:#1c2a3a;color:#7fb3ff">ANCHOR</span>':'';
-    const raw=(RAW[o.p.srcLine]||'').trim();
+    const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(o.p.desc,f.code)}"`:pointFbkLine(o.p)).trim();
     rows+=`<div class="vrow">
       <div class="vhd">
         <span class="ord">${k+1}</span>
@@ -1195,7 +1196,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   box.innerHTML=`
     <div class="field"><label>Figure</label>
       <div class="fighead"><span class="figname" style="color:${codeColor(f.code)}">${f.code}</span>
-        <span class="figmeta">${vs.length} vtx · ${f.closed?'closed':'open'}${moved?' · reordered':''}</span></div></div>
+        <span class="figmeta">${vs.length} vtx · ${f.closed?'closed':'open'}${moved?' · reordered':''}${figNEZ[f.id]?' · NEZ':''}</span></div></div>
     <div class="chgrp">
       <button class="btn" id="revBtn">⇄ Reverse</button>
       <button class="btn" id="resetBtn" ${moved?'':'disabled'}>↺ Reset order</button>
@@ -1206,7 +1207,10 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location.</div>`:''}
     ${is3D?'':`<button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>`}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
-    <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.</div>
+    <label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
+      <input type="checkbox" id="nezChk" ${figNEZ[f.id]?'checked':''} style="width:15px;height:15px;cursor:pointer">
+      Render line as NEZ (setup-independent)</label>
+    <div class="warnbox">Drag order with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.<br><br>Tick <b>Render line as NEZ</b> to export <i>every</i> vertex on this line as an NEZ coordinate record — the linework no longer depends on which setup each point was shot from.</div>
     <div class="vlist">${rows}</div>`;
   box.querySelectorAll('.vb').forEach(b=>b.onclick=()=>{
     if(b.dataset.act==='rm'){removeExtra(f.id,+b.dataset.i);return;}
@@ -1218,6 +1222,9 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};
     hud(insertPt?.figId===f.id?'click on the line to insert point':'insert cancelled');inspectFig(getFig(f.id));};
   if($('cogoBtn'))$('cogoBtn').onclick=()=>openCogoDialog(f.id);
+  if($('nezChk'))$('nezChk').onchange=()=>{saveState();
+    if($('nezChk').checked)figNEZ[f.id]=true;else delete figNEZ[f.id];
+    logEdit('code',`${f.code}: render as NEZ ${figNEZ[f.id]?'ON':'OFF'}`);flagDirty();draw();inspectFig(getFig(f.id));};
   $('resetBtn').onclick=()=>{saveState();delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
 }
 function inspectInverse(){const box=$('insp');
@@ -1304,6 +1311,10 @@ function applyRawLine(p,raw){const t=raw.trim().split(/\s+/);const m=raw.match(/
     if(t[0]==='F2'&&za>180){za=360-za;ha=(ha+180)%360;}
     p.ha=ha;p.sd=sd;p.za=za;p.desc=m?m[1]:'';p.code=(p.desc.split(/\s+/)[0]||'').toUpperCase();
     reduce(p);p.edited=true;return true;}
+  if(t[0]==='NEZ'&&t.length>=5){                       // NEZ record — edits a control / inserted point
+    p.id=t[1];p.N=+t[2];p.E=+t[3];p.Z=+t[4];p.desc=m?m[1]:'';p.code=(p.desc.split(/\s+/)[0]||'').toUpperCase();
+    if(p.srcLine>=0)p.rawOverride=raw.trim();           // existing line → override; inserted pts export from p fields
+    p.edited=true;return true;}
   return false;}
 function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   if(/^(Deleted|Used last|Converted|JOB|UNITS|ANGLES|ATMOS|CR|PRISM CONSTANT|PRISM OFFSET|EDM)/.test(ln.trim()))
@@ -1326,14 +1337,14 @@ function openFbk(id){const f=getFig(id);if(!f)return;
   const verts=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
   fbkCtx={id,pts:verts};
   $('fbkTitle').innerHTML=`FBK code · <span style="color:${codeColor(f.code)}">${f.code}</span>`;
-  const ta=$('fbkTA');ta.value=verts.map(p=>finalLine(p)).join('\n');
+  const ta=$('fbkTA');ta.value=verts.map(p=>pointFbkLine(p)).join('\n');
   syncHL();$('fbkHint').textContent=`${verts.length} lines · order matches the figure · Apply re-reduces coordinates`;
   $('fscrim').classList.add('show');ta.focus();}
 function syncHL(){const ta=$('fbkTA');$('fbkHL').innerHTML=ta.value.split('\n').map(hlLine).join('\n');
   $('fbkHL').scrollTop=ta.scrollTop;$('fbkHL').scrollLeft=ta.scrollLeft;}
 function applyFbk(){if(!fbkCtx)return;saveState();const lines=$('fbkTA').value.split('\n');
   let n=0,bad=0;const N=Math.min(lines.length,fbkCtx.pts.length);
-  for(let k=0;k<N;k++){const p=fbkCtx.pts[k];const before=finalLine(p);
+  for(let k=0;k<N;k++){const p=fbkCtx.pts[k];const before=pointFbkLine(p);
     if(lines[k].trim()===before.trim())continue;
     if(applyRawLine(p,lines[k]))n++;else bad++;}
   if(lines.length!==fbkCtx.pts.length)logEdit('code',`note: edited ${N} of ${fbkCtx.pts.length} lines (line count changed)`);
@@ -1361,6 +1372,10 @@ function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
   return ln.replace(/"([^"]*)"/,`"${p.desc}"`);}
 function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Boolean);
   return toks.some(t=>t.toUpperCase()===code)?desc:(desc?desc+' ':'')+code;}   // ensure the line carries the figure code
+/* The FBK line for a point as it stands now (edits applied). Inserted points have
+   no source line, so they render as a fresh NEZ record. */
+function pointFbkLine(p){const ln=finalLine(p);
+  return ln!==undefined?ln:`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${p.desc}"`;}
 function lineWithDesc(p,d){const ln=finalLine(p);if(ln===undefined)return ln;
   return /"([^"]*)"/.test(ln)?ln.replace(/"([^"]*)"/,`"${d}"`):ln+' "'+d+'"';}
 function expandDescForExport(desc){
@@ -1389,9 +1404,29 @@ function exportFBK(expandCodes=true){
     const match=line.match(/^(.*?)"([^"]*)"$/);
     if(match){const expandedDesc=expandCodes?expandDescForExport(match[2]):match[2];line=match[1]+'"'+expandedDesc+'"';}
     editedContent[p.srcLine]=line;});
-  // 2. reorders (natural vertices only — added points handled in 2b)
   const permuted=[], nezed=[], shared=new Set();
-  for(const id in figOrder){const f=getFig(id);if(!f)continue;
+  // 2a. figures flagged "render as NEZ" → every vertex (natural + added, in figure
+  //     order) is emitted as an NEZ coordinate record, so the linework no longer
+  //     depends on which setup each point was shot from.
+  const nezForced=new Set();
+  for(const id in figNEZ){if(!figNEZ[id])continue;const f=getFig(id);if(!f)continue;
+    const verts=f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);if(verts.length<2)continue;
+    nezForced.add(id);
+    const block=[];let anchor=Infinity;
+    verts.forEach(p=>{
+      if(p.srcLine>=0){anchor=Math.min(anchor,p.srcLine);deletedAfter.add(p.srcLine);}   // archive original line
+      if(figuresOfPoint(PTS.indexOf(p)).length>1)shared.add(p.id);
+      if(!nezDone.has(p.id)){nezDone.add(p.id);
+        const d=addCodeToDesc(p.desc,f.code);
+        const ed=expandCodes?expandDescForExport(d):d;
+        block.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${ed}"`);}
+    });
+    const at=isFinite(anchor)?anchor:0;
+    (nezBefore[at]=nezBefore[at]||[]).push(...block);
+    nezed.push(f.code+'·NEZ'+verts.length);
+  }
+  // 2. reorders (natural vertices only — added points handled in 2b)
+  for(const id in figOrder){if(nezForced.has(id))continue;const f=getFig(id);if(!f)continue;
     const verts=f.verts.filter(v=>!v.added).map(v=>PTS[v.i]).filter(p=>!p.deleted);if(verts.length<2)continue;
     const slots=verts.map(p=>p.srcLine).slice().sort((a,b)=>a-b);
     let crosses=false;for(let L=slots[0]+1;L<slots[slots.length-1];L++){const s=(RAW[L]||'').trim();
@@ -1412,7 +1447,7 @@ function exportFBK(expandCodes=true){
     }
   }
   // 2b. added points — existing pts pulled into a figure, placed in line order
-  for(const id in figExtra){const f=getFig(id);if(!f)continue;
+  for(const id in figExtra){if(nezForced.has(id))continue;const f=getFig(id);if(!f)continue;
     const ord=f.verts.filter(v=>PTS[v.i]&&!PTS[v.i].deleted);
     (figExtra[id]||[]).forEach(x=>{const A=PTS[x.i];if(!A||A.deleted)return;
       const pos=ord.findIndex(v=>v.i===x.i);if(pos<0)return;
@@ -1591,7 +1626,7 @@ $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap)
   else{mapImage=null;mapErr=null;}draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
-  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
+  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}

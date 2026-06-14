@@ -19,6 +19,7 @@ first and follow it on every task in this repo.
     | 3 | 🍇 GRAPE | RCFL knockdown only at points with their own curb code |
     | 4 | 🍊 ORANGE | COGO insert keeps proper FBK format (code + moved B/E) |
     | 5 | 🍓 STRAWBERRY | editable inspector: any field edit reflects to the FBK |
+    | 6 | 🍒 CHERRY | inserted pt shows formatted line in review; per-line "render as NEZ" checkbox |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -43,6 +44,18 @@ first and follow it on every task in this repo.
   (`<code> E`); otherwise the new point is just `<code>`.
 - Inserted points have `srcLine = -1` and export as fresh `NEZ` records placed
   in the right file position (not appended to a non-existent source line).
+
+## Figure / line code review (`inspectFig`)
+
+- Each vertex row shows its **current** formatted FBK line via `pointFbkLine()`
+  (reflects edits; inserted points with `srcLine = -1` render as an `NEZ`
+  record instead of a blank line). After a COGO insert the panel refreshes
+  automatically so the new point's line shows.
+- **Render line as NEZ** checkbox (`figNEZ[figId]`) → on export, every vertex
+  of that line is emitted as an `NEZ` coordinate record (originals archived as
+  `Deleted`). Use it so the linework is independent of which setup each point
+  was shot from. The FBK code editor (`applyRawLine`) now also accepts `NEZ`
+  lines, not just `F1/F2 VA`.
 
 ## Project layout
 
