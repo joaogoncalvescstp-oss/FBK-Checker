@@ -440,6 +440,8 @@ function applyKnockdown(){
     if(code)lastCode=code;
     // if this is an RBCB point, apply knockdown with the last known curb code
     if(!/\bRBCB\d*\b/.test(p.desc))return;
+    // if point already has explicit H/V template values, skip REF calculation
+    if(/\sH-?\d+\.?\d*\s+V-?\d+\.?\d*/.test(p.desc))return;
     const activeCode=code||lastCode||'R612';  // use current, last, or default
     // nearest REF by horizontal (N/E) distance, within 1.2 feet radius
     let best=null,bd=Infinity;
