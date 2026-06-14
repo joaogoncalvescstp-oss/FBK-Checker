@@ -1211,7 +1211,7 @@ function exportFBK(expandCodes=true){
   }
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
-  logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?''?' (codes unapplied)':''}`);
+  logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?'':' (codes unapplied)'}`);
   if(permuted.length)logEdit('code',`reordered in-setup: ${[...new Set(permuted)].join(', ')}`);
   if(nezed.length)logEdit('mv',`cross-setup → NEZ: ${nezed.join(', ')} (originals archived as Deleted)`);
   if(shared.size)logEdit('del',`shared pts NEZ-moved, check other figures: ${[...shared].join(', ')}`);}
