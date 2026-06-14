@@ -447,6 +447,30 @@ function applyKnockdown(){
     // if point already has explicit H/V template values, skip REF calculation
     if(/\sH-?\d+\.?\d*\s+V-?\d+\.?\d*/.test(p.desc))return;
     const activeCode=code||lastCode||'R612';  // use current, last, or default
+
+    // if point has explicit curb code, use its standard template (don't do REF calc)
+    if(code){
+      const stdTemplate=CURB_BOC[code];
+      let newDesc=p.desc;
+      // try replacing the bare code name first
+      let re=new RegExp('\\b'+code+'\\b(?![\\s\\S]*\\b'+code+'\\b)');
+      newDesc=p.desc.replace(re,code+' '+stdTemplate);
+      // if code name not found, try replacing the existing expanded template pattern
+      if(newDesc===p.desc){
+        const oldTmpl=stdTemplate.replace(/\s+/g,'\\s+');
+        re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
+        newDesc=p.desc.replace(re,stdTemplate);}
+      // if still no match, remove any H/V templates and insert after RBCB
+      if(newDesc===p.desc){
+        let cleaned=p.desc.replace(/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/g,'').trim();
+        re=/\bRBCB\d*\b/;
+        newDesc=cleaned.replace(re,(m)=>m+' '+stdTemplate);
+      }
+      changes.push({p,newDesc,activeCode:code,v:null,ref:null});
+      return;
+    }
+
+    // no explicit code: use REF-based knockdown
     // nearest REF by horizontal (N/E) distance, within 1.2 feet radius
     let best=null,bd=Infinity;
     const maxSearchRadius=1.2;
@@ -456,19 +480,14 @@ function applyKnockdown(){
     const kd=CURB_KD[activeCode]||0;
     const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
     let tmpl=CURB_BOC[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
-    // try replacing the bare code name first
     let re=new RegExp('\\b'+activeCode+'\\b(?![\\s\\S]*\\b'+activeCode+'\\b)');
     let newDesc=p.desc.replace(re,activeCode+' '+tmpl);
-    // if code name not found, try replacing the existing expanded template pattern
     if(newDesc===p.desc){
       const oldTmpl=CURB_BOC[activeCode].replace(/\s+/g,'\\s+');
       re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
       newDesc=p.desc.replace(re,tmpl);}
-    // if still no match, remove any H/V templates and insert after RBCB
     if(newDesc===p.desc){
-      // remove any H/V offset sequences: H[val] V[val] patterns
       let cleaned=p.desc.replace(/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/g,'').trim();
-      // insert new template right after RBCB code
       re=/\bRBCB\d*\b/;
       newDesc=cleaned.replace(re,(m)=>m+' '+tmpl);
     }
@@ -477,7 +496,8 @@ function applyKnockdown(){
   if(!changes.length){hud('no RBCB curb codes to knock down');return;}
   saveState();
   changes.forEach(({p,newDesc,activeCode,v,ref})=>{
-    logEdit('code',`knockdown pt ${p.id}: ${activeCode} v=${v.toFixed(3)} (REF ${ref})`);
+    if(ref!==null)logEdit('code',`knockdown pt ${p.id}: ${activeCode} v=${v.toFixed(3)} (REF ${ref})`);
+    else logEdit('code',`knockdown pt ${p.id}: ${activeCode} (standard template)`);
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
     applied++;});
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
