@@ -124,7 +124,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -289,7 +289,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:2};
+const VERSION={fruit:'🍇',name:'GRAPE',build:3};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -455,9 +455,12 @@ function applyKnockdown(){
     if(!db[activeCode])return;                // no template for this code in the chosen DB
     let tmpl,v,refId;
     if(isFL){
-      // flow-line shot → always the std Flow-Line cross-section from the DB
-      // (full reveal). REF reveal derivation is a back-of-curb-only workflow.
-      tmpl=db[activeCode];v=0;refId='fl';
+      // flow-line shot → only bake the std Flow-Line cross-section when THIS
+      // point carries its OWN curb code. No code on the point → leave it alone
+      // (do NOT inherit the last-seen code or the default). REF reveal
+      // derivation is a back-of-curb-only workflow.
+      if(!code)return;
+      tmpl=db[code];v=0;refId='fl';
     }else if(code){
       // explicit curb code AT this point → always use the std DB cross-section
       // (full reveal). The point-level code wins: it overrides the REF-derived
