@@ -124,7 +124,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -289,7 +289,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:3};
+const VERSION={fruit:'🍊',name:'ORANGE',build:4};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -632,7 +632,7 @@ function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   const p1=PTS[ptIdx1],p2=PTS[ptIdx2];if(!p1||!p2)return;
   const newE=p1.E+(p2.E-p1.E)*t,newN=p1.N+(p2.N-p1.N)*t,newZ=p1.Z+(p2.Z-p1.Z)*t;
   const newId=getNextPointNumber();
-  const newDesc=f.code+' inserted';
+  const newDesc=f.code;
   const newPt={id:newId,code:f.code,desc:newDesc,N:newN,E:newE,Z:newZ,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
   PTS.push(newPt);const newIdx=PTS.length-1;
   (figExtra[figId]=figExtra[figId]||[]).push({i:newIdx,after:ptIdx1});
@@ -657,26 +657,40 @@ function insertCogoPoint(){
   const f=getFig(cogoCtx.figId);if(!f)return;
   saveState();
   const newId=getNextPointNumber();
-  const newPt={id:newId,code:'NEZ',desc:'COGO inserted',N:N,E:E,Z:Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
-  PTS.push(newPt);const newIdx=PTS.length-1;
-  // handle B/BC conversion and E/CLS for position
+  // The inserted point must carry the figure code so CAD reads it as part of the
+  // linework. When it becomes the new first/last vertex it also takes the begin
+  // (B) / end (E) token, MOVED off the old endpoint so the figure keeps exactly
+  // one B and one E — anything else breaks the FBK in CAD.
+  const dropTok=(d,tok)=>d.replace(new RegExp('\\s*\\b'+tok+'\\b'),'').replace(/\s{2,}/g,' ').trim();
+  let newDesc=f.code;
   if(pos===0&&f.verts.length>0){
     const firstPt=PTS[f.verts[0].i];
-    if(firstPt.desc.includes(' B ')||firstPt.desc.endsWith(' B')){
-      firstPt.desc=firstPt.desc.replace(/\bB\b/,'BC');firstPt.edited=true;
-      logEdit('code',`shifted pt ${firstPt.id}: B → BC (insert at start)`);}
-  }
-  if(atEnd&&f.verts.length>0){
+    if(/\bB\b/.test(firstPt.desc)){
+      firstPt.desc=dropTok(firstPt.desc,'B');firstPt.code=(firstPt.desc.split(/\s+/)[0]||'').toUpperCase();firstPt.edited=true;
+      logEdit('code',`pt ${firstPt.id}: B moved to new start pt ${newId}`);}
+    newDesc=f.code+' B';
+  }else if(atEnd&&f.verts.length>0){
     const lastPt=PTS[f.verts[f.verts.length-1].i];
-    if(lastPt.desc.includes(' E ')||lastPt.desc.endsWith(' E')){
-      lastPt.desc=lastPt.desc.replace(/\bE\b/,'CLS');lastPt.edited=true;
-      logEdit('code',`shifted pt ${lastPt.id}: E → CLS (insert at end)`);}
+    if(/\bE\b/.test(lastPt.desc)){
+      lastPt.desc=dropTok(lastPt.desc,'E');lastPt.code=(lastPt.desc.split(/\s+/)[0]||'').toUpperCase();lastPt.edited=true;
+      logEdit('code',`pt ${lastPt.id}: E moved to new end pt ${newId}`);
+      newDesc=f.code+' E';}
   }
+  const newPt={id:newId,code:f.code,desc:newDesc,N:N,E:E,Z:Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
+  PTS.push(newPt);const newIdx=PTS.length-1;
   const insertAfter=atEnd?(f.verts.length>0?f.verts[f.verts.length-1].i:-1):(pos>0&&pos<=f.verts.length?f.verts[pos-1].i:-1);
   (figExtra[cogoCtx.figId]=figExtra[cogoCtx.figId]||[]).push({i:newIdx,after:insertAfter});
+  buildLinework();
+  // moving B to the new start point changes the figure id (it keys off the first
+  // vertex's source line) — re-home the figExtra entry under the new id so export
+  // still finds and emits the inserted point.
+  const nf=figures().find(fg=>fg.verts.some(v=>v.i===newIdx));
+  if(nf&&nf.id!==cogoCtx.figId){
+    figExtra[nf.id]=(figExtra[nf.id]||[]).concat(figExtra[cogoCtx.figId]||[]);
+    delete figExtra[cogoCtx.figId];cogoCtx.figId=nf.id;}
   logEdit('code',`inserted COGO pt ${newId} at position ${atEnd?'end':pos} on ${f.code}`);
-  logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "COGO inserted"`);
-  buildLinework();draw();closeCogoDialog();selFig=cogoCtx.figId;sel=-1;inspectFig(f);flagDirty();
+  logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${newDesc}"`);
+  draw();closeCogoDialog();selFig=cogoCtx.figId;sel=-1;const sf=getFig(cogoCtx.figId);if(sf)inspectFig(sf);flagDirty();
   hud(`COGO point ${newId} inserted`);}
 
 function openSimplCogoDialog(){
@@ -1352,7 +1366,7 @@ function exportFBK(expandCodes=true){
       const d=addCodeToDesc(A.desc,f.code);
       const neighborStn=(prev&&prev.kind==='shot'&&prev.stn)||(next&&next.kind==='shot'&&next.stn)||null;
       const inOrder=(!prev||prev.srcLine<A.srcLine)&&(!next||A.srcLine<next.srcLine);
-      if(A.kind==='ctrl'){                            // published control: append the code to its existing NEZ (no duplicate id)
+      if(A.kind==='ctrl'&&A.srcLine>=0&&RAW[A.srcLine]!==undefined){   // published control with an existing line: append the code to its NEZ (no duplicate id)
         editedContent[A.srcLine]=lineWithDesc(A,d);permuted.push(f.code+'+'+A.id);
       }else if(neighborStn&&A.stn===neighborStn&&inOrder){   // same setup, already in file order → just add the code in place
         editedContent[A.srcLine]=lineWithDesc(A,d);permuted.push(f.code+'+'+A.id);

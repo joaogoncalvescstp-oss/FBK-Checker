@@ -17,6 +17,7 @@ first and follow it on every task in this repo.
     | 1 | 🍎 APPLE | knockdown corrections |
     | 2 | 🍌 BANANA | RCFL flow-line knockdown |
     | 3 | 🍇 GRAPE | RCFL knockdown only at points with their own curb code |
+    | 4 | 🍊 ORANGE | COGO insert keeps proper FBK format (code + moved B/E) |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -30,6 +31,17 @@ first and follow it on every task in this repo.
   cross-section (full reveal), but **only at points that carry their OWN curb
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
+
+## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
+
+- An inserted point must carry the **figure code** (e.g. `RCFL1`), never a
+  placeholder like `COGO inserted`. CAD needs the code or the linework breaks.
+- Insert at **start** (pos 0): new point gets `<code> B`; the `B` is MOVED off
+  the old first point (it drops to just `<code>`).
+- Insert at **end**: if the old last point had `E`, move it to the new point
+  (`<code> E`); otherwise the new point is just `<code>`.
+- Inserted points have `srcLine = -1` and export as fresh `NEZ` records placed
+  in the right file position (not appended to a non-existent source line).
 
 ## Project layout
 
