@@ -120,11 +120,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="fitBtn" disabled>⊡ Fit</button>
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
-    <button class="btn ghost" id="kdBtn" disabled title="Knockdown: for every RBCB point, find the nearest REF point, derive the curb reveal from the Z difference, and apply the knockdown to the last curb code in its description">⚙ Knockdown</button>
+    <button class="btn ghost" id="kdBtn" disabled title="Knockdown: a point with its own curb code gets that code's std cross-section (overrides REF); points without a code derive the reveal from the nearest REF point's Z difference">⚙ Knockdown</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
   </div>
 
   <div class="main">
@@ -289,7 +289,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:1};
+const VERSION={fruit:'🍎',name:'APPLE',build:1};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -423,11 +423,14 @@ function expandCurb(desc){
    to the curb face. Used to set the final V of the curb cross-section.        */
 const CURB_KD={L612:0.06,R612:0.06,L624:0.12,R624:0.12,LPARK:0.06,RPARK:0.06,L606:0.03,R606:0.03,LD418:0.09,RD418:0.09,L618:0.09,R618:0.09};
 
-/* For each RBCB point: find the nearest REF point (first code token === REF),
-   take v = thisPoint.Z - REF.Z, then rebuild the LAST curb code in the
-   description as an H/V cross-section whose curb-face drop is (v-0.012) and
-   back-of-curb drop is (v-0.012+kd). The curb code token is replaced in place
-   by the literal H/V template, so it draws and exports without re-expansion.  */
+/* For each RBCB point: if the point carries its OWN curb code, expand it to the
+   std DB cross-section (full reveal) — the point-level code always wins and
+   overrides any REF-derived reveal. Otherwise (no code at the point) find the
+   nearest REF point (first code token === REF), take v = thisPoint.Z - REF.Z,
+   and rebuild the LAST known curb code as an H/V cross-section whose curb-face
+   drop is (v-0.012) and back-of-curb drop is (v-0.012+kd). The curb code token
+   is replaced in place by the literal H/V template, so it draws and exports
+   without re-expansion.                                                        */
 function applyKnockdown(){
   if(!PTS.length){hud('load an FBK first');return;}
   const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
@@ -447,57 +450,48 @@ function applyKnockdown(){
     // if point already has explicit H/V template values, skip REF calculation
     if(/\sH-?\d+\.?\d*\s+V-?\d+\.?\d*/.test(p.desc))return;
     const activeCode=code||lastCode||'R612';  // use current, last, or default
-
-    // if point has explicit curb code, use its standard template (don't do REF calc)
+    let tmpl,v,refId;
     if(code){
-      const stdTemplate=CURB_BOC[code];
-      let newDesc=p.desc;
-      // try replacing the bare code name first
-      let re=new RegExp('\\b'+code+'\\b(?![\\s\\S]*\\b'+code+'\\b)');
-      newDesc=p.desc.replace(re,code+' '+stdTemplate);
-      // if code name not found, try replacing the existing expanded template pattern
-      if(newDesc===p.desc){
-        const oldTmpl=stdTemplate.replace(/\s+/g,'\\s+');
-        re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
-        newDesc=p.desc.replace(re,stdTemplate);}
-      // if still no match, remove any H/V templates and insert after RBCB
-      if(newDesc===p.desc){
-        let cleaned=p.desc.replace(/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/g,'').trim();
-        re=/\bRBCB\d*\b/;
-        newDesc=cleaned.replace(re,(m)=>m+' '+stdTemplate);
-      }
-      changes.push({p,newDesc,activeCode:code,v:null,ref:null});
-      return;
+      // explicit curb code AT this point → always use the std DB cross-section
+      // (full reveal). The point-level code wins: it overrides the REF-derived
+      // reveal even when a REF shot is in range. No REF needed.
+      tmpl=CURB_BOC[code];v=0;refId='std';
+    }else{
+      // no code at this point → derive the reveal from the nearest REF shot.
+      // nearest REF by horizontal (N/E) distance, within 1.2 feet radius
+      let best=null,bd=Infinity;
+      const maxSearchRadius=1.2;
+      refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
+      if(!best)return;
+      v=p.Z-best.Z;refId=best.id;
+      const kd=CURB_KD[activeCode]||0;
+      const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
+      tmpl=CURB_BOC[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
     }
-
-    // no explicit code: use REF-based knockdown
-    // nearest REF by horizontal (N/E) distance, within 1.2 feet radius
-    let best=null,bd=Infinity;
-    const maxSearchRadius=1.2;
-    refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
-    if(!best)return;
-    const v=p.Z-best.Z;
-    const kd=CURB_KD[activeCode]||0;
-    const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
-    let tmpl=CURB_BOC[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
+    // Replace the LAST occurrence of the bare code name with its cross-section.
+    // The curb code is shorthand the H/V template fully supersedes, so the bare
+    // token is dropped (RBCB and any other codes in the description are kept).
     let re=new RegExp('\\b'+activeCode+'\\b(?![\\s\\S]*\\b'+activeCode+'\\b)');
-    let newDesc=p.desc.replace(re,activeCode+' '+tmpl);
+    let newDesc=p.desc.replace(re, tmpl);
+    // if code name not found, try replacing the existing expanded template pattern
     if(newDesc===p.desc){
       const oldTmpl=CURB_BOC[activeCode].replace(/\s+/g,'\\s+');
       re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
       newDesc=p.desc.replace(re,tmpl);}
+    // if still no match, remove any H/V templates and insert after RBCB
     if(newDesc===p.desc){
+      // remove any H/V offset sequences: H[val] V[val] patterns
       let cleaned=p.desc.replace(/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/g,'').trim();
+      // insert new template right after RBCB code
       re=/\bRBCB\d*\b/;
       newDesc=cleaned.replace(re,(m)=>m+' '+tmpl);
     }
-    changes.push({p,newDesc,activeCode,v,ref:best.id});
+    changes.push({p,newDesc,activeCode,v,ref:refId});
   });
   if(!changes.length){hud('no RBCB curb codes to knock down');return;}
   saveState();
   changes.forEach(({p,newDesc,activeCode,v,ref})=>{
-    if(ref!==null)logEdit('code',`knockdown pt ${p.id}: ${activeCode} v=${v.toFixed(3)} (REF ${ref})`);
-    else logEdit('code',`knockdown pt ${p.id}: ${activeCode} (standard template)`);
+    logEdit('code',`knockdown pt ${p.id}: ${activeCode} ${ref==='std'?'std code':'v='+v.toFixed(3)+' (REF '+ref+')'}`);
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
     applied++;});
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
