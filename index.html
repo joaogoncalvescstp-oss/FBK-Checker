@@ -468,9 +468,13 @@ function applyKnockdown(){
       const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
       tmpl=CURB_BOC[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
     }
-    // try replacing the bare code name first
+    // Replace the LAST occurrence of the bare code name with its cross-section.
+    // Knockdown codes (in CURB_KD, e.g. R624) are shorthand the template fully
+    // supersedes, so the bare token is dropped; other reveal codes (e.g. R024)
+    // are kept alongside the template.
+    const keepToken=!CURB_KD[activeCode];
     let re=new RegExp('\\b'+activeCode+'\\b(?![\\s\\S]*\\b'+activeCode+'\\b)');
-    let newDesc=p.desc.replace(re,activeCode+' '+tmpl);
+    let newDesc=p.desc.replace(re, keepToken ? activeCode+' '+tmpl : tmpl);
     // if code name not found, try replacing the existing expanded template pattern
     if(newDesc===p.desc){
       const oldTmpl=CURB_BOC[activeCode].replace(/\s+/g,'\\s+');
