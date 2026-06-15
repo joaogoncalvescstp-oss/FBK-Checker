@@ -22,6 +22,7 @@ first and follow it on every task in this repo.
     | 6 | 🍒 CHERRY | inserted pt shows formatted line in review; per-line "render as NEZ" checkbox |
     | 7 | 🥝 KIWI | drag-and-drop vertex rows to set draw order in the line editor |
     | 8 | 🍑 PEACH | canvas vertex order # moved below node so it doesn't overlap the pt # |
+    | 9 | 🍍 PINEAPPLE | line-code review: hover a knocked-down H/V offset to see the curb code + REF that produced it |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 

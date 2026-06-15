@@ -92,6 +92,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .vb[disabled]{opacity:.25;cursor:default}
 .fbk{font:11px/1.5 var(--mono);color:#cfe0ff;background:#0a1426;border-top:1px solid var(--rule);padding:5px 9px;white-space:pre-wrap;word-break:break-all}
 .shared{font:10px var(--mono);color:var(--warn);padding:3px 9px 5px;background:#0a1426}
+.kdoff{border-bottom:1px dotted var(--gold);background:rgba(241,180,52,.10);color:#ffd98a;cursor:help;border-radius:2px}
+.kdoff:hover{background:rgba(241,180,52,.22)}
 .zwbox{position:absolute;border:1px solid var(--gold);background:rgba(241,180,52,.12);pointer-events:none;display:none}
 /* modal */
 .scrim{position:fixed;inset:0;background:rgba(4,8,16,.6);display:none;place-items:center;z-index:20}
@@ -131,7 +133,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
   </div>
 
   <div class="main">
@@ -296,7 +298,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:8};
+const VERSION={fruit:'🍍',name:'PINEAPPLE',build:9};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -511,6 +513,9 @@ function applyKnockdown(){
   changes.forEach(({p,newDesc,activeCode,v,ref})=>{
     logEdit('code',`knockdown pt ${p.id}: ${activeCode} ${ref==='std'?'std code':ref==='fl'?'flow line':'v='+v.toFixed(3)+' (REF '+ref+')'}`);
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
+    // remember what produced this baked offset so the line-code review can show
+    // it on hover (curb code + whether it's a std cross-section or REF-derived).
+    p.kdInfo={code:activeCode,ref,v};
     applied++;});
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
   hud(`Knockdown applied to ${applied} pt(s)`);
@@ -1195,7 +1200,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
           <button class="vb" data-act="dn" data-k="${k}" ${k===vs.length-1?'disabled':''}>▼</button>`}
         </span>
       </div>
-      <div class="fbk">${raw.replace(/</g,'&lt;')}</div>
+      <div class="fbk">${fbkLineHtml(o.p,raw)}</div>
       ${shared.length?`<div class="shared">also on ${shared.join(', ')}</div>`:''}
     </div>`;});
   box.innerHTML=`
@@ -1284,7 +1289,7 @@ function inspectInverse(){const box=$('insp');
 function applyDesc(p){const v=$('fDesc').value.trim();if(v===p.desc)return;
   saveState();
   logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${v}"`);
-  p.desc=v;p.code=(v.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
+  p.desc=v;p.code=(v.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;p.kdInfo=undefined;
   buildLinework();draw();inspect();flagDirty();}
 /* Back-solve a shot's HA/SD/ZA so the VA observation reproduces an exact N/E/Z.
    Inverse of reduce(): uses the stored station origin, orientation, HI & prism. */
@@ -1319,7 +1324,7 @@ function applyPointEdit(p){
     p.N=N;p.E=E;p.Z=Z;
     if(p.srcLine>=0)p.rawOverride=`NEZ ${id} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${desc}"`;
   }
-  p.id=id;p.desc=desc;p.code=(desc.split(/\s+/)[0]||'').toUpperCase()||p.code;p.edited=true;
+  p.id=id;p.desc=desc;p.code=(desc.split(/\s+/)[0]||'').toUpperCase()||p.code;p.edited=true;p.kdInfo=undefined;
   logEdit('code',`pt ${oldId}${oldId!==id?' → '+id:''} line ${p.srcLine+1}: N ${p.N.toFixed(3)} E ${p.E.toFixed(3)} Z ${p.Z.toFixed(3)} "${desc}"`);
   buildLinework();draw();inspect();flagDirty();}
 function toggleDel(p){saveState();p.deleted=!p.deleted;p.edited=true;
@@ -1333,9 +1338,9 @@ function applyRawLine(p,raw){const t=raw.trim().split(/\s+/);const m=raw.match(/
     let ha=dms2deg(+t[3]);const sd=+t[4];let za=dms2deg(+t[5]);
     if(t[0]==='F2'&&za>180){za=360-za;ha=(ha+180)%360;}
     p.ha=ha;p.sd=sd;p.za=za;p.desc=m?m[1]:'';p.code=(p.desc.split(/\s+/)[0]||'').toUpperCase();
-    reduce(p);p.edited=true;return true;}
+    reduce(p);p.edited=true;p.kdInfo=undefined;return true;}
   if(t[0]==='NEZ'&&t.length>=5){                       // NEZ record — edits a control / inserted point
-    p.id=t[1];p.N=+t[2];p.E=+t[3];p.Z=+t[4];p.desc=m?m[1]:'';p.code=(p.desc.split(/\s+/)[0]||'').toUpperCase();
+    p.id=t[1];p.N=+t[2];p.E=+t[3];p.Z=+t[4];p.desc=m?m[1]:'';p.code=(p.desc.split(/\s+/)[0]||'').toUpperCase();p.kdInfo=undefined;
     if(p.srcLine>=0)p.rawOverride=raw.trim();           // existing line → override; inserted pts export from p fields
     p.edited=true;return true;}
   return false;}
@@ -1399,6 +1404,20 @@ function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Bool
    no source line, so they render as a fresh NEZ record. */
 function pointFbkLine(p){const ln=finalLine(p);
   return ln!==undefined?ln:`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${p.desc}"`;}
+/* Human-readable provenance for a baked-in knockdown offset: which curb code
+   produced it, and whether it's a std cross-section or a REF-derived reveal. */
+function kdTip(p){if(!p||!p.kdInfo)return '';const k=p.kdInfo;
+  if(k.ref==='std')return `knockdown · ${k.code} standard cross-section (point's own curb code)`;
+  if(k.ref==='fl')return `knockdown · ${k.code} flow-line standard cross-section`;
+  return `knockdown · ${k.code} · reveal v=${(+k.v).toFixed(3)} from REF ${k.ref}`;}
+/* Render an FBK line (HTML-escaped). If the point was knocked down, wrap its
+   H/V offset run in a hover span that reveals the curb code / REF that made it. */
+function fbkLineHtml(p,raw){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  if(!p||!p.kdInfo)return esc(raw);
+  const m=raw.match(/H-?\d+\.?\d*\s+V-?\d+\.?\d*(?:\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/);
+  if(!m)return esc(raw);
+  const tip=kdTip(p).replace(/"/g,'&quot;');
+  return esc(raw.slice(0,m.index))+`<span class="kdoff" title="${tip}">`+esc(m[0])+`</span>`+esc(raw.slice(m.index+m[0].length));}
 function lineWithDesc(p,d){const ln=finalLine(p);if(ln===undefined)return ln;
   return /"([^"]*)"/.test(ln)?ln.replace(/"([^"]*)"/,`"${d}"`):ln+' "'+d+'"';}
 function expandDescForExport(desc){
