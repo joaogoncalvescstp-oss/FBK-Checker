@@ -131,7 +131,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
   </div>
 
   <div class="main">
@@ -200,6 +200,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <div class="scrim" id="fscrim">
   <div class="modal big">
     <h4 id="fbkTitle">FBK code</h4>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <button class="btn" id="fbkKdToggle" style="display:none" title="Toggle the lines between the baked knockdown offsets and the original curb codes that produced them">⏮ Show codes (before knockdown)</button>
+    </div>
     <div class="codewrap">
       <pre id="fbkHL" class="hl"></pre>
       <textarea id="fbkTA" spellcheck="false" autocomplete="off" wrap="off"></textarea>
@@ -296,7 +299,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥭',name:'MANGO',build:10};
+const VERSION={fruit:'🍐',name:'PEAR',build:11};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1181,21 +1184,17 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added})).filter(o=>o.p&&!o.p.deleted);
   const moved=!!figOrder[f.id];
   const adding=addPt&&addPt.figId===f.id;
-  const hasKd=vs.some(o=>o.p.kdInfo);                       // any knocked-down vertex on this line?
   let rows='';
   vs.forEach((o,k)=>{
     const shared=figuresOfPoint(o.i).filter(g=>g.id!==f.id).map(g=>g.code);
     const arc=o.bc?' <span class="arc">BC</span>':o.ec?' <span class="arc">EC</span>':'';
     const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`:'';
     const anc=adding&&addPt.anchor===o.i?' <span class="arc" style="background:#1c2a3a;color:#7fb3ff">ANCHOR</span>':'';
-    const preKd=showPreKd&&o.p.kdInfo;                       // show original curb code instead of baked offset
-    const codeBadge=preKd?` <span class="arc" style="background:#3a2a1c;color:#ffd24a" title="${o.p.kdInfo.ref==='std'?'std code':o.p.kdInfo.ref==='fl'?'flow line':'REF '+o.p.kdInfo.ref}">${o.p.kdInfo.code}</span>`:'';
-    const dispDesc=preKd?o.p.kdInfo.orig:o.p.desc;
-    const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(dispDesc,f.code)}"`:(preKd?preKdLine(o.p):pointFbkLine(o.p))).trim();
+    const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(o.p.desc,f.code)}"`:pointFbkLine(o.p)).trim();
     rows+=`<div class="vrow draggable" draggable="true" data-k="${k}">
       <div class="vhd">
         <span class="ord grip" title="drag to reorder">${k+1}</span>
-        <span class="vpt">pt ${o.p.id}${arc}${tag}${anc}${codeBadge}</span>
+        <span class="vpt">pt ${o.p.id}${arc}${tag}${anc}</span>
         <span class="vln">L${o.p.srcLine+1}</span>
         <span class="vbtns">
           ${o.added?`<button class="vb" data-act="rm" data-i="${o.i}" title="remove from line">✕</button>`:
@@ -1220,7 +1219,6 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location.</div>`:''}
     ${is3D?'':`<button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>`}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
-    ${hasKd?`<button class="btn ${showPreKd?'gold':''}" id="kdToggleBtn" style="width:100%;justify-content:center;margin-top:7px" title="Toggle between the baked knockdown offsets and the original curb codes that produced them">${showPreKd?'⚙ Show knockdown offsets':'⏮ Show codes (before knockdown)'}</button>`:''}
     <label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
       <input type="checkbox" id="nezChk" ${figNEZ[f.id]?'checked':''} style="width:15px;height:15px;cursor:pointer">
       Render line as NEZ (setup-independent)</label>
@@ -1249,8 +1247,6 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   });
   $('revBtn').onclick=()=>reverseFig(f.id);
   $('fbkBtn').onclick=()=>openFbk(f.id);
-  if($('kdToggleBtn'))$('kdToggleBtn').onclick=()=>{showPreKd=!showPreKd;
-    hud(showPreKd?'showing curb codes (before knockdown)':'showing knockdown offsets');inspectFig(getFig(f.id));};
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
   if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};
@@ -1367,18 +1363,29 @@ function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
     out+=' <span class="t-str">"</span>'+dd+'<span class="t-str">"</span>';}
   return out;}
 let fbkCtx=null;
+/* The line to SHOW in the review/edit window for a point: the original curb code
+   (pre-knockdown) when the toggle is on and the point was knocked down, else the
+   current line. Apply uses the same baseline so an untouched toggle is a no-op. */
+function displayLine(p){return (showPreKd&&p.kdInfo)?preKdLine(p):pointFbkLine(p);}
+function fillFbkTA(){if(!fbkCtx)return;const ta=$('fbkTA');
+  ta.value=fbkCtx.pts.map(p=>displayLine(p)).join('\n');syncHL();}
 function openFbk(id){const f=getFig(id);if(!f)return;
   const verts=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
   fbkCtx={id,pts:verts};
   $('fbkTitle').innerHTML=`FBK code · <span style="color:${codeColor(f.code)}">${f.code}</span>`;
-  const ta=$('fbkTA');ta.value=verts.map(p=>pointFbkLine(p)).join('\n');
-  syncHL();$('fbkHint').textContent=`${verts.length} lines · order matches the figure · Apply re-reduces coordinates`;
-  $('fscrim').classList.add('show');ta.focus();}
+  fillFbkTA();
+  // knockdown toggle: only meaningful when the figure has knocked-down vertices
+  const tgl=$('fbkKdToggle'),hasKd=verts.some(p=>p.kdInfo);
+  tgl.style.display=hasKd?'':'none';
+  tgl.classList.toggle('gold',showPreKd&&hasKd);
+  tgl.textContent=showPreKd?'⚙ Show knockdown offsets':'⏮ Show codes (before knockdown)';
+  $('fbkHint').textContent=`${verts.length} lines · order matches the figure · Apply re-reduces coordinates`;
+  $('fscrim').classList.add('show');$('fbkTA').focus();}
 function syncHL(){const ta=$('fbkTA');$('fbkHL').innerHTML=ta.value.split('\n').map(hlLine).join('\n');
   $('fbkHL').scrollTop=ta.scrollTop;$('fbkHL').scrollLeft=ta.scrollLeft;}
 function applyFbk(){if(!fbkCtx)return;saveState();const lines=$('fbkTA').value.split('\n');
   let n=0,bad=0;const N=Math.min(lines.length,fbkCtx.pts.length);
-  for(let k=0;k<N;k++){const p=fbkCtx.pts[k];const before=pointFbkLine(p);
+  for(let k=0;k<N;k++){const p=fbkCtx.pts[k];const before=displayLine(p);
     if(lines[k].trim()===before.trim())continue;
     if(applyRawLine(p,lines[k]))n++;else bad++;}
   if(lines.length!==fbkCtx.pts.length)logEdit('code',`note: edited ${N} of ${fbkCtx.pts.length} lines (line count changed)`);
@@ -1645,6 +1652,10 @@ $('gotoInput').onkeydown=e=>{if(e.key==='Enter')gotoPoint();if(e.key==='Escape')
 $('scrim').onclick=e=>{if(e.target===$('scrim'))closeGoto();};
 $('fbkApply').onclick=applyFbk;
 $('fbkCancel').onclick=closeFbk;
+$('fbkKdToggle').onclick=()=>{showPreKd=!showPreKd;
+  $('fbkKdToggle').classList.toggle('gold',showPreKd);
+  $('fbkKdToggle').textContent=showPreKd?'⚙ Show knockdown offsets':'⏮ Show codes (before knockdown)';
+  fillFbkTA();};
 $('fscrim').onclick=e=>{if(e.target===$('fscrim'))closeFbk();};
 $('fbkTA').addEventListener('input',syncHL);
 $('fbkTA').addEventListener('scroll',()=>{$('fbkHL').scrollTop=$('fbkTA').scrollTop;$('fbkHL').scrollLeft=$('fbkTA').scrollLeft;});
