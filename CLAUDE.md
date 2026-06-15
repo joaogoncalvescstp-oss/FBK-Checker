@@ -23,6 +23,7 @@ first and follow it on every task in this repo.
     | 7 | 🥝 KIWI | drag-and-drop vertex rows to set draw order in the line editor |
     | 8 | 🍑 PEACH | canvas vertex order # moved below node so it doesn't overlap the pt # |
     | 9 | 🍍 PINEAPPLE | line-code review: hover a knocked-down H/V offset to see the curb code + REF that produced it |
+    | 10 | 🥭 MANGO | line-code review: rolled back the hover; added a toggle button to show curb codes (before knockdown) vs baked offsets |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 

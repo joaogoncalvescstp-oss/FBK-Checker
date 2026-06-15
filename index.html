@@ -92,8 +92,6 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .vb[disabled]{opacity:.25;cursor:default}
 .fbk{font:11px/1.5 var(--mono);color:#cfe0ff;background:#0a1426;border-top:1px solid var(--rule);padding:5px 9px;white-space:pre-wrap;word-break:break-all}
 .shared{font:10px var(--mono);color:var(--warn);padding:3px 9px 5px;background:#0a1426}
-.kdoff{border-bottom:1px dotted var(--gold);background:rgba(241,180,52,.10);color:#ffd98a;cursor:help;border-radius:2px}
-.kdoff:hover{background:rgba(241,180,52,.22)}
 .zwbox{position:absolute;border:1px solid var(--gold);background:rgba(241,180,52,.12);pointer-events:none;display:none}
 /* modal */
 .scrim{position:fixed;inset:0;background:rgba(4,8,16,.6);display:none;place-items:center;z-index:20}
@@ -133,7 +131,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
   </div>
 
   <div class="main">
@@ -298,7 +296,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍍',name:'PINEAPPLE',build:9};
+const VERSION={fruit:'🥭',name:'MANGO',build:10};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -333,6 +331,7 @@ let mapTimer=null;                                        // debounce timer for 
 let mapLastKey='';                                        // viewport key last requested (skip duplicate fetches)
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
+let showPreKd=false;                                      // line review: show curb codes (pre-knockdown) instead of baked offsets
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
 let cogoCtx=null;                                          // COGO insertion dialog context: {figId}
 let simplCogoCtx=null;                                     // Simple COGO dialog context
@@ -512,10 +511,10 @@ function applyKnockdown(){
   saveState();
   changes.forEach(({p,newDesc,activeCode,v,ref})=>{
     logEdit('code',`knockdown pt ${p.id}: ${activeCode} ${ref==='std'?'std code':ref==='fl'?'flow line':'v='+v.toFixed(3)+' (REF '+ref+')'}`);
+    // remember the pre-knockdown description so the line-code review can toggle
+    // back to the original curb code (before the offset was baked in).
+    p.kdInfo={code:activeCode,ref,v,orig:p.desc};
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
-    // remember what produced this baked offset so the line-code review can show
-    // it on hover (curb code + whether it's a std cross-section or REF-derived).
-    p.kdInfo={code:activeCode,ref,v};
     applied++;});
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
   hud(`Knockdown applied to ${applied} pt(s)`);
@@ -1182,17 +1181,21 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added})).filter(o=>o.p&&!o.p.deleted);
   const moved=!!figOrder[f.id];
   const adding=addPt&&addPt.figId===f.id;
+  const hasKd=vs.some(o=>o.p.kdInfo);                       // any knocked-down vertex on this line?
   let rows='';
   vs.forEach((o,k)=>{
     const shared=figuresOfPoint(o.i).filter(g=>g.id!==f.id).map(g=>g.code);
     const arc=o.bc?' <span class="arc">BC</span>':o.ec?' <span class="arc">EC</span>':'';
     const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`:'';
     const anc=adding&&addPt.anchor===o.i?' <span class="arc" style="background:#1c2a3a;color:#7fb3ff">ANCHOR</span>':'';
-    const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(o.p.desc,f.code)}"`:pointFbkLine(o.p)).trim();
+    const preKd=showPreKd&&o.p.kdInfo;                       // show original curb code instead of baked offset
+    const codeBadge=preKd?` <span class="arc" style="background:#3a2a1c;color:#ffd24a" title="${o.p.kdInfo.ref==='std'?'std code':o.p.kdInfo.ref==='fl'?'flow line':'REF '+o.p.kdInfo.ref}">${o.p.kdInfo.code}</span>`:'';
+    const dispDesc=preKd?o.p.kdInfo.orig:o.p.desc;
+    const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(dispDesc,f.code)}"`:(preKd?preKdLine(o.p):pointFbkLine(o.p))).trim();
     rows+=`<div class="vrow draggable" draggable="true" data-k="${k}">
       <div class="vhd">
         <span class="ord grip" title="drag to reorder">${k+1}</span>
-        <span class="vpt">pt ${o.p.id}${arc}${tag}${anc}</span>
+        <span class="vpt">pt ${o.p.id}${arc}${tag}${anc}${codeBadge}</span>
         <span class="vln">L${o.p.srcLine+1}</span>
         <span class="vbtns">
           ${o.added?`<button class="vb" data-act="rm" data-i="${o.i}" title="remove from line">✕</button>`:
@@ -1200,7 +1203,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
           <button class="vb" data-act="dn" data-k="${k}" ${k===vs.length-1?'disabled':''}>▼</button>`}
         </span>
       </div>
-      <div class="fbk">${fbkLineHtml(o.p,raw)}</div>
+      <div class="fbk">${raw.replace(/</g,'&lt;')}</div>
       ${shared.length?`<div class="shared">also on ${shared.join(', ')}</div>`:''}
     </div>`;});
   box.innerHTML=`
@@ -1217,6 +1220,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location.</div>`:''}
     ${is3D?'':`<button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>`}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
+    ${hasKd?`<button class="btn ${showPreKd?'gold':''}" id="kdToggleBtn" style="width:100%;justify-content:center;margin-top:7px" title="Toggle between the baked knockdown offsets and the original curb codes that produced them">${showPreKd?'⚙ Show knockdown offsets':'⏮ Show codes (before knockdown)'}</button>`:''}
     <label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
       <input type="checkbox" id="nezChk" ${figNEZ[f.id]?'checked':''} style="width:15px;height:15px;cursor:pointer">
       Render line as NEZ (setup-independent)</label>
@@ -1245,6 +1249,8 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   });
   $('revBtn').onclick=()=>reverseFig(f.id);
   $('fbkBtn').onclick=()=>openFbk(f.id);
+  if($('kdToggleBtn'))$('kdToggleBtn').onclick=()=>{showPreKd=!showPreKd;
+    hud(showPreKd?'showing curb codes (before knockdown)':'showing knockdown offsets');inspectFig(getFig(f.id));};
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
   if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};
@@ -1404,20 +1410,11 @@ function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Bool
    no source line, so they render as a fresh NEZ record. */
 function pointFbkLine(p){const ln=finalLine(p);
   return ln!==undefined?ln:`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${p.desc}"`;}
-/* Human-readable provenance for a baked-in knockdown offset: which curb code
-   produced it, and whether it's a std cross-section or a REF-derived reveal. */
-function kdTip(p){if(!p||!p.kdInfo)return '';const k=p.kdInfo;
-  if(k.ref==='std')return `knockdown · ${k.code} standard cross-section (point's own curb code)`;
-  if(k.ref==='fl')return `knockdown · ${k.code} flow-line standard cross-section`;
-  return `knockdown · ${k.code} · reveal v=${(+k.v).toFixed(3)} from REF ${k.ref}`;}
-/* Render an FBK line (HTML-escaped). If the point was knocked down, wrap its
-   H/V offset run in a hover span that reveals the curb code / REF that made it. */
-function fbkLineHtml(p,raw){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  if(!p||!p.kdInfo)return esc(raw);
-  const m=raw.match(/H-?\d+\.?\d*\s+V-?\d+\.?\d*(?:\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/);
-  if(!m)return esc(raw);
-  const tip=kdTip(p).replace(/"/g,'&quot;');
-  return esc(raw.slice(0,m.index))+`<span class="kdoff" title="${tip}">`+esc(m[0])+`</span>`+esc(raw.slice(m.index+m[0].length));}
+/* The FBK line for a knocked-down point as it read BEFORE the offset was baked
+   in (the original curb code). Used by the line-review "show codes" toggle. */
+function preKdLine(p){if(!p||!p.kdInfo)return pointFbkLine(p);
+  const ln=lineWithDesc(p,p.kdInfo.orig);
+  return ln!==undefined?ln:`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${p.kdInfo.orig}"`;}
 function lineWithDesc(p,d){const ln=finalLine(p);if(ln===undefined)return ln;
   return /"([^"]*)"/.test(ln)?ln.replace(/"([^"]*)"/,`"${d}"`):ln+' "'+d+'"';}
 function expandDescForExport(desc){
