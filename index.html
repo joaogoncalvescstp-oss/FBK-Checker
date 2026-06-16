@@ -131,7 +131,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
   </div>
 
   <div class="main">
@@ -281,6 +281,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <label>Elevation (Z)</label>
       <input type="number" id="simplCogoZ" placeholder="Enter elevation" step="0.001" autocomplete="off">
     </div>
+    <button class="btn" id="simplCogoPick" style="width:100%;justify-content:center" title="Click on the drawing to set N/E/Z. CAD object snap: endpoint, apparent intersection of two lines, midpoint, nearest.">📍 Pick on canvas (snap)</button>
+    <div class="hint" style="margin:6px 0 2px">osnap: ▢ endpoint · ✕ intersection · △ midpoint · ⋈ nearest · Esc cancels</div>
     <div class="field">
       <label>Code/Description</label>
       <input type="text" id="simplCogoCode" placeholder="e.g., CP CONTROL POINT" autocomplete="off">
@@ -299,7 +301,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍐',name:'PEAR',build:11};
+const VERSION={fruit:'🍉',name:'WATERMELON',build:12};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -338,6 +340,9 @@ let showPreKd=false;                                      // line review: show c
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
 let cogoCtx=null;                                          // COGO insertion dialog context: {figId}
 let simplCogoCtx=null;                                     // Simple COGO dialog context
+let cogoPick=null;                                         // canvas-pick mode for Add Point (COGO): true while picking
+let cogoSnap=null;                                         // current CAD snap result under the cursor while picking
+let prevCursor='';                                         // canvas cursor saved while in pick mode
 
 /* ---------- undo/redo ---------- */
 let undoStack=[], redoStack=[];                           // history for undo/redo
@@ -712,7 +717,7 @@ function openSimplCogoDialog(){
   $('simplCogoN').value='';$('simplCogoE').value='';$('simplCogoZ').value='';$('simplCogoCode').value='';
   simplCogoCtx={};$('simplCogoScrim').classList.add('show');$('simplCogoN').focus();
   hud('enter coordinates for new point');}
-function closeSimplCogoDialog(){simplCogoCtx=null;$('simplCogoScrim').classList.remove('show');}
+function closeSimplCogoDialog(){simplCogoCtx=null;cogoPick=null;cogoSnap=null;$('simplCogoScrim').classList.remove('show');draw();}
 function addSimplCogoPoint(){
   const N=parseFloat($('simplCogoN').value),E=parseFloat($('simplCogoE').value),Z=parseFloat($('simplCogoZ').value);
   const desc=($('simplCogoCode').value||'').trim();
@@ -725,6 +730,80 @@ function addSimplCogoPoint(){
   logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${desc||''}"`);
   buildLinework();draw();closeSimplCogoDialog();sel=-1;selFig=null;inspect();flagDirty();
   hud(`point ${newId} added`);}
+
+/* ---------- basic CAD object snap (2D) for the COGO canvas pick ----------
+   Snaps the cursor to: endpoint (a figure vertex / point), apparent intersection
+   of two lines (lines extended until they cross), midpoint of a segment, and
+   nearest point on a segment. W2S is affine, so a segment parameter computed in
+   screen space equals the world-space parameter — used to interpolate Z.        */
+function collectSegments(){const segs=[];
+  figures().forEach(f=>{const vs=f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);
+    const push=(a,b)=>{const A=W2S(a.E,a.N),B=W2S(b.E,b.N);
+      segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:a.E,aN:a.N,aZ:a.Z,bE:b.E,bN:b.N,bZ:b.Z});};
+    for(let k=0;k<vs.length-1;k++)push(vs[k],vs[k+1]);
+    if(f.closed&&vs.length>1)push(vs[vs.length-1],vs[0]);});
+  return segs;}
+function projParam(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
+  return ((px-x1)*dx+(py-y1)*dy)/L;}                       // unclamped parameter along the line
+function ptLineDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1;
+  return Math.abs((px-x1)*dy-(py-y1)*dx)/L;}              // distance to the INFINITE line
+function lineLineX(s1,s2){                                 // infinite-line intersection of two segments
+  const den=(s1.ax-s1.bx)*(s2.ay-s2.by)-(s1.ay-s1.by)*(s2.ax-s2.bx);
+  if(Math.abs(den)<1e-6)return null;                       // parallel / coincident
+  const t=((s1.ax-s2.ax)*(s2.ay-s2.by)-(s1.ay-s2.ay)*(s2.ax-s2.bx))/den;
+  const x=s1.ax+t*(s1.bx-s1.ax),y=s1.ay+t*(s1.by-s1.ay);
+  return {x,y,t,u:projParam(x,y,s2.ax,s2.ay,s2.bx,s2.by)};}
+function snapPoint(sx,sy){
+  if(is3D)return null;
+  const TOL_PT=12,TOL_X=14,TOL_MID=11,TOL_NEAR=8;
+  // 1) endpoint / node — nearest point (covers every segment endpoint)
+  let best=null,bd=TOL_PT;
+  PTS.forEach(p=>{if(p.deleted)return;const[x,y]=W2S(p.E,p.N);const d=Math.hypot(x-sx,y-sy);
+    if(d<bd){bd=d;best={E:p.E,N:p.N,Z:p.Z,sx:x,sy:y,type:'endpoint',label:'endpoint · pt '+p.id};}});
+  if(best)return best;
+  const segs=collectSegments();
+  // 2) apparent intersection — pairs of lines passing near the cursor, crossing near the cursor
+  const near=segs.filter(s=>ptLineDist(sx,sy,s.ax,s.ay,s.bx,s.by)<60);
+  let bxd=TOL_X;
+  for(let i=0;i<near.length;i++)for(let j=i+1;j<near.length;j++){
+    const X=lineLineX(near[i],near[j]);if(!X||!isFinite(X.x))continue;
+    const d=Math.hypot(X.x-sx,X.y-sy);if(d<bxd){
+      const z1=near[i].aZ+X.t*(near[i].bZ-near[i].aZ),z2=near[j].aZ+X.u*(near[j].bZ-near[j].aZ);
+      const[E,N]=S2W(X.x,X.y);bxd=d;
+      best={E,N,Z:(z1+z2)/2,sx:X.x,sy:X.y,type:'intersection',label:'apparent intersection'};}}
+  if(best)return best;
+  // 3) midpoint
+  let bmd=TOL_MID;
+  segs.forEach(s=>{const mx=(s.ax+s.bx)/2,my=(s.ay+s.by)/2,d=Math.hypot(mx-sx,my-sy);
+    if(d<bmd){bmd=d;best={E:(s.aE+s.bE)/2,N:(s.aN+s.bN)/2,Z:(s.aZ+s.bZ)/2,sx:mx,sy:my,type:'midpoint',label:'midpoint'};}});
+  if(best)return best;
+  // 4) nearest point on a segment
+  let bnd=TOL_NEAR;
+  segs.forEach(s=>{let t=projParam(sx,sy,s.ax,s.ay,s.bx,s.by);t=Math.max(0,Math.min(1,t));
+    const x=s.ax+t*(s.bx-s.ax),y=s.ay+t*(s.by-s.ay),d=Math.hypot(x-sx,y-sy);
+    if(d<bnd){bnd=d;const[E,N]=S2W(x,y);best={E,N,Z:s.aZ+t*(s.bZ-s.aZ),sx:x,sy:y,type:'nearest',label:'nearest'};}});
+  return best;}
+function drawSnapMarker(){
+  if(!cogoPick||!cogoSnap)return;const s=cogoSnap,x=s.sx,y=s.sy,r=7;ctx.save();
+  ctx.lineWidth=2;ctx.strokeStyle='#35c184';ctx.fillStyle='rgba(53,193,132,.18)';
+  if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}
+  else if(s.type==='intersection'){ctx.beginPath();ctx.moveTo(x-r,y-r);ctx.lineTo(x+r,y+r);ctx.moveTo(x+r,y-r);ctx.lineTo(x-r,y+r);ctx.stroke();}
+  else if(s.type==='midpoint'){ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y+r);ctx.lineTo(x-r,y+r);ctx.closePath();ctx.fill();ctx.stroke();}
+  else{ctx.beginPath();ctx.moveTo(x-r,y-r);ctx.lineTo(x+r,y+r);ctx.lineTo(x+r,y-r);ctx.lineTo(x-r,y+r);ctx.closePath();ctx.stroke();}  // bowtie = nearest
+  ctx.font='600 11px ui-monospace,monospace';const txt=s.label;const tw=ctx.measureText(txt).width;
+  ctx.fillStyle='rgba(7,11,22,.85)';ctx.fillRect(x+12,y-9,tw+10,18);
+  ctx.fillStyle='#9ff0c8';ctx.fillText(txt,x+17,y+4);ctx.restore();}
+function startCogoPick(){
+  if(is3D)setMode('sel');                                  // object snap is a 2D operation
+  cogoPick=true;cogoSnap=null;
+  $('simplCogoScrim').classList.remove('show');            // reveal the canvas
+  prevCursor=cv.style.cursor;cv.style.cursor='crosshair';
+  hud('click to set the point · snaps to endpoint / intersection / midpoint / nearest · Esc to cancel');draw();}
+function endCogoPick(snap){
+  cogoPick=null;cogoSnap=null;cv.style.cursor=prevCursor||'crosshair';
+  $('simplCogoScrim').classList.add('show');draw();
+  hud(snap?`picked ${snap.label}`:'pick cancelled');
+  ($('simplCogoZ')).focus();}
 
 function openCircleTool(){circleTool={centerPt:-1};$('circleScrim').classList.add('show');hud('click a point for circle center');}
 function closeCircleTool(){circleTool=null;$('circleScrim').classList.remove('show');}
@@ -1000,7 +1079,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawMapError();
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawMapError();drawSnapMarker();
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -1554,6 +1633,11 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       vs:view.s,os:orbit.s,ox:orbit.ox,oy:orbit.oy};
     pinch.wE=(pinch.mx-view.x)/view.s;pinch.wN=-(pinch.my-view.y)/view.s;return;}
   if(pointers.size>2)return;
+  if(cogoPick){const snap=snapPoint(sx,sy);let E,N,Z;
+    if(snap){E=snap.E;N=snap.N;Z=snap.Z;}else{[E,N]=S2W(sx,sy);Z=NaN;}
+    $('simplCogoN').value=N.toFixed(3);$('simplCogoE').value=E.toFixed(3);
+    if(isFinite(Z))$('simplCogoZ').value=Z.toFixed(3);
+    endCogoPick(snap);return;}
   if(is3D){drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey};
     const i=pick(sx,sy);if(i>=0){sel=i;selFig=null;inspect();draw();}
     else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}}return;}
@@ -1581,6 +1665,10 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     else{sel=-1;selFig=null;inspect();draw();}}});
 cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   if(pointers.has(e.pointerId))pointers.set(e.pointerId,{sx,sy});
+  if(cogoPick){cogoSnap=snapPoint(sx,sy);
+    if(cogoSnap)hud(`${cogoSnap.label} · E ${cogoSnap.E.toFixed(2)} N ${cogoSnap.N.toFixed(2)}${isFinite(cogoSnap.Z)?' Z '+cogoSnap.Z.toFixed(2):''}`);
+    else{const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Esc to cancel`);}
+    draw();return;}
   if(pinch&&pointers.size>=2){const p=[...pointers.values()];
     const d=Math.hypot(p[0].sx-p[1].sx,p[0].sy-p[1].sy),mx=(p[0].sx+p[1].sx)/2,my=(p[0].sy+p[1].sy)/2,f=d/pinch.d0;
     if(is3D){orbit.s=pinch.os*f;orbit.ox=pinch.ox+(mx-pinch.mx);orbit.oy=pinch.oy+(my-pinch.my);}
@@ -1670,7 +1758,9 @@ $('cogoInsert').onclick=insertCogoPoint;
 $('cogoScrim').onclick=e=>{if(e.target===$('cogoScrim'))closeCogoDialog();};
 $('simplCogoCancel').onclick=closeSimplCogoDialog;
 $('simplCogoAdd').onclick=addSimplCogoPoint;
+$('simplCogoPick').onclick=startCogoPick;
 $('simplCogoScrim').onclick=e=>{if(e.target===$('simplCogoScrim'))closeSimplCogoDialog();};
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
   if(showMap){mapSource='ramsey';mapImage=null;mapErr=null;fetchMapTiles();}
   else{mapImage=null;mapErr=null;}draw();};

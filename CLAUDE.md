@@ -25,6 +25,7 @@ first and follow it on every task in this repo.
     | 9 | 🍍 PINEAPPLE | line-code review: hover a knocked-down H/V offset to see the curb code + REF that produced it |
     | 10 | 🥭 MANGO | line-code review: rolled back the hover; added a toggle button to show curb codes (before knockdown) vs baked offsets |
     | 11 | 🍐 PEAR | moved the knockdown codes/offsets toggle into the Review/edit FBK code window (off the inspector panel) |
+    | 12 | 🍉 WATERMELON | Add Point (COGO): "Pick on canvas" with basic CAD object snap (endpoint, apparent intersection of 2 lines, midpoint, nearest) |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -49,6 +50,21 @@ first and follow it on every task in this repo.
   (`<code> E`); otherwise the new point is just `<code>`.
 - Inserted points have `srcLine = -1` and export as fresh `NEZ` records placed
   in the right file position (not appended to a non-existent source line).
+
+## Add Point (COGO) canvas pick + CAD snap (`startCogoPick`/`snapPoint`)
+
+- The **Add Point (COGO)** dialog has a **📍 Pick on canvas (snap)** button. It
+  hides the dialog, lets you click the drawing, and fills N/E/Z from the click.
+- Basic CAD object snap (`snapPoint`, 2D only) in priority order: **endpoint**
+  (any point/vertex), **apparent intersection** of two lines (lines are extended
+  until they cross — the headline request), **midpoint**, then **nearest** on a
+  segment. Z is interpolated along the segment (W2S is affine, so the screen-space
+  parameter equals the world parameter); apparent-intersection Z is the average of
+  the two lines' Z at the crossing.
+- A live osnap marker is drawn under the cursor (▢ endpoint, ✕ intersection,
+  △ midpoint, ⋈ nearest). No snap in range → free pick (N/E only, Z left for the
+  user). **Esc** cancels and reopens the dialog. Only the figure linework is
+  snapped (not curb offset polylines).
 
 ## Figure / line code review (`inspectFig`)
 
