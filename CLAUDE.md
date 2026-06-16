@@ -26,6 +26,7 @@ first and follow it on every task in this repo.
     | 10 | 🥭 MANGO | line-code review: rolled back the hover; added a toggle button to show curb codes (before knockdown) vs baked offsets |
     | 11 | 🍐 PEAR | moved the knockdown codes/offsets toggle into the Review/edit FBK code window (off the inspector panel) |
     | 12 | 🍉 WATERMELON | Add Point (COGO): "Pick on canvas" with basic CAD object snap (endpoint, apparent intersection of 2 lines, midpoint, nearest) |
+    | 13 | 🥥 COCONUT | COGO snap now includes curb offset lines; intersection snap prompts which elevation to use (line A / line B / average / custom) |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -63,8 +64,13 @@ first and follow it on every task in this repo.
   the two lines' Z at the crossing.
 - A live osnap marker is drawn under the cursor (▢ endpoint, ✕ intersection,
   △ midpoint, ⋈ nearest). No snap in range → free pick (N/E only, Z left for the
-  user). **Esc** cancels and reopens the dialog. Only the figure linework is
-  snapped (not curb offset polylines).
+  user). **Esc** cancels and reopens the dialog. Both the figure linework **and
+  the curb cross-section offset lane lines** are snapped (`collectOffsetSegments`
+  rebuilds the offsets as world segments using the same math as `drawOffsets`).
+- **Intersection elevation prompt** (`openZPick`): an apparent intersection of two
+  lines can have two different Z values, so picking an intersection sets N/E and
+  then opens a chooser — line A's Z, line B's Z, the average, or a custom value.
+  Esc/Cancel returns to the Add Point dialog.
 
 ## Figure / line code review (`inspectFig`)
 
