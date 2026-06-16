@@ -131,7 +131,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
   </div>
 
   <div class="main">
@@ -294,6 +294,23 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   </div>
 </div>
 
+<!-- elevation chooser at an apparent intersection of two lines -->
+<div class="scrim" id="zpickScrim">
+  <div class="modal">
+    <h4>Elevation at intersection</h4>
+    <div class="hint" id="zpickHint" style="margin-bottom:10px">two lines cross here — choose the elevation</div>
+    <div id="zpickOpts"></div>
+    <div class="field" style="margin-top:6px">
+      <label>Custom Z</label>
+      <input type="number" id="zpickCustom" step="0.001" autocomplete="off">
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="zpickCancel">Cancel</button>
+      <button class="btn gold" id="zpickUse">Use custom Z</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -301,7 +318,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:12};
+const VERSION={fruit:'🥥',name:'COCONUT',build:13};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -343,6 +360,7 @@ let simplCogoCtx=null;                                     // Simple COGO dialog
 let cogoPick=null;                                         // canvas-pick mode for Add Point (COGO): true while picking
 let cogoSnap=null;                                         // current CAD snap result under the cursor while picking
 let prevCursor='';                                         // canvas cursor saved while in pick mode
+let zpickCtx=null;                                         // elevation-chooser context at an intersection snap
 
 /* ---------- undo/redo ---------- */
 let undoStack=[], redoStack=[];                           // history for undo/redo
@@ -739,9 +757,25 @@ function addSimplCogoPoint(){
 function collectSegments(){const segs=[];
   figures().forEach(f=>{const vs=f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);
     const push=(a,b)=>{const A=W2S(a.E,a.N),B=W2S(b.E,b.N);
-      segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:a.E,aN:a.N,aZ:a.Z,bE:b.E,bN:b.N,bZ:b.Z});};
+      segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:a.E,aN:a.N,aZ:a.Z,bE:b.E,bN:b.N,bZ:b.Z,label:f.code});};
     for(let k=0;k<vs.length-1;k++)push(vs[k],vs[k+1]);
     if(f.closed&&vs.length>1)push(vs[vs.length-1],vs[0]);});
+  segs.push(...collectOffsetSegments());                   // curb cross-section offset lane lines snap too
+  return segs;}
+/* Rebuild the green offset lane lines (same math as drawOffsets) as world-coord
+   segments so the snap engine can catch endpoints/intersections on them. */
+function collectOffsetSegments(){const segs=[];
+  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
+    const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
+    let active=null;const per=all.map((p,k)=>{if(stepsAt[k])active=stepsAt[k];const result=k<startK?null:active;if(stopAt[k])active=null;return result;});
+    const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
+    for(let L=0;L<lanes;L++){const op=per.map((s,k)=>(s&&L<s.length)?offsetAt(all,k,s[L].h,s[L].v):null);
+      let prev=null;
+      op.forEach(o=>{if(!o){prev=null;return;}
+        if(prev){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);
+          segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:o.E,bN:o.N,bZ:o.Z,label:f.code+' offset'});}
+        prev=o;});}});
   return segs;}
 function projParam(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
   return ((px-x1)*dx+(py-y1)*dy)/L;}                       // unclamped parameter along the line
@@ -770,7 +804,7 @@ function snapPoint(sx,sy){
     const d=Math.hypot(X.x-sx,X.y-sy);if(d<bxd){
       const z1=near[i].aZ+X.t*(near[i].bZ-near[i].aZ),z2=near[j].aZ+X.u*(near[j].bZ-near[j].aZ);
       const[E,N]=S2W(X.x,X.y);bxd=d;
-      best={E,N,Z:(z1+z2)/2,sx:X.x,sy:X.y,type:'intersection',label:'apparent intersection'};}}
+      best={E,N,Z:(z1+z2)/2,z1,z2,la:near[i].label||'line A',lb:near[j].label||'line B',sx:X.x,sy:X.y,type:'intersection',label:'apparent intersection'};}}
   if(best)return best;
   // 3) midpoint
   let bmd=TOL_MID;
@@ -804,6 +838,28 @@ function endCogoPick(snap){
   $('simplCogoScrim').classList.add('show');draw();
   hud(snap?`picked ${snap.label}`:'pick cancelled');
   ($('simplCogoZ')).focus();}
+/* At an apparent intersection the two lines can have different elevations, so
+   ask which Z to use (line A, line B, average, or a custom value). N/E are
+   already set from the crossing; this only resolves the ambiguous Z. */
+function openZPick(snap){
+  cogoPick=null;cogoSnap=null;cv.style.cursor=prevCursor||'crosshair';draw();
+  zpickCtx={snap};const z1=snap.z1,z2=snap.z2,avg=(z1+z2)/2;
+  $('zpickOpts').innerHTML=
+    `<button class="btn zopt" data-z="${z1}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.la}<b>Z ${z1.toFixed(3)}</b></button>`+
+    `<button class="btn zopt" data-z="${z2}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.lb}<b>Z ${z2.toFixed(3)}</b></button>`+
+    `<button class="btn zopt" data-z="${avg}" style="width:100%;justify-content:space-between;margin-bottom:6px">average<b>Z ${avg.toFixed(3)}</b></button>`;
+  $('zpickCustom').value=avg.toFixed(3);
+  $('zpickScrim').classList.add('show');
+  $('zpickOpts').querySelectorAll('.zopt').forEach(b=>b.onclick=()=>applyZPick(+b.dataset.z));
+  hud('two lines cross — choose the elevation');}
+function applyZPick(z){if(!zpickCtx)return;const lbl=zpickCtx.snap.label;
+  if(isFinite(z))$('simplCogoZ').value=(+z).toFixed(3);
+  $('zpickScrim').classList.remove('show');zpickCtx=null;
+  $('simplCogoScrim').classList.add('show');$('simplCogoZ').focus();
+  hud(`picked ${lbl} · Z ${isFinite(z)?(+z).toFixed(3):'—'}`);}
+function closeZPick(){if(!zpickCtx)return;zpickCtx=null;
+  $('zpickScrim').classList.remove('show');$('simplCogoScrim').classList.add('show');
+  hud('elevation pick cancelled');}
 
 function openCircleTool(){circleTool={centerPt:-1};$('circleScrim').classList.add('show');hud('click a point for circle center');}
 function closeCircleTool(){circleTool=null;$('circleScrim').classList.remove('show');}
@@ -1633,7 +1689,11 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       vs:view.s,os:orbit.s,ox:orbit.ox,oy:orbit.oy};
     pinch.wE=(pinch.mx-view.x)/view.s;pinch.wN=-(pinch.my-view.y)/view.s;return;}
   if(pointers.size>2)return;
-  if(cogoPick){const snap=snapPoint(sx,sy);let E,N,Z;
+  if(cogoPick){const snap=snapPoint(sx,sy);
+    if(snap&&snap.type==='intersection'){                  // ambiguous Z → set N/E, then prompt for elevation
+      $('simplCogoN').value=snap.N.toFixed(3);$('simplCogoE').value=snap.E.toFixed(3);
+      openZPick(snap);return;}
+    let E,N,Z;
     if(snap){E=snap.E;N=snap.N;Z=snap.Z;}else{[E,N]=S2W(sx,sy);Z=NaN;}
     $('simplCogoN').value=N.toFixed(3);$('simplCogoE').value=E.toFixed(3);
     if(isFinite(Z))$('simplCogoZ').value=Z.toFixed(3);
@@ -1760,7 +1820,12 @@ $('simplCogoCancel').onclick=closeSimplCogoDialog;
 $('simplCogoAdd').onclick=addSimplCogoPoint;
 $('simplCogoPick').onclick=startCogoPick;
 $('simplCogoScrim').onclick=e=>{if(e.target===$('simplCogoScrim'))closeSimplCogoDialog();};
-window.addEventListener('keydown',e=>{if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
+$('zpickUse').onclick=()=>applyZPick(parseFloat($('zpickCustom').value));
+$('zpickCancel').onclick=closeZPick;
+$('zpickScrim').onclick=e=>{if(e.target===$('zpickScrim'))closeZPick();};
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
+  if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
   if(showMap){mapSource='ramsey';mapImage=null;mapErr=null;fetchMapTiles();}
   else{mapImage=null;mapErr=null;}draw();};
