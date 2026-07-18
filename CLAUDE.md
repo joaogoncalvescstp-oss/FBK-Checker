@@ -28,6 +28,7 @@ first and follow it on every task in this repo.
     | 12 | 🍉 WATERMELON | Add Point (COGO): "Pick on canvas" with basic CAD object snap (endpoint, apparent intersection of 2 lines, midpoint, nearest) |
     | 13 | 🥥 COCONUT | COGO snap now includes curb offset lines; intersection snap prompts which elevation to use (line A / line B / average / custom) |
     | 14 | 🍋 LEMON | Import CSV (PNEZD): comma-delimited point#, N, E, Z, description → NEZ points; standalone COGO/CSV points now always export |
+    | 15 | 🍎 APPLE | Export CSV (↓ Export CSV): all points → comma-delimited PNEZD file, round-trips with Import CSV |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -66,6 +67,10 @@ first and follow it on every task in this repo.
   already written in a figure block is emitted as a fresh `NEZ` at the end — so
   CSV-imported and simple Add-Point (COGO) points are never dropped, even with no
   FBK loaded (RAW empty).
+- **Export CSV** (`exportCSV`, ↓ Export CSV button): writes every non-deleted point
+  back out as a `Point,Northing,Easting,Elevation,Description` file (3-dp coords,
+  header row, descriptions CSV-quoted when they contain commas/quotes). Round-trips
+  with `importCSV`.
 
 ## Add Point (COGO) canvas pick + CAD snap (`startCogoPick`/`snapPoint`)
 

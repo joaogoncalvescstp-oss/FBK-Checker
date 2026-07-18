@@ -132,7 +132,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
+    <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
   </div>
 
   <div class="main">
@@ -319,7 +320,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍋',name:'LEMON',build:14};
+const VERSION={fruit:'🍎',name:'APPLE',build:15};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -434,7 +435,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','dlBtn','dlRawBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -698,7 +699,7 @@ function importCSV(text){
   buildLinework();
   if(wasEmpty){
     $('jobpill').textContent='CSV import';
-    ['fitBtn','dlBtn','dlRawBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    ['fitBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
     is3D=false;setMode('sel');fit();
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
@@ -1706,6 +1707,20 @@ function exportFBK(expandCodes=true){
   if(nezed.length)logEdit('mv',`cross-setup → NEZ: ${nezed.join(', ')} (originals archived as Deleted)`);
   if(shared.size)logEdit('del',`shared pts NEZ-moved, check other figures: ${[...shared].join(', ')}`);}
 
+/* Export every non-deleted point as a comma-delimited PNEZD file: point number,
+   Northing, Easting, Elevation (Z), Description. Round-trips with importCSV. */
+function exportCSV(){
+  if(!PTS.length){hud('nothing to export');return;}
+  const rows=['Point,Northing,Easting,Elevation,Description'];
+  let n=0;
+  PTS.forEach(p=>{if(p.deleted)return;
+    let d=p.desc||'';
+    if(/[",\n\r]/.test(d))d='"'+d.replace(/"/g,'""')+'"';   // CSV-quote when the description has commas/quotes
+    rows.push(`${p.id},${p.N.toFixed(3)},${p.E.toFixed(3)},${p.Z.toFixed(3)},${d}`);n++;});
+  const blob=new Blob([rows.join('\r\n')],{type:'text/csv'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=(($('jobpill').textContent||'points').replace(/\s+/g,'_'))+'_PNEZD.csv';a.click();
+  logEdit('code',`exported ${n} point(s) to CSV`);hud(`exported ${n} point(s) to CSV`);}
+
 /* ---------- go to point ---------- */
 function openGoto(){$('scrim').classList.add('show');const i=$('gotoInput');i.value='';$('gotoHint').textContent='type a point #, then Enter';i.focus();}
 function closeGoto(){$('scrim').classList.remove('show');}
@@ -1834,6 +1849,7 @@ $('zOut').onclick=()=>zoomBy(1/1.25);
 $('fitBtn').onclick=fit;
 $('dlBtn').onclick=exportFBK;
 $('dlRawBtn').onclick=()=>exportFBK(false);
+$('dlCsvBtn').onclick=exportCSV;
 $('kdBtn').onclick=applyKnockdown;
 $('simplCogoBtn').onclick=()=>{if(!$('simplCogoBtn').disabled)openSimplCogoDialog();};
 $('undoBtn').onclick=performUndo;
