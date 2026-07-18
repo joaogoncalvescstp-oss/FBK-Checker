@@ -124,6 +124,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div class="grow"></div>
     <button class="btn ghost" id="gotoBtn" disabled>⌖ Go to point</button>
     <label class="btn file">↥ Load FBK<input type="file" id="fileInput" accept=".fbk,.txt"></label>
+    <label class="btn file" title="Import a comma-delimited coordinate file: Point#, Northing, Easting, Elevation, Description (PNEZD). A header row is auto-detected. Points are added as NEZ records.">↥ Import CSV<input type="file" id="csvInput" accept=".csv,.txt"></label>
     <button class="btn ghost" id="fitBtn" disabled>⊡ Fit</button>
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
@@ -131,7 +132,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
   </div>
 
   <div class="main">
@@ -318,7 +319,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥥',name:'COCONUT',build:13};
+const VERSION={fruit:'🍋',name:'LEMON',build:14};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -665,6 +666,43 @@ function getNextPointNumber(){
   let maxNum=0;
   PTS.forEach(p=>{const num=parseInt(p.id);if(!isNaN(num)&&num>maxNum)maxNum=num;});
   return(maxNum+1).toString();}
+/* Import a comma-delimited coordinate file (PNEZD): point number, Northing,
+   Easting, Elevation (Z), Description. Rows become NEZ/control points (srcLine=-1)
+   that export as fresh NEZ records; any figure codes in the description drive
+   linework. A header row (non-numeric N/E) is auto-detected and skipped. Points
+   are appended to whatever is already loaded; blank/duplicate ids are re-numbered. */
+function importCSV(text){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  if(!lines.length){hud('empty file');return;}
+  const fc=lines[0].split(',');
+  const looksHeader=fc.length>=3&&(isNaN(parseFloat(fc[1]))||isNaN(parseFloat(fc[2])));
+  const rows=looksHeader?lines.slice(1):lines;
+  const seen=new Set(PTS.map(p=>p.id));
+  let maxNum=0;PTS.forEach(p=>{const n=parseInt(p.id);if(!isNaN(n)&&n>maxNum)maxNum=n;});
+  const news=[];let bad=0;
+  rows.forEach(line=>{const c=line.split(',');if(c.length<4){bad++;return;}
+    const N=parseFloat(c[1]),E=parseFloat(c[2]),Z=parseFloat(c[3]);
+    if(!isFinite(N)||!isFinite(E)||!isFinite(Z)){bad++;return;}
+    let id=(c[0]||'').trim();
+    if(!id||seen.has(id))id=String(++maxNum);
+    else{const n=parseInt(id);if(!isNaN(n)&&n>maxNum)maxNum=n;}
+    seen.add(id);
+    const desc=c.slice(4).join(',').trim().replace(/^"|"$/g,'');   // description may itself contain commas
+    const code=(desc.split(/\s+/)[0]||'NEZ').toUpperCase();
+    news.push({id,code,desc,N,E,Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true});});
+  if(!news.length){hud(`no valid PNEZD rows${bad?` (${bad} skipped)`:''}`);return;}
+  const wasEmpty=PTS.length===0;
+  saveState();
+  news.forEach(p=>PTS.push(p));
+  logEdit('code',`imported ${news.length} pt(s) from CSV${bad?` (${bad} skipped)`:''}`);
+  buildLinework();
+  if(wasEmpty){
+    $('jobpill').textContent='CSV import';
+    ['fitBtn','dlBtn','dlRawBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    is3D=false;setMode('sel');fit();
+  }else draw();
+  sel=-1;selFig=null;inspect();flagDirty();
+  hud(`imported ${news.length} point(s)${bad?`, ${bad} skipped`:''}`);}
 function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
   const f=getFig(figId);if(!f)return;
   const p1=PTS[ptIdx1],p2=PTS[ptIdx2];if(!p1||!p2)return;
@@ -1654,6 +1692,13 @@ function exportFBK(expandCodes=true){
     if(!deletedAfter.has(L)){result.push(editedContent[L]!==undefined?editedContent[L]:RAW[L]);}
     else{result.push('Deleted '+stamp);}
   }
+  // 3b. standalone COGO / CSV-imported points (srcLine<0) not already written in a
+  //     figure block — emit as fresh NEZ records at the end so they aren't dropped.
+  const alreadyNEZ=new Set();
+  Object.values(nezBefore).forEach(arr=>arr.forEach(s=>{const m=s.match(/^NEZ\s+(\S+)/);if(m)alreadyNEZ.add(m[1]);}));
+  PTS.forEach(p=>{if(p.deleted||p.srcLine>=0)return;if(nezDone.has(p.id)||alreadyNEZ.has(p.id))return;
+    const d=expandCodes?expandDescForExport(p.desc):p.desc;
+    result.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);});
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
   logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?'':' (codes unapplied)'}`);
@@ -1832,6 +1877,8 @@ $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap)
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
+$('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=()=>{importCSV(rd.result);e.target.value='';};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}

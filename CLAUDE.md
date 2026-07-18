@@ -27,6 +27,7 @@ first and follow it on every task in this repo.
     | 11 | 🍐 PEAR | moved the knockdown codes/offsets toggle into the Review/edit FBK code window (off the inspector panel) |
     | 12 | 🍉 WATERMELON | Add Point (COGO): "Pick on canvas" with basic CAD object snap (endpoint, apparent intersection of 2 lines, midpoint, nearest) |
     | 13 | 🥥 COCONUT | COGO snap now includes curb offset lines; intersection snap prompts which elevation to use (line A / line B / average / custom) |
+    | 14 | 🍋 LEMON | Import CSV (PNEZD): comma-delimited point#, N, E, Z, description → NEZ points; standalone COGO/CSV points now always export |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -51,6 +52,20 @@ first and follow it on every task in this repo.
   (`<code> E`); otherwise the new point is just `<code>`.
 - Inserted points have `srcLine = -1` and export as fresh `NEZ` records placed
   in the right file position (not appended to a non-existent source line).
+
+## Import CSV / PNEZD (`importCSV`, ↥ Import CSV button)
+
+- Comma-delimited coordinate import: **point number, Northing, Easting, Elevation
+  (Z), Description** (PNEZD). Rows become `srcLine=-1` NEZ/control points; figure
+  codes in the description drive linework like any other coded point.
+- A **header row** is auto-detected (non-numeric N/E in row 1) and skipped. The
+  **description may contain commas** (fields 5+ are re-joined). Blank/duplicate
+  point numbers are auto-renumbered. Points are **appended** to whatever is loaded
+  (import several files, or layer onto an FBK).
+- Export safety net (`exportFBK` step 3b): every non-deleted `srcLine<0` point not
+  already written in a figure block is emitted as a fresh `NEZ` at the end — so
+  CSV-imported and simple Add-Point (COGO) points are never dropped, even with no
+  FBK loaded (RAW empty).
 
 ## Add Point (COGO) canvas pick + CAD snap (`startCogoPick`/`snapPoint`)
 
