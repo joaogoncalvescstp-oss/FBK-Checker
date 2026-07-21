@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:18};
+const VERSION={fruit:'🍒',name:'CHERRY',build:19};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -359,6 +359,11 @@ let mapMaxPx=4096;                                         // max export size; d
 let agReady=false,agLoading=false,agFailed=false,agView=null,agLayer=null,AgExtent=null,agKey='';
 const ARCGIS_VER='4.30';
 const RAMSEY_IMG_URL='https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer';
+// The county imagery is a CUSTOM projection (Ramsey Co. Lambert Conformal Conic, US ft,
+// custom datum, no wkid). The MapView must be built in this exact SR or it defaults to
+// Web Mercator and can't reproject the custom-datum image → blank. Survey coords share it.
+const RAMSEY_WKT='PROJCS["MN_RAMSEY_Lambert_Conformal_Conic",GEOGCS["GCS_MN_RAMSEY",DATUM["D_MN_RAMSEY",SPHEROID["MN_County_Ramsey",6378418.941,298.2572242549219]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Conformal_Conic"],PARAMETER["false_easting",499999.999998],PARAMETER["false_northing",100000.0001308333],PARAMETER["central_meridian",-93.38333333000126],PARAMETER["standard_parallel_1",44.8833333299992],PARAMETER["standard_parallel_2",45.1333333299992],PARAMETER["scale_factor",1.0],PARAMETER["latitude_of_origin",44.79111110999973],UNIT["Foot_US",0.3048006096012192]]';
+const RAMSEY_EXT={xmin:538701.2662,ymin:131850.87,xmax:608705.2662,ymax:226856.12};   // service full extent (county ft)
 let mapImage=null;                                        // cached map image: {img, extent:{minE,maxE,minN,maxN}}
 let mapLoading=false;                                     // map fetch in progress
 let mapErr=null;                                          // last map load error message, or null
@@ -972,13 +977,15 @@ function initArcGIS(){
     l.href=`https://js.arcgis.com/${ARCGIS_VER}/esri/themes/light/main.css`;document.head.appendChild(l);}
   const boot=()=>{
     if(!window.require){agFailed=true;agLoading=false;hud('ArcGIS API blocked — using image fallback');fetchMapTiles();return;}
-    window.require(['esri/Map','esri/views/MapView','esri/layers/ImageryLayer','esri/geometry/Extent'],
-    (Map,MapView,ImageryLayer,Extent)=>{try{
+    window.require(['esri/Map','esri/views/MapView','esri/layers/ImageryLayer','esri/geometry/Extent','esri/geometry/SpatialReference'],
+    (Map,MapView,ImageryLayer,Extent,SpatialReference)=>{try{
       AgExtent=Extent;
+      const sr=new SpatialReference({wkt:RAMSEY_WKT});   // build the view in the county's native projection
       agLayer=new ImageryLayer({url:RAMSEY_IMG_URL});
       const map=new Map({layers:[agLayer]});
-      agView=new MapView({container:'agmap',map,ui:{components:[]},
-        constraints:{snapToZoom:false,rotationEnabled:false}});
+      agView=new MapView({container:'agmap',map,spatialReference:sr,
+        extent:new Extent({...RAMSEY_EXT,spatialReference:sr}),
+        ui:{components:[]},constraints:{snapToZoom:false,rotationEnabled:false}});
       agView.when(()=>{
         // only switch to the MapView once the imagery layer has genuinely loaded;
         // otherwise (unsupported SR / CORS) keep the guaranteed image fallback.
