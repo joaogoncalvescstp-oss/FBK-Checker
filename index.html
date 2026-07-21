@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:17};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:18};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -979,10 +979,14 @@ function initArcGIS(){
       const map=new Map({layers:[agLayer]});
       agView=new MapView({container:'agmap',map,ui:{components:[]},
         constraints:{snapToZoom:false,rotationEnabled:false}});
-      agView.when(()=>{agReady=true;agLoading=false;
-        try{agView.navigation.momentumEnabled=false;}catch(_){}
-        $('agmap').style.display='block';agKey='';syncArcGIS();draw();hud('ArcGIS aerial ready');},
-        err=>{console.error('ArcGIS view error',err);agFailed=true;agLoading=false;hud('ArcGIS view failed — using image fallback');fetchMapTiles();});
+      agView.when(()=>{
+        // only switch to the MapView once the imagery layer has genuinely loaded;
+        // otherwise (unsupported SR / CORS) keep the guaranteed image fallback.
+        agLayer.when(()=>{agReady=true;agLoading=false;
+          try{agView.navigation.momentumEnabled=false;}catch(_){}
+          agKey='';syncArcGIS();draw();hud('ArcGIS aerial ready (tiles)');},
+          lerr=>{console.error('ArcGIS layer load failed',lerr);agFailed=true;agLoading=false;hud('county layer failed — using image');draw();});
+      },err=>{console.error('ArcGIS view error',err);agFailed=true;agLoading=false;hud('ArcGIS view failed — using image');draw();});
     }catch(err){console.error(err);agFailed=true;agLoading=false;hud('ArcGIS init failed — using image fallback');fetchMapTiles();}});
   };
   if(window.require){boot();return;}
@@ -1057,7 +1061,7 @@ function drawMapError(){if(!showMap||!mapErr)return;const w=cv.width/devicePixel
   ctx.fillText(mapErr,bx+10,by+37);
   ctx.fillText('Open the URL logged in console (F12) directly to test the server.',bx+10,by+51);
   ctx.restore();}
-function drawMapBackground(){if(!showMap||!mapImage)return;ctx.save();
+function drawMapBackground(){if(!showMap||!mapImage||agReady)return;ctx.save();   // ArcGIS tiles cover it once ready
   const ext=mapImage.extent;
   const[x0,y0]=W2S(ext.minE,ext.maxN),[x1,y1]=W2S(ext.maxE,ext.minN);
   // white backing first so partial transparency lightens (not darkens) against the near-black UI,
@@ -1226,8 +1230,10 @@ function draw(){is3D?draw3D():draw2D();}
 
 function draw2D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
-  if(showMap&&!agFailed&&!agReady&&!agLoading)initArcGIS();
-  if(showMap&&agFailed){if(!mapImage&&!mapLoading)fetchMapTiles();else scheduleMapRefresh();}
+  if(showMap){
+    if(!agReady){if(!mapImage&&!mapLoading)fetchMapTiles();else scheduleMapRefresh();}   // always guarantee a visible map
+    if(!agReady&&!agLoading&&!agFailed)initArcGIS();                                      // try to upgrade to fast ArcGIS tiles
+  }
   syncArcGIS();drawMapBackground();
   const step=niceStep(50/view.s);ctx.lineWidth=1;
   const tl=S2W(0,0),br=S2W(w,h);ctx.beginPath();
@@ -1954,8 +1960,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
-  if(showMap){mapSource='ramsey';mapMaxPx=4096;mapImage=null;mapErr=null;
-    if(!agFailed)initArcGIS();else fetchMapTiles();}          // prefer the tiled ArcGIS MapView; fall back to image export
+  if(showMap){mapSource='ramsey';mapMaxPx=4096;mapImage=null;mapErr=null;fetchMapTiles();}  // draw2D also tries the ArcGIS tile upgrade
   else{mapImage=null;mapErr=null;const d=$('agmap');if(d)d.style.display='none';}
   draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
