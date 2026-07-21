@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:19};
+const VERSION={fruit:'🥝',name:'KIWI',build:20};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -357,6 +357,10 @@ let mapMaxPx=4096;                                         // max export size; d
    huge export JPEG. Lazy-loaded on first MAP toggle; falls back to the image
    export path if the API can't load or the view fails. */
 let agReady=false,agLoading=false,agFailed=false,agView=null,agLayer=null,AgExtent=null,agKey='';
+// ArcGIS SDK path is OFF: the county ImageServer serves a custom projection (no wkid)
+// AND doesn't send CORS headers, so a MapView/ImageryLayer renders blank. We use the
+// tiled plain-<img> mosaic instead (see fetchMapTiles). Flip to re-enable if that ever changes.
+const USE_ARCGIS=false;
 const ARCGIS_VER='4.30';
 const RAMSEY_IMG_URL='https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer';
 // The county imagery is a CUSTOM projection (Ramsey Co. Lambert Conformal Conic, US ft,
@@ -364,7 +368,8 @@ const RAMSEY_IMG_URL='https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPho
 // Web Mercator and can't reproject the custom-datum image → blank. Survey coords share it.
 const RAMSEY_WKT='PROJCS["MN_RAMSEY_Lambert_Conformal_Conic",GEOGCS["GCS_MN_RAMSEY",DATUM["D_MN_RAMSEY",SPHEROID["MN_County_Ramsey",6378418.941,298.2572242549219]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Lambert_Conformal_Conic"],PARAMETER["false_easting",499999.999998],PARAMETER["false_northing",100000.0001308333],PARAMETER["central_meridian",-93.38333333000126],PARAMETER["standard_parallel_1",44.8833333299992],PARAMETER["standard_parallel_2",45.1333333299992],PARAMETER["scale_factor",1.0],PARAMETER["latitude_of_origin",44.79111110999973],UNIT["Foot_US",0.3048006096012192]]';
 const RAMSEY_EXT={xmin:538701.2662,ymin:131850.87,xmax:608705.2662,ymax:226856.12};   // service full extent (county ft)
-let mapImage=null;                                        // cached map image: {img, extent:{minE,maxE,minN,maxN}}
+let mapImage=null;                                        // (legacy) single cached map image — superseded by mapTiles
+let mapTiles=[];                                          // tiled aerial mosaic: [{img, ext:{minE,maxE,minN,maxN}, ok}]
 let mapLoading=false;                                     // map fetch in progress
 let mapErr=null;                                          // last map load error message, or null
 let mapUrl='';                                            // last requested map URL (for diagnostics)
@@ -1020,43 +1025,50 @@ function syncArcGIS(){
   try{agView.extent=new AgExtent({xmin,ymin,xmax,ymax,spatialReference:agView.spatialReference});}catch(e){console.error('ag sync',e);}
 }
 function scheduleMapRefresh(){if(!showMap||is3D)return;clearTimeout(mapTimer);
-  mapTimer=setTimeout(()=>{const v=viewportBounds();if(viewKey(v)===mapLastKey&&mapImage)return;fetchMapTiles();},350);}
+  mapTimer=setTimeout(()=>{const v=viewportBounds();if(viewKey(v)===mapLastKey&&mapTiles.length)return;fetchMapTiles();},350);}
 function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
   if(!PTS.length){hud('load an FBK first');return;}
-  const v=viewportBounds();mapLastKey=viewKey(v);mapLoading=true;mapErr=null;hud('loading map ('+mapSource+')...');
+  const v=viewportBounds();mapLastKey=viewKey(v);mapLoading=true;mapErr=null;
   // pad the viewport ~6% so imagery covers the edges
   const padE=(v.maxE-v.minE)*0.06||10,padN=(v.maxN-v.minN)*0.06||10;
   const minE=v.minE-padE,maxE=v.maxE+padE,minN=v.minN-padN,maxN=v.maxN+padN;
-  // request above screen resolution for crisp imagery, capped at the service max
-  const CAP=mapMaxPx,longPx=Math.min(CAP,Math.round(Math.max(v.w,v.h)*devicePixelRatio*2));
-  const px=(bw,bh)=>bw>=bh?[longPx,Math.max(1,Math.round(longPx*bh/bw))]:[Math.max(1,Math.round(longPx*bw/bh)),longPx];
-  let url,extent;
   if(mapSource==='ramsey'){
-    // survey coords already match the county imagery's native SR → pass bbox directly
-    const[pw,ph]=px(maxE-minE,maxN-minN);
-    url=`https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer/export?bbox=${minE},${minN},${maxE},${maxN}&size=${pw},${ph}&format=jpgpng&f=image`;
-    extent={minE,maxE,minN,maxN};
+    // Tiled plain-<img> mosaic (no CORS needed, unlike the ArcGIS SDK): a GRID×GRID
+    // grid of export requests, each ~near-screen resolution, fired in parallel and
+    // drawn as each arrives. Net effect: GRID× sharper than one capped export, and it
+    // streams in progressively instead of one slow monolithic image.
+    const GRID=3;
+    const cellPx=Math.max(256,Math.min(2048,Math.round(Math.max(v.w,v.h)/GRID*devicePixelRatio*1.6)));
+    const tiles=[];let pending=GRID*GRID,anyOk=false;
+    hud('loading county aerial (tiled)…');
+    for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++){
+      const e0=minE+(maxE-minE)*c/GRID, e1=minE+(maxE-minE)*(c+1)/GRID;
+      const n0=maxN-(maxN-minN)*(r+1)/GRID, n1=maxN-(maxN-minN)*r/GRID;   // r=0 = top (north) row
+      const url=`${RAMSEY_IMG_URL}/export?bbox=${e0},${n0},${e1},${n1}&size=${cellPx},${cellPx}&format=jpgpng&f=image`;
+      const t={img:new Image(),ext:{minE:e0,maxE:e1,minN:n0,maxN:n1},ok:false};
+      t.img.onload=()=>{t.ok=true;anyOk=true;if(--pending<=0){mapLoading=false;hud('county aerial loaded');}draw();};
+      t.img.onerror=()=>{if(--pending<=0){mapLoading=false;
+        if(!anyOk){mapSource='esri';hud('county imagery blocked — falling back to Esri…');fetchMapTiles();}
+        else hud('county aerial loaded (some tiles failed)');}draw();};
+      t.img.src=url;tiles.push(t);
+    }
+    mapTiles=tiles;
   }else{
-    // Esri World Imagery is in Web Mercator → convert survey corners through our calibrated transform
+    // Esri World Imagery (single tile) — Web Mercator via the calibrated transform.
     const cm=[[minE,minN],[maxE,minN],[maxE,maxN],[minE,maxN]].map(([E,N])=>{const[la,lo]=surveyToLL(E,N);return llToMerc(la,lo);});
     const mx=cm.map(p=>p[0]),my=cm.map(p=>p[1]);
     const mxn=Math.min(...mx),mxx=Math.max(...mx),myn=Math.min(...my),myx=Math.max(...my);
-    const[pw,ph]=px(mxx-mxn,myx-myn);
-    url=`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`;
-    // map the requested mercator box back to survey coords so it draws in the right place
+    const longPx=Math.min(4096,Math.round(Math.max(v.w,v.h)*devicePixelRatio*2)),aw=mxx-mxn,ah=myx-myn;
+    const pw=aw>=ah?longPx:Math.max(1,Math.round(longPx*aw/ah)),ph=aw>=ah?Math.max(1,Math.round(longPx*ah/aw)):longPx;
+    const url=`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`;
     const sc=[[mxn,myx],[mxx,myx],[mxx,myn],[mxn,myn]].map(([x,y])=>{const[la,lo]=mercToLL(x,y);return llToSurvey(la,lo);});
     const se=sc.map(p=>p[0]),sn=sc.map(p=>p[1]);
-    extent={minE:Math.min(...se),maxE:Math.max(...se),minN:Math.min(...sn),maxN:Math.max(...sn)};
+    const ext={minE:Math.min(...se),maxE:Math.max(...se),minN:Math.min(...sn),maxN:Math.max(...sn)};
+    const t={img:new Image(),ext,ok:false};
+    t.img.onload=()=>{t.ok=true;mapLoading=false;draw();hud('map loaded (esri)');};
+    t.img.onerror=()=>{mapLoading=false;mapErr='County and Esri imagery both failed (network blocked?).';draw();hud('map load failed — see on-screen note');};
+    t.img.src=url;mapTiles=[t];
   }
-  mapUrl=url;console.log('Map request URL ('+mapSource+'):',url);
-  // Plain <img> load — NO crossOrigin/fetch, so the browser displays the cross-origin image.
-  const img=new Image();
-  img.onload=()=>{mapImage={img,extent};mapErr=null;mapLoading=false;draw();hud('map loaded ('+mapSource+')');};
-  img.onerror=e=>{console.error('Map image error ('+mapSource+'):',e,url);
-    if(mapSource==='ramsey'&&mapMaxPx>2048){mapMaxPx=2048;mapLoading=false;hud('retrying county imagery at a smaller size…');fetchMapTiles();return;}
-    if(mapSource==='ramsey'){mapSource='esri';mapMaxPx=4096;mapLoading=false;hud('county imagery blocked — falling back to Esri…');fetchMapTiles();return;}
-    mapLoading=false;mapErr='County and Esri imagery both failed (network blocked?).';draw();hud('map load failed — see on-screen note');};
-  img.src=url;
 }
 function drawMapError(){if(!showMap||!mapErr)return;const w=cv.width/devicePixelRatio;
   ctx.save();const bw=Math.min(w-24,520),bx=12,by=12;
@@ -1068,16 +1080,15 @@ function drawMapError(){if(!showMap||!mapErr)return;const w=cv.width/devicePixel
   ctx.fillText(mapErr,bx+10,by+37);
   ctx.fillText('Open the URL logged in console (F12) directly to test the server.',bx+10,by+51);
   ctx.restore();}
-function drawMapBackground(){if(!showMap||!mapImage||agReady)return;ctx.save();   // ArcGIS tiles cover it once ready
-  const ext=mapImage.extent;
-  const[x0,y0]=W2S(ext.minE,ext.maxN),[x1,y1]=W2S(ext.maxE,ext.minN);
-  // white backing first so partial transparency lightens (not darkens) against the near-black UI,
-  // then draw the aerial bright with a small brightness/contrast lift.
-  ctx.fillStyle='#fff';ctx.fillRect(x0,y0,x1-x0,y1-y0);
-  ctx.globalAlpha=mapAlpha;
-  if('filter' in ctx)ctx.filter='brightness(1.12) contrast(1.05)';
+function drawMapBackground(){if(!showMap||agReady||!mapTiles.length)return;ctx.save();   // ArcGIS tiles cover it once ready
   ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
-  ctx.drawImage(mapImage.img,x0,y0,x1-x0,y1-y0);ctx.restore();}
+  const rect=t=>{const e=t.ext;const[x0,y0]=W2S(e.minE,e.maxN),[x1,y1]=W2S(e.maxE,e.minN);return[x0,y0,x1-x0,y1-y0];};
+  // white backing under the loaded tiles so partial transparency lightens (not darkens) the UI
+  ctx.fillStyle='#fff';mapTiles.forEach(t=>{if(t.ok){const[x,y,w,h]=rect(t);ctx.fillRect(x,y,w,h);}});
+  // then the aerial tiles, bright, with a small brightness/contrast lift (overlap by 0.5px to hide seams)
+  ctx.globalAlpha=mapAlpha;if('filter' in ctx)ctx.filter='brightness(1.12) contrast(1.05)';
+  mapTiles.forEach(t=>{if(t.ok){const[x,y,w,h]=rect(t);ctx.drawImage(t.img,x-0.5,y-0.5,w+1,h+1);}});
+  ctx.restore();}
 
 function drawSelFig(){if(!selFig)return;const f=getFig(selFig);if(!f)return;
   const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
@@ -1238,8 +1249,8 @@ function draw(){is3D?draw3D():draw2D();}
 function draw2D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
   if(showMap){
-    if(!agReady){if(!mapImage&&!mapLoading)fetchMapTiles();else scheduleMapRefresh();}   // always guarantee a visible map
-    if(!agReady&&!agLoading&&!agFailed)initArcGIS();                                      // try to upgrade to fast ArcGIS tiles
+    if(!agReady){if(!mapTiles.length&&!mapLoading)fetchMapTiles();else scheduleMapRefresh();}   // always guarantee a visible map
+    if(USE_ARCGIS&&!agReady&&!agLoading&&!agFailed)initArcGIS();                                 // ArcGIS SDK disabled: county ImageServer lacks CORS + custom SR
   }
   syncArcGIS();drawMapBackground();
   const step=niceStep(50/view.s);ctx.lineWidth=1;
@@ -1967,8 +1978,8 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
-  if(showMap){mapSource='ramsey';mapMaxPx=4096;mapImage=null;mapErr=null;fetchMapTiles();}  // draw2D also tries the ArcGIS tile upgrade
-  else{mapImage=null;mapErr=null;const d=$('agmap');if(d)d.style.display='none';}
+  if(showMap){mapSource='ramsey';mapMaxPx=4096;mapTiles=[];mapErr=null;fetchMapTiles();}
+  else{mapTiles=[];mapErr=null;const d=$('agmap');if(d)d.style.display='none';}
   draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
