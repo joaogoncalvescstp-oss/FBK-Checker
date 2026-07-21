@@ -32,6 +32,7 @@ first and follow it on every task in this repo.
     | 16 | 🍇 GRAPE | MAP background: brighter aerial (white backing + brightness lift, α0.9) and higher resolution (4096px, 2× DPR, auto-downsize retry) |
     | 17 | 🍊 ORANGE | MAP now uses the ArcGIS JS API — a tiled MapView behind the canvas, synced to the 2D view (fast/progressive tiles); image export kept as fallback |
     | 18 | 🍓 STRAWBERRY | fix "no map": image now ALWAYS loads immediately; ArcGIS only takes over once its imagery layer genuinely loads (no more dead-loading trap) |
+    | 19 | 🍒 CHERRY | ArcGIS MapView built in the county's custom projection (Ramsey Lambert WKT) so tiles actually render — was blank because it defaulted to Web Mercator |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -73,9 +74,14 @@ first and follow it on every task in this repo.
   to the old REST `export` image path (`fetchMapTiles`/`drawMapBackground`). The
   survey coords are assumed to be in the ImageServer's native SR (same assumption
   the old `ramsey` branch used).
+- **Custom projection (critical):** the ImageServer SR is a custom **Ramsey County
+  Lambert Conformal Conic** (US ft, custom datum, NO wkid). The MapView is built
+  with `spatialReference:new SpatialReference({wkt:RAMSEY_WKT})` + an initial
+  `extent` (`RAMSEY_EXT`) so no reprojection is needed. Without this it defaults to
+  Web Mercator, can't reproject the custom-datum image, and renders blank. The
+  survey FBK coords are in this same system (why the old `export` path aligned).
 - **Untested here:** the sandbox blocks `js.arcgis.com` and `maps.co.ramsey.mn.us`,
-  so this needs live browser verification. If the county SR isn't one ArcGIS can
-  display, the view errors → image fallback.
+  so this still needs live browser verification.
 
 ## Import CSV / PNEZD (`importCSV`, ↥ Import CSV button)
 
