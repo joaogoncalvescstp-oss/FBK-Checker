@@ -33,6 +33,7 @@ first and follow it on every task in this repo.
     | 17 | 🍊 ORANGE | MAP now uses the ArcGIS JS API — a tiled MapView behind the canvas, synced to the 2D view (fast/progressive tiles); image export kept as fallback |
     | 18 | 🍓 STRAWBERRY | fix "no map": image now ALWAYS loads immediately; ArcGIS only takes over once its imagery layer genuinely loads (no more dead-loading trap) |
     | 19 | 🍒 CHERRY | ArcGIS MapView built in the county's custom projection (Ramsey Lambert WKT) so tiles actually render — was blank because it defaulted to Web Mercator |
+    | 20 | 🥝 KIWI | ArcGIS SDK disabled (county server has no CORS); MAP now a tiled 3×3 plain-<img> mosaic — sharper + streams in progressively; Esri single-image fallback |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -58,30 +59,25 @@ first and follow it on every task in this repo.
 - Inserted points have `srcLine = -1` and export as fresh `NEZ` records placed
   in the right file position (not appended to a non-existent source line).
 
-## MAP background — ArcGIS JS API (`initArcGIS`/`syncArcGIS`) + image fallback
+## MAP background — tiled plain-`<img>` mosaic (`fetchMapTiles`/`drawMapBackground`)
 
-- **Preferred:** a tiled ArcGIS **MapView** (`js.arcgis.com/4.30`, AMD, lazy-loaded
-  on first MAP toggle) in `#agmap`, sitting **behind the transparent canvas**
-  (`z-index:0`; canvas `z-index:1`; overlays `z-index:2`). It shows the Ramsey
-  Aerial2024 **ImageryLayer** and streams cached tiles — fast + progressive,
-  fixing the slow/low-res single-JPEG `export`.
-- **Sync:** `syncArcGIS()` sets `agView.extent` to the canvas's visible world
-  bounds (`S2W` of the 0,0 and w,h corners). `W2S` is affine north-up square-pixel,
-  so the same extent aligns the aerial to the survey. Called from `draw2D`;
-  MapView navigation is inert (`pointer-events` stay on the canvas on top).
-  Hidden in 3D (`setMode`) and when MAP is off.
-- **Fallback:** if the API can't load or the view errors (`agFailed`), it reverts
-  to the old REST `export` image path (`fetchMapTiles`/`drawMapBackground`). The
-  survey coords are assumed to be in the ImageServer's native SR (same assumption
-  the old `ramsey` branch used).
-- **Custom projection (critical):** the ImageServer SR is a custom **Ramsey County
-  Lambert Conformal Conic** (US ft, custom datum, NO wkid). The MapView is built
-  with `spatialReference:new SpatialReference({wkt:RAMSEY_WKT})` + an initial
-  `extent` (`RAMSEY_EXT`) so no reprojection is needed. Without this it defaults to
-  Web Mercator, can't reproject the custom-datum image, and renders blank. The
-  survey FBK coords are in this same system (why the old `export` path aligned).
-- **Untested here:** the sandbox blocks `js.arcgis.com` and `maps.co.ramsey.mn.us`,
-  so this still needs live browser verification.
+- **Why not the ArcGIS SDK:** an ArcGIS `ImageryLayer`/`MapView` loads via `fetch`/XHR
+  which needs **CORS**, and `maps.co.ramsey.mn.us` sends none → blank. The service SR
+  is also a custom **Ramsey County Lambert Conformal Conic** (US ft, custom datum, no
+  wkid) the client can't reproject. So `USE_ARCGIS=false`; the SDK code (`initArcGIS`/
+  `syncArcGIS`, `RAMSEY_WKT`, `#agmap`) is left in but dormant. Flip `USE_ARCGIS` only
+  if the county server ever adds CORS.
+- **Ramsey (default):** a **3×3 grid** of `/export` requests (plain `<img>`, no CORS),
+  each ~near-screen resolution, fired in parallel and drawn as each arrives — so it's
+  ~3× sharper than one capped export and streams in progressively (fixes dark/low-res/
+  slow). Survey coords are passed as the bbox directly (native county SR). Tiles are
+  `[{img,ext,ok}]` in `mapTiles`; `drawMapBackground` paints a white backing then the
+  bright tiles (α `mapAlpha`, brightness/contrast lift), overlapping 0.5px to hide seams.
+- **Esri fallback:** if every county tile errors, `mapSource='esri'` fetches one
+  World_Imagery image (Web Mercator via `surveyToLL`/`llToMerc` calibrated transform).
+- **Refresh:** `scheduleMapRefresh` (350ms debounce) refetches on viewport change; keyed
+  by `viewKey` to skip duplicates. Hidden in 3D and when MAP is off.
+- **Untested here:** the sandbox blocks `maps.co.ramsey.mn.us`, so live verification needed.
 
 ## Import CSV / PNEZD (`importCSV`, ↥ Import CSV button)
 
