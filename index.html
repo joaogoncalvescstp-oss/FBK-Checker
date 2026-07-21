@@ -32,7 +32,10 @@ body{background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,s
 .pill{font:600 11px var(--mono);color:var(--mut);padding:3px 8px;border:1px solid var(--rule);border-radius:20px}
 .main{display:grid;grid-template-columns:1fr 320px;min-height:0}
 .stage{position:relative;min-height:0;background:radial-gradient(120% 120% at 30% 0%,#0c1426,#070b16)}
-canvas{display:block;width:100%;height:100%;touch-action:none}
+canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;z-index:1;background:transparent}
+#agmap{position:absolute;inset:0;z-index:0;display:none}
+#agmap .esri-view-surface{outline:none}
+.tools,.zbtns,.legend,.vex,.hud,.zwbox{z-index:2}
 .hud{position:absolute;left:12px;bottom:12px;font:600 11px var(--mono);color:var(--mut);background:rgba(7,11,22,.7);border:1px solid var(--rule);padding:6px 10px;border-radius:6px;pointer-events:none}
 .tools{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:6px}
 .tool{width:40px;height:40px;border-radius:8px;border:1px solid var(--rule);background:rgba(15,22,38,.85);color:var(--mut);cursor:pointer;font:700 14px var(--mono);display:grid;place-items:center}
@@ -133,11 +136,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
     <div class="stage">
+      <div id="agmap"></div>
       <canvas id="cv"></canvas>
       <div class="zwbox" id="zwbox"></div>
       <div class="tools">
@@ -320,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:16};
+const VERSION={fruit:'🍊',name:'ORANGE',build:17};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -348,6 +352,13 @@ let circles=[];                                           // drawn circles: [{ce
 let showMap=false;                                        // GIS map background toggle
 let mapAlpha=0.9;                                          // aerial opacity (over a white backing so it isn't darkened by the UI)
 let mapMaxPx=4096;                                         // max export size; drops to 2048 if the service rejects the large request
+/* ArcGIS Maps SDK for JavaScript — a tiled MapView behind the transparent canvas,
+   synced to the 2D view. Streams cached tiles (fast/progressive) instead of one
+   huge export JPEG. Lazy-loaded on first MAP toggle; falls back to the image
+   export path if the API can't load or the view fails. */
+let agReady=false,agLoading=false,agFailed=false,agView=null,agLayer=null,AgExtent=null,agKey='';
+const ARCGIS_VER='4.30';
+const RAMSEY_IMG_URL='https://maps.co.ramsey.mn.us/arcgis/rest/services/OrthoPhotos/Aerial2024/ImageServer';
 let mapImage=null;                                        // cached map image: {img, extent:{minE,maxE,minN,maxN}}
 let mapLoading=false;                                     // map fetch in progress
 let mapErr=null;                                          // last map load error message, or null
@@ -954,6 +965,49 @@ function viewportBounds(){const w=cv.width/devicePixelRatio,h=cv.height/devicePi
           minN:Math.min(tl[1],br[1]),maxN:Math.max(tl[1],br[1]),w,h};}
 function viewKey(v){return [Math.round(v.minE),Math.round(v.minN),Math.round(v.maxE),Math.round(v.maxN)].join(',');}
 // re-fetch imagery for the new viewport shortly after panning/zooming stops
+function initArcGIS(){
+  if(agReady||agLoading||agFailed)return;
+  agLoading=true;hud('loading ArcGIS map engine…');
+  if(!document.getElementById('agCss')){const l=document.createElement('link');l.id='agCss';l.rel='stylesheet';
+    l.href=`https://js.arcgis.com/${ARCGIS_VER}/esri/themes/light/main.css`;document.head.appendChild(l);}
+  const boot=()=>{
+    if(!window.require){agFailed=true;agLoading=false;hud('ArcGIS API blocked — using image fallback');fetchMapTiles();return;}
+    window.require(['esri/Map','esri/views/MapView','esri/layers/ImageryLayer','esri/geometry/Extent'],
+    (Map,MapView,ImageryLayer,Extent)=>{try{
+      AgExtent=Extent;
+      agLayer=new ImageryLayer({url:RAMSEY_IMG_URL});
+      const map=new Map({layers:[agLayer]});
+      agView=new MapView({container:'agmap',map,ui:{components:[]},
+        constraints:{snapToZoom:false,rotationEnabled:false}});
+      agView.when(()=>{agReady=true;agLoading=false;
+        try{agView.navigation.momentumEnabled=false;}catch(_){}
+        $('agmap').style.display='block';agKey='';syncArcGIS();draw();hud('ArcGIS aerial ready');},
+        err=>{console.error('ArcGIS view error',err);agFailed=true;agLoading=false;hud('ArcGIS view failed — using image fallback');fetchMapTiles();});
+    }catch(err){console.error(err);agFailed=true;agLoading=false;hud('ArcGIS init failed — using image fallback');fetchMapTiles();}});
+  };
+  if(window.require){boot();return;}
+  let s=document.getElementById('agJs');
+  if(s){s.addEventListener('load',boot);return;}
+  s=document.createElement('script');s.id='agJs';s.src=`https://js.arcgis.com/${ARCGIS_VER}/`;
+  s.onload=boot;s.onerror=()=>{agFailed=true;agLoading=false;hud('ArcGIS API blocked — using image fallback');fetchMapTiles();};
+  document.head.appendChild(s);
+}
+/* Match the MapView's extent to the canvas's visible world bounds. W2S is an
+   affine north-up square-pixel transform, identical to how a projected MapView
+   maps coordinates, so setting the same extent aligns the aerial to the survey. */
+function syncArcGIS(){
+  const div=$('agmap');if(!div)return;
+  if(!agReady||!showMap||is3D){div.style.display='none';return;}
+  div.style.display='block';
+  const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  const tl=S2W(0,0),br=S2W(w,h);
+  const xmin=Math.min(tl[0],br[0]),xmax=Math.max(tl[0],br[0]);
+  const ymin=Math.min(tl[1],br[1]),ymax=Math.max(tl[1],br[1]);
+  if(!(xmax>xmin&&ymax>ymin))return;
+  const key=[xmin,ymin,xmax,ymax].map(n=>n.toFixed(2)).join(',');
+  if(key===agKey)return;agKey=key;
+  try{agView.extent=new AgExtent({xmin,ymin,xmax,ymax,spatialReference:agView.spatialReference});}catch(e){console.error('ag sync',e);}
+}
 function scheduleMapRefresh(){if(!showMap||is3D)return;clearTimeout(mapTimer);
   mapTimer=setTimeout(()=>{const v=viewportBounds();if(viewKey(v)===mapLastKey&&mapImage)return;fetchMapTiles();},350);}
 function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
@@ -1172,7 +1226,9 @@ function draw(){is3D?draw3D():draw2D();}
 
 function draw2D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
-  if(showMap){if(!mapImage&&!mapLoading)fetchMapTiles();else scheduleMapRefresh();}drawMapBackground();
+  if(showMap&&!agFailed&&!agReady&&!agLoading)initArcGIS();
+  if(showMap&&agFailed){if(!mapImage&&!mapLoading)fetchMapTiles();else scheduleMapRefresh();}
+  syncArcGIS();drawMapBackground();
   const step=niceStep(50/view.s);ctx.lineWidth=1;
   const tl=S2W(0,0),br=S2W(w,h);ctx.beginPath();
   for(let E=Math.ceil(tl[0]/step)*step;E<br[0];E+=step){const[x]=W2S(E,0);ctx.moveTo(x,0);ctx.lineTo(x,h);}
@@ -1841,6 +1897,7 @@ function setMode(m){
   $('t'+cap(m)).classList.add('on');
   $('vex').classList.toggle('show',is3D);
   $('legend').style.display=is3D?'none':'';
+  if(is3D){const d=$('agmap');if(d)d.style.display='none';}   // 3D canvas is transparent — don't leak the aerial behind it
   cv.style.cursor=is3D?'grab':m==='pan'?'grab':m==='zoom'?'zoom-in':m==='move'?'move':'crosshair';
   if(is3D!==wasOrbit)fit();else draw();
   if(m==='inv')inspectInverse();else if(sel>=0)inspect();
@@ -1897,8 +1954,10 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
-  if(showMap){mapSource='ramsey';mapMaxPx=4096;mapImage=null;mapErr=null;fetchMapTiles();}
-  else{mapImage=null;mapErr=null;}draw();};
+  if(showMap){mapSource='ramsey';mapMaxPx=4096;mapImage=null;mapErr=null;
+    if(!agFailed)initArcGIS();else fetchMapTiles();}          // prefer the tiled ArcGIS MapView; fall back to image export
+  else{mapImage=null;mapErr=null;const d=$('agmap');if(d)d.style.display='none';}
+  draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};

@@ -30,6 +30,7 @@ first and follow it on every task in this repo.
     | 14 | 🍋 LEMON | Import CSV (PNEZD): comma-delimited point#, N, E, Z, description → NEZ points; standalone COGO/CSV points now always export |
     | 15 | 🍎 APPLE | Export CSV (↓ Export CSV): all points → comma-delimited PNEZD file, round-trips with Import CSV |
     | 16 | 🍇 GRAPE | MAP background: brighter aerial (white backing + brightness lift, α0.9) and higher resolution (4096px, 2× DPR, auto-downsize retry) |
+    | 17 | 🍊 ORANGE | MAP now uses the ArcGIS JS API — a tiled MapView behind the canvas, synced to the 2D view (fast/progressive tiles); image export kept as fallback |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -54,6 +55,26 @@ first and follow it on every task in this repo.
   (`<code> E`); otherwise the new point is just `<code>`.
 - Inserted points have `srcLine = -1` and export as fresh `NEZ` records placed
   in the right file position (not appended to a non-existent source line).
+
+## MAP background — ArcGIS JS API (`initArcGIS`/`syncArcGIS`) + image fallback
+
+- **Preferred:** a tiled ArcGIS **MapView** (`js.arcgis.com/4.30`, AMD, lazy-loaded
+  on first MAP toggle) in `#agmap`, sitting **behind the transparent canvas**
+  (`z-index:0`; canvas `z-index:1`; overlays `z-index:2`). It shows the Ramsey
+  Aerial2024 **ImageryLayer** and streams cached tiles — fast + progressive,
+  fixing the slow/low-res single-JPEG `export`.
+- **Sync:** `syncArcGIS()` sets `agView.extent` to the canvas's visible world
+  bounds (`S2W` of the 0,0 and w,h corners). `W2S` is affine north-up square-pixel,
+  so the same extent aligns the aerial to the survey. Called from `draw2D`;
+  MapView navigation is inert (`pointer-events` stay on the canvas on top).
+  Hidden in 3D (`setMode`) and when MAP is off.
+- **Fallback:** if the API can't load or the view errors (`agFailed`), it reverts
+  to the old REST `export` image path (`fetchMapTiles`/`drawMapBackground`). The
+  survey coords are assumed to be in the ImageServer's native SR (same assumption
+  the old `ramsey` branch used).
+- **Untested here:** the sandbox blocks `js.arcgis.com` and `maps.co.ramsey.mn.us`,
+  so this needs live browser verification. If the county SR isn't one ArcGIS can
+  display, the view errors → image fallback.
 
 ## Import CSV / PNEZD (`importCSV`, ↥ Import CSV button)
 
