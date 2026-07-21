@@ -133,7 +133,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -320,7 +320,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍎',name:'APPLE',build:15};
+const VERSION={fruit:'🍇',name:'GRAPE',build:16};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -346,6 +346,8 @@ let insertPt=null;                                        // insert-point flow: 
 let circleTool=null;                                      // circle drawing: {centerPt:idx} or null
 let circles=[];                                           // drawn circles: [{centerIdx, radiusFt}]
 let showMap=false;                                        // GIS map background toggle
+let mapAlpha=0.9;                                          // aerial opacity (over a white backing so it isn't darkened by the UI)
+let mapMaxPx=4096;                                         // max export size; drops to 2048 if the service rejects the large request
 let mapImage=null;                                        // cached map image: {img, extent:{minE,maxE,minN,maxN}}
 let mapLoading=false;                                     // map fetch in progress
 let mapErr=null;                                          // last map load error message, or null
@@ -960,8 +962,8 @@ function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
   // pad the viewport ~6% so imagery covers the edges
   const padE=(v.maxE-v.minE)*0.06||10,padN=(v.maxN-v.minN)*0.06||10;
   const minE=v.minE-padE,maxE=v.maxE+padE,minN=v.minN-padN,maxN=v.maxN+padN;
-  // request at (near) screen resolution for crisp imagery, capped at the service max
-  const CAP=2048,longPx=Math.min(CAP,Math.round(Math.max(v.w,v.h)*devicePixelRatio*1.2));
+  // request above screen resolution for crisp imagery, capped at the service max
+  const CAP=mapMaxPx,longPx=Math.min(CAP,Math.round(Math.max(v.w,v.h)*devicePixelRatio*2));
   const px=(bw,bh)=>bw>=bh?[longPx,Math.max(1,Math.round(longPx*bh/bw))]:[Math.max(1,Math.round(longPx*bw/bh)),longPx];
   let url,extent;
   if(mapSource==='ramsey'){
@@ -986,7 +988,8 @@ function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
   const img=new Image();
   img.onload=()=>{mapImage={img,extent};mapErr=null;mapLoading=false;draw();hud('map loaded ('+mapSource+')');};
   img.onerror=e=>{console.error('Map image error ('+mapSource+'):',e,url);
-    if(mapSource==='ramsey'){mapSource='esri';mapLoading=false;hud('county imagery blocked — falling back to Esri…');fetchMapTiles();return;}
+    if(mapSource==='ramsey'&&mapMaxPx>2048){mapMaxPx=2048;mapLoading=false;hud('retrying county imagery at a smaller size…');fetchMapTiles();return;}
+    if(mapSource==='ramsey'){mapSource='esri';mapMaxPx=4096;mapLoading=false;hud('county imagery blocked — falling back to Esri…');fetchMapTiles();return;}
     mapLoading=false;mapErr='County and Esri imagery both failed (network blocked?).';draw();hud('map load failed — see on-screen note');};
   img.src=url;
 }
@@ -1003,7 +1006,13 @@ function drawMapError(){if(!showMap||!mapErr)return;const w=cv.width/devicePixel
 function drawMapBackground(){if(!showMap||!mapImage)return;ctx.save();
   const ext=mapImage.extent;
   const[x0,y0]=W2S(ext.minE,ext.maxN),[x1,y1]=W2S(ext.maxE,ext.minN);
-  ctx.globalAlpha=0.4;ctx.drawImage(mapImage.img,x0,y0,x1-x0,y1-y0);ctx.restore();}
+  // white backing first so partial transparency lightens (not darkens) against the near-black UI,
+  // then draw the aerial bright with a small brightness/contrast lift.
+  ctx.fillStyle='#fff';ctx.fillRect(x0,y0,x1-x0,y1-y0);
+  ctx.globalAlpha=mapAlpha;
+  if('filter' in ctx)ctx.filter='brightness(1.12) contrast(1.05)';
+  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+  ctx.drawImage(mapImage.img,x0,y0,x1-x0,y1-y0);ctx.restore();}
 
 function drawSelFig(){if(!selFig)return;const f=getFig(selFig);if(!f)return;
   const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
@@ -1888,7 +1897,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
-  if(showMap){mapSource='ramsey';mapImage=null;mapErr=null;fetchMapTiles();}
+  if(showMap){mapSource='ramsey';mapMaxPx=4096;mapImage=null;mapErr=null;fetchMapTiles();}
   else{mapImage=null;mapErr=null;}draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
