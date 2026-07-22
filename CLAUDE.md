@@ -34,6 +34,7 @@ first and follow it on every task in this repo.
     | 18 | 🍓 STRAWBERRY | fix "no map": image now ALWAYS loads immediately; ArcGIS only takes over once its imagery layer genuinely loads (no more dead-loading trap) |
     | 19 | 🍒 CHERRY | ArcGIS MapView built in the county's custom projection (Ramsey Lambert WKT) so tiles actually render — was blank because it defaulted to Web Mercator |
     | 20 | 🥝 KIWI | ArcGIS SDK disabled (county server has no CORS); MAP now a tiled 3×3 plain-<img> mosaic — sharper + streams in progressively; Esri single-image fallback |
+    | 21 | 🍑 PEACH | box (marquee) multi-select in SEL: drag to select many points, Shift-drag adds, bulk Delete/Restore, Del key + Esc-clear |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
 
@@ -116,6 +117,19 @@ first and follow it on every task in this repo.
   lines can have two different Z values, so picking an intersection sets N/E and
   then opens a chooser — line A's Z, line B's Z, the average, or a custom value.
   Esc/Cancel returns to the Add Point dialog.
+
+## Box (marquee) multi-select (`selSet`, `inspectMulti`, `multiDelete`)
+
+- In **SEL** mode, dragging on empty canvas draws a marquee (reuses `#zwbox`); on
+  release, every non-deleted point whose `W2S` screen position is inside the box is
+  added to `selSet`. **Shift/Ctrl-drag** adds to the existing set instead of replacing.
+- A short drag (<5px) is treated as a **click** → figure pick / deselect (so clicking
+  a line still selects the figure). `sel` (single) and `selSet` (multi) are mutually
+  exclusive — selecting one point clears `selSet`.
+- Selected points highlight gold (`drawPt` uses `hot=i===sel||selSet.has(i)`).
+  `inspectMulti()` shows the count with **Delete / Restore / Clear**; `multiDelete()`
+  bulk-sets `.deleted` (archived as Deleted on export). **Del/Backspace** deletes the
+  set, **Esc** clears it (both guarded against typing in inputs). Undo/redo clears it.
 
 ## Figure / line code review (`inspectFig`)
 
