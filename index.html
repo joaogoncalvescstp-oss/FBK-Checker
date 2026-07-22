@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -177,7 +177,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <h3>Inspector</h3>
       <div class="scroll" id="insp">
         <div class="empty">Load an FBK, then click a point.<br><br>
-          <b>SEL</b> edits the descriptor code that drives linework, or deletes a shot.<br>
+          <b>SEL</b> edits the descriptor code that drives linework, or deletes a shot. <b>Drag a box</b> on empty canvas to select many points (Shift-drag adds; Delete removes).<br>
           <b>3D</b> orbits the survey by elevation — inspect only; switch back to a 2D tool to edit.</div>
       </div>
       <div class="log">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:20};
+const VERSION={fruit:'🍑',name:'PEACH',build:21};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -342,6 +342,7 @@ let RAW=[], PTS=[], CODES={};
 let view={x:0,y:0,s:1};                                  // 2D world->screen
 let orbit={az:0.6,el:1.0,s:1,ox:0,oy:0,ve:3,cx:0,cy:0,cz:0}; // 3D
 let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
+let selSet=new Set();                                     // box-selected point indices (marquee multi-select)
 let figOrder={};                                          // figId -> [ptIdx,...] override
 let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
 let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
@@ -400,7 +401,7 @@ function performUndo(){
   redoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   const state=undoStack.pop();
   PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
-  sel=-1;selFig=null;buildLinework();inspect();draw();
+  sel=-1;selFig=null;selSet.clear();buildLinework();inspect();draw();
   $('logn').textContent=log.length;
   $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
   updateUndoRedoButtons();hud('undo');
@@ -410,7 +411,7 @@ function performRedo(){
   undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   const state=redoStack.pop();
   PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
-  sel=-1;selFig=null;buildLinework();inspect();draw();
+  sel=-1;selFig=null;selSet.clear();buildLinework();inspect();draw();
   $('logn').textContent=log.length;
   $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
   updateUndoRedoButtons();hud('redo');
@@ -1296,10 +1297,11 @@ function drawPt(p,i,x,y){
   if(p.deleted){ctx.beginPath();ctx.arc(x,y,r+2,0,7);ctx.strokeStyle='#ff5d52';ctx.lineWidth=1.4;
     ctx.fillStyle='rgba(255,93,82,.13)';ctx.fill();ctx.beginPath();
     ctx.moveTo(x-4,y-4);ctx.lineTo(x+4,y+4);ctx.moveTo(x+4,y-4);ctx.lineTo(x-4,y+4);ctx.strokeStyle='#ff5d52';ctx.stroke();return;}
-  ctx.beginPath();ctx.arc(x,y,i===sel?r+3:r,0,7);
-  ctx.fillStyle=i===sel?'#F1B434':(p.kind==='ctrl'?'#ffd24a':(p.edited?'#35c184':'#7fb3ff'));ctx.fill();
-  if(i===sel){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
-  if(p.kind==='ctrl'||view.s>3||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#9fb4d8';
+  const hot=i===sel||selSet.has(i);
+  ctx.beginPath();ctx.arc(x,y,hot?r+3:r,0,7);
+  ctx.fillStyle=hot?'#F1B434':(p.kind==='ctrl'?'#ffd24a':(p.edited?'#35c184':'#7fb3ff'));ctx.fill();
+  if(hot){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
+  if(p.kind==='ctrl'||view.s>3||hot){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#9fb4d8';
     ctx.font='600 10px ui-monospace,monospace';ctx.fillText(p.kind==='ctrl'?p.desc.split(' ')[0]:p.id,x+7,y-6);}
 }
 function drawGizmo(){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,gx=w-46,gy=h-46,L=22;
@@ -1443,6 +1445,37 @@ function inspect(){const box=$('insp');
     ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
     $('delBtn').onclick=()=>toggleDel(p);}
 }
+/* Inspector for a box (marquee) selection of multiple points. */
+function inspectMulti(){const box=$('insp');const ids=[...selSet].filter(i=>PTS[i]);
+  if(!ids.length){sel=-1;selFig=null;inspect();return;}
+  const delN=ids.filter(i=>PTS[i].deleted).length,liveN=ids.length-delN;
+  const rows=ids.slice(0,80).map(i=>{const p=PTS[i];const code=(p.desc||'').split(/\s+/)[0]||'';
+    return `<div class="vrow"><div class="vhd"><span class="vpt">pt ${p.id}${p.deleted?' <span class="arc" style="background:#3a1c1c;color:#ff8a80">DEL</span>':''}</span><span class="vln">${code}</span></div></div>`;}).join('');
+  box.innerHTML=`
+    <div class="field"><label>Box selection</label>
+      <div class="fighead"><span class="figname">${ids.length}</span>
+        <span class="figmeta">points selected${delN?` · ${delN} already deleted`:''}</span></div></div>
+    ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>':`
+    <div class="chgrp">
+      <button class="btn danger" id="mDel" ${liveN?'':'disabled'}>🗑 Delete (${liveN})</button>
+      <button class="btn" id="mRestore" ${delN?'':'disabled'}>↺ Restore (${delN})</button>
+    </div>
+    <button class="btn" id="mClear" style="width:100%;justify-content:center;margin-top:7px">✕ Clear selection</button>
+    <div class="note" style="padding:8px 0 0">Drag a box on empty canvas in <b>SEL</b> to select points; <b>Shift-drag</b> adds to the selection. Delete archives every selected shot/point as <b>Deleted</b> on export.</div>`}
+    <div class="vlist" style="margin-top:10px">${rows}${ids.length>80?`<div class="note">…and ${ids.length-80} more</div>`:''}</div>`;
+  if(!is3D){
+    $('mDel').onclick=()=>multiDelete(true);
+    $('mRestore').onclick=()=>multiDelete(false);
+    $('mClear').onclick=()=>{selSet.clear();sel=-1;selFig=null;inspect();draw();hud('selection cleared');};
+  }
+}
+function multiDelete(del){const ids=[...selSet].filter(i=>PTS[i]&&PTS[i].deleted!==del);
+  if(!ids.length)return;
+  saveState();
+  ids.forEach(i=>{PTS[i].deleted=del;PTS[i].edited=true;});
+  logEdit('del',`${del?'deleted':'restored'} ${ids.length} selected pt(s)`);
+  buildLinework();draw();inspectMulti();flagDirty();
+  hud(`${del?'deleted':'restored'} ${ids.length} point(s)`);}
 function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="empty">Figure not found.</div>';return;}
   const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added})).filter(o=>o.p&&!o.p.deleted);
   const moved=!!figOrder[f.id];
@@ -1869,9 +1902,10 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     if(i>=0){if(inv.a<0||inv.b>=0)inv={a:i,b:-1};else inv.b=i;}else inv={a:-1,b:-1};
     sel=-1;selFig=null;inspectInverse();draw();return;}
   const i=pick(sx,sy);
-  if(i>=0){sel=i;selFig=null;inspect();draw();if(mode==='move'&&PTS[i].kind==='shot')drag={move:true,i};}
-  else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}
-    else{sel=-1;selFig=null;inspect();draw();}}});
+  if(i>=0){sel=i;selFig=null;selSet.clear();inspect();draw();if(mode==='move'&&PTS[i].kind==='shot')drag={move:true,i};return;}
+  if(mode==='sel'){drag={marquee:true,x0:sx,y0:sy,x1:sx,y1:sy,add:e.shiftKey||e.ctrlKey};return;}  // empty drag → box select (click vs drag decided on release)
+  const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;selSet.clear();inspectFig(f);draw();}
+  else{sel=-1;selFig=null;selSet.clear();inspect();draw();}});
 cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   if(pointers.has(e.pointerId))pointers.set(e.pointerId,{sx,sy});
   if(cogoPick){cogoSnap=snapPoint(sx,sy);
@@ -1885,6 +1919,9 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   if(!is3D){const[E,N]=S2W(sx,sy);hud(`E ${E.toFixed(2)}  N ${N.toFixed(2)}`);}
   if(zw){zw.x1=sx;zw.y1=sy;const b=$('zwbox');b.style.left=Math.min(zw.x0,sx)+'px';b.style.top=Math.min(zw.y0,sy)+'px';
     b.style.width=Math.abs(sx-zw.x0)+'px';b.style.height=Math.abs(sy-zw.y0)+'px';return;}
+  if(drag&&drag.marquee){drag.x1=sx;drag.y1=sy;const b=$('zwbox');b.style.display='block';
+    b.style.left=Math.min(drag.x0,sx)+'px';b.style.top=Math.min(drag.y0,sy)+'px';
+    b.style.width=Math.abs(sx-drag.x0)+'px';b.style.height=Math.abs(sy-drag.y0)+'px';return;}
   if(!drag)return;
   if(drag.orbit){if(drag.shift){orbit.ox=drag.ox+(sx-drag.sx);orbit.oy=drag.oy+(sy-drag.sy);}
     else{orbit.az=drag.az+(sx-drag.sx)*0.008;orbit.el=Math.max(0.12,Math.min(1.55,drag.el-(sy-drag.sy)*0.006));}draw();}
@@ -1897,12 +1934,26 @@ function endInteract(e){const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,s
       const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
       view.s=Math.min(w/((E1-E0)||1),h/((N1-N0)||1));
       view.x=w/2-((E0+E1)/2)*view.s;view.y=h/2+((N0+N1)/2)*view.s;draw();}zw=null;}
+  if(drag&&drag.marquee){$('zwbox').style.display='none';
+    const dx=Math.abs(drag.x1-drag.x0),dy=Math.abs(drag.y1-drag.y0);
+    if(dx>5||dy>5){                                       // a real drag → box select the points inside
+      const xa=Math.min(drag.x0,drag.x1),xb=Math.max(drag.x0,drag.x1),ya=Math.min(drag.y0,drag.y1),yb=Math.max(drag.y0,drag.y1);
+      if(!drag.add)selSet.clear();
+      PTS.forEach((p,idx)=>{if(p.deleted)return;const[px,py]=W2S(p.E,p.N);if(px>=xa&&px<=xb&&py>=ya&&py<=yb)selSet.add(idx);});
+      sel=-1;selFig=null;inspectMulti();draw();
+      hud(`${selSet.size} point(s) selected`);
+    }else{                                                // a click on empty space → figure pick / deselect
+      const f=pickFig(drag.x0,drag.y0);
+      if(f){selFig=f.id;sel=-1;selSet.clear();inspectFig(f);draw();}
+      else{sel=-1;selFig=null;selSet.clear();inspect();draw();}
+    }
+    drag=null;return;}
   if(drag&&drag.move){const[E,N]=S2W(sx,sy);moveTo(PTS[drag.i],E,N);inspect();}
   if(drag&&drag.pan&&is3D)refreshOrbitPivot();drag=null;}
 cv.addEventListener('pointerup',e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;
   if(pointers.size===0)endInteract(e);});
 cv.addEventListener('pointercancel',e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;
-  if(pointers.size===0){drag=null;if(zw){$('zwbox').style.display='none';zw=null;}}});
+  if(pointers.size===0){drag=null;zw=null;$('zwbox').style.display='none';}});
 cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   const f=e.deltaY<0?1.12:1/1.12;
   if(is3D){orbit.s*=f;refreshOrbitPivot();}else{const[wx,wy]=S2W(sx,sy);view.s*=f;view.x=sx-wx*view.s;view.y=sy+wy*view.s;}draw();},{passive:false});
@@ -1976,7 +2027,10 @@ $('zpickCancel').onclick=closeZPick;
 $('zpickScrim').onclick=e=>{if(e.target===$('zpickScrim'))closeZPick();};
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
-  if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);}},true);
+  if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);return;}
+  const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
+  if(!typing&&selSet.size&&(e.key==='Delete'||e.key==='Backspace')){e.preventDefault();multiDelete(true);return;}
+  if(!typing&&e.key==='Escape'&&selSet.size){e.preventDefault();selSet.clear();sel=-1;selFig=null;inspect();draw();hud('selection cleared');}},true);
 $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap);
   if(showMap){mapSource='ramsey';mapMaxPx=4096;mapTiles=[];mapErr=null;fetchMapTiles();}
   else{mapTiles=[];mapErr=null;const d=$('agmap');if(d)d.style.display='none';}
