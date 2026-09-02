@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:21};
+const VERSION={fruit:'🍍',name:'PINEAPPLE',build:22};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -374,7 +374,7 @@ let mapTiles=[];                                          // tiled aerial mosaic
 let mapLoading=false;                                     // map fetch in progress
 let mapErr=null;                                          // last map load error message, or null
 let mapUrl='';                                            // last requested map URL (for diagnostics)
-let mapSource='ramsey';                                   // imagery source being attempted: 'ramsey' | 'esri'
+let mapSource='ramsey';                                   // imagery source being attempted: 'ramsey' | 'esri' | 'naip'
 let mapTimer=null;                                        // debounce timer for viewport-driven refetch
 let mapLastKey='';                                        // viewport key last requested (skip duplicate fetches)
 let flash=null;                                          // {i,t0}
@@ -1045,7 +1045,9 @@ function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
     for(let r=0;r<GRID;r++)for(let c=0;c<GRID;c++){
       const e0=minE+(maxE-minE)*c/GRID, e1=minE+(maxE-minE)*(c+1)/GRID;
       const n0=maxN-(maxN-minN)*(r+1)/GRID, n1=maxN-(maxN-minN)*r/GRID;   // r=0 = top (north) row
-      const url=`${RAMSEY_IMG_URL}/export?bbox=${e0},${n0},${e1},${n1}&size=${cellPx},${cellPx}&format=jpgpng&f=image`;
+      // NOTE: ImageServer's REST operation is "exportImage", not "export" (that's the
+      // MapServer name) — using the wrong path 404s every tile silently.
+      const url=`${RAMSEY_IMG_URL}/exportImage?bbox=${e0},${n0},${e1},${n1}&size=${cellPx},${cellPx}&format=jpgpng&f=image`;
       const t={img:new Image(),ext:{minE:e0,maxE:e1,minN:n0,maxN:n1},ok:false};
       t.img.onload=()=>{t.ok=true;anyOk=true;if(--pending<=0){mapLoading=false;hud('county aerial loaded');}draw();};
       t.img.onerror=()=>{if(--pending<=0){mapLoading=false;
@@ -1055,19 +1057,27 @@ function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
     }
     mapTiles=tiles;
   }else{
-    // Esri World Imagery (single tile) — Web Mercator via the calibrated transform.
+    // Esri World Imagery / USGS NAIP (single tile) — both Web Mercator via the calibrated transform.
     const cm=[[minE,minN],[maxE,minN],[maxE,maxN],[minE,maxN]].map(([E,N])=>{const[la,lo]=surveyToLL(E,N);return llToMerc(la,lo);});
     const mx=cm.map(p=>p[0]),my=cm.map(p=>p[1]);
     const mxn=Math.min(...mx),mxx=Math.max(...mx),myn=Math.min(...my),myx=Math.max(...my);
     const longPx=Math.min(4096,Math.round(Math.max(v.w,v.h)*devicePixelRatio*2)),aw=mxx-mxn,ah=myx-myn;
     const pw=aw>=ah?longPx:Math.max(1,Math.round(longPx*aw/ah)),ph=aw>=ah?Math.max(1,Math.round(longPx*ah/aw)):longPx;
-    const url=`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`;
+    // 'esri' hits ArcGIS Online's public World_Imagery MapServer (so its op is "export"); 'naip' hits
+    // USGS's national NAIP ImageServer (op is "exportImage") — tried last since it's typically slower/coarser
+    // outside recent NAIP flight years but is a US-government service with open CORS/access as a last resort.
+    const url=mapSource==='esri'
+      ?`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`
+      :`https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`;
     const sc=[[mxn,myx],[mxx,myx],[mxx,myn],[mxn,myn]].map(([x,y])=>{const[la,lo]=mercToLL(x,y);return llToSurvey(la,lo);});
     const se=sc.map(p=>p[0]),sn=sc.map(p=>p[1]);
     const ext={minE:Math.min(...se),maxE:Math.max(...se),minN:Math.min(...sn),maxN:Math.max(...sn)};
     const t={img:new Image(),ext,ok:false};
-    t.img.onload=()=>{t.ok=true;mapLoading=false;draw();hud('map loaded (esri)');};
-    t.img.onerror=()=>{mapLoading=false;mapErr='County and Esri imagery both failed (network blocked?).';draw();hud('map load failed — see on-screen note');};
+    const src=mapSource;
+    t.img.onload=()=>{t.ok=true;mapLoading=false;draw();hud(`map loaded (${src})`);};
+    t.img.onerror=()=>{mapLoading=false;
+      if(src==='esri'){mapSource='naip';hud('Esri imagery blocked — falling back to USGS NAIP…');fetchMapTiles();}
+      else{mapErr='County, Esri, and USGS NAIP imagery all failed (network blocked?).';draw();hud('map load failed — see on-screen note');}};
     t.img.src=url;mapTiles=[t];
   }
 }

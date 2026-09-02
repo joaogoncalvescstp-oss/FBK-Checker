@@ -35,8 +35,9 @@ first and follow it on every task in this repo.
     | 19 | 🍒 CHERRY | ArcGIS MapView built in the county's custom projection (Ramsey Lambert WKT) so tiles actually render — was blank because it defaulted to Web Mercator |
     | 20 | 🥝 KIWI | ArcGIS SDK disabled (county server has no CORS); MAP now a tiled 3×3 plain-<img> mosaic — sharper + streams in progressively; Esri single-image fallback |
     | 21 | 🍑 PEACH | box (marquee) multi-select in SEL: drag to select many points, Shift-drag adds, bulk Delete/Restore, Del key + Esc-clear |
+    | 22 | 🍍 PINEAPPLE | fix MAP blank/no imagery: county ImageServer request used the wrong REST op (`/export`, a MapServer-only name) instead of `/exportImage` — every tile 404'd silently; added USGS NAIP as a 3rd fallback (county → Esri → NAIP) |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
-    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON.
+    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -68,14 +69,22 @@ first and follow it on every task in this repo.
   wkid) the client can't reproject. So `USE_ARCGIS=false`; the SDK code (`initArcGIS`/
   `syncArcGIS`, `RAMSEY_WKT`, `#agmap`) is left in but dormant. Flip `USE_ARCGIS` only
   if the county server ever adds CORS.
-- **Ramsey (default):** a **3×3 grid** of `/export` requests (plain `<img>`, no CORS),
+- **Ramsey (default):** a **3×3 grid** of `/exportImage` requests (plain `<img>`, no CORS),
   each ~near-screen resolution, fired in parallel and drawn as each arrives — so it's
   ~3× sharper than one capped export and streams in progressively (fixes dark/low-res/
   slow). Survey coords are passed as the bbox directly (native county SR). Tiles are
   `[{img,ext,ok}]` in `mapTiles`; `drawMapBackground` paints a white backing then the
   bright tiles (α `mapAlpha`, brightness/contrast lift), overlapping 0.5px to hide seams.
+  - **Build 22 fix:** this was `/export` (the MapServer operation name) against an
+    **ImageServer**, whose REST op is `exportImage` — every county tile 404'd silently,
+    so the map was always blank and immediately fell through to Esri. Fixed to
+    `/exportImage`.
 - **Esri fallback:** if every county tile errors, `mapSource='esri'` fetches one
   World_Imagery image (Web Mercator via `surveyToLL`/`llToMerc` calibrated transform).
+- **NAIP fallback (build 22):** if the Esri tile also errors, `mapSource='naip'` tries
+  one USGS NAIP image from `imagery.nationalmap.gov/.../USGSNAIPPlus/ImageServer/exportImage`
+  (same Web Mercator transform/URL shape as Esri, just a different host+op) before giving
+  up and setting `mapErr`. Chain is county → Esri → NAIP → error banner.
 - **Refresh:** `scheduleMapRefresh` (350ms debounce) refetches on viewport change; keyed
   by `viewKey` to skip duplicates. Hidden in 3D and when MAP is off.
 - **Untested here:** the sandbox blocks `maps.co.ramsey.mn.us`, so live verification needed.
