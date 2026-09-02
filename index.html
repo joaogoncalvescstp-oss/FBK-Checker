@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍍',name:'PINEAPPLE',build:22};
+const VERSION={fruit:'🥭',name:'MANGO',build:23};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1047,7 +1047,13 @@ function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
       const n0=maxN-(maxN-minN)*(r+1)/GRID, n1=maxN-(maxN-minN)*r/GRID;   // r=0 = top (north) row
       // NOTE: ImageServer's REST operation is "exportImage", not "export" (that's the
       // MapServer name) — using the wrong path 404s every tile silently.
-      const url=`${RAMSEY_IMG_URL}/exportImage?bbox=${e0},${n0},${e1},${n1}&size=${cellPx},${cellPx}&format=jpgpng&f=image`;
+      // NOTE: adjustAspectRatio defaults to true, which silently EXPANDS the bbox
+      // server-side to match the requested (square) pixel size whenever the cell's
+      // real bbox isn't square (i.e. almost always, since the viewport itself rarely
+      // is) — so the image returned covers a different area than t.ext says, and each
+      // cell drifts by a different amount → tiles visibly misalign from each other on
+      // zoom. Force it off so the server honors the exact bbox we send.
+      const url=`${RAMSEY_IMG_URL}/exportImage?bbox=${e0},${n0},${e1},${n1}&size=${cellPx},${cellPx}&format=jpgpng&adjustAspectRatio=false&f=image`;
       const t={img:new Image(),ext:{minE:e0,maxE:e1,minN:n0,maxN:n1},ok:false};
       t.img.onload=()=>{t.ok=true;anyOk=true;if(--pending<=0){mapLoading=false;hud('county aerial loaded');}draw();};
       t.img.onerror=()=>{if(--pending<=0){mapLoading=false;
@@ -1067,8 +1073,8 @@ function fetchMapTiles(){if(mapLoading||!showMap||is3D)return;
     // USGS's national NAIP ImageServer (op is "exportImage") — tried last since it's typically slower/coarser
     // outside recent NAIP flight years but is a US-government service with open CORS/access as a last resort.
     const url=mapSource==='esri'
-      ?`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`
-      :`https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&f=image`;
+      ?`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&adjustAspectRatio=false&f=image`
+      :`https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/exportImage?bbox=${mxn},${myn},${mxx},${myx}&bboxSR=3857&imageSR=3857&size=${pw},${ph}&format=jpg&adjustAspectRatio=false&f=image`;
     const sc=[[mxn,myx],[mxx,myx],[mxx,myn],[mxn,myn]].map(([x,y])=>{const[la,lo]=mercToLL(x,y);return llToSurvey(la,lo);});
     const se=sc.map(p=>p[0]),sn=sc.map(p=>p[1]);
     const ext={minE:Math.min(...se),maxE:Math.max(...se),minN:Math.min(...sn),maxN:Math.max(...sn)};

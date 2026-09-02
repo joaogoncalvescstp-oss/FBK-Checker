@@ -36,8 +36,9 @@ first and follow it on every task in this repo.
     | 20 | 🥝 KIWI | ArcGIS SDK disabled (county server has no CORS); MAP now a tiled 3×3 plain-<img> mosaic — sharper + streams in progressively; Esri single-image fallback |
     | 21 | 🍑 PEACH | box (marquee) multi-select in SEL: drag to select many points, Shift-drag adds, bulk Delete/Restore, Del key + Esc-clear |
     | 22 | 🍍 PINEAPPLE | fix MAP blank/no imagery: county ImageServer request used the wrong REST op (`/export`, a MapServer-only name) instead of `/exportImage` — every tile 404'd silently; added USGS NAIP as a 3rd fallback (county → Esri → NAIP) |
+    | 23 | 🥭 MANGO | fix MAP tiles misaligning relative to each other on zoom: grid cells requested a fixed *square* pixel size against a non-square bbox, and `adjustAspectRatio` (default true) was silently expanding each cell's bbox server-side to compensate — by a different amount per cell, so they drifted apart; forced `adjustAspectRatio=false` on all 3 map sources |
   - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
-    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -79,6 +80,14 @@ first and follow it on every task in this repo.
     **ImageServer**, whose REST op is `exportImage` — every county tile 404'd silently,
     so the map was always blank and immediately fell through to Esri. Fixed to
     `/exportImage`.
+  - **Build 23 fix:** each grid cell requested a fixed *square* `size` even though its
+    bbox (1/3 of the viewport) is almost never square — `adjustAspectRatio` defaults to
+    **true**, so the server silently expanded each cell's bbox to match the square pixel
+    size, by a different amount per cell (depends how far that cell's aspect ratio is
+    from 1:1), making adjacent tiles drift apart as you zoomed. All 3 map sources
+    (`ramsey`/`esri`/`naip`) now send `adjustAspectRatio=false` so the server always
+    honors the exact bbox we compute — the one `rect()` in `drawMapBackground` also
+    uses to place the tile, so the two now agree.
 - **Esri fallback:** if every county tile errors, `mapSource='esri'` fetches one
   World_Imagery image (Web Mercator via `surveyToLL`/`llToMerc` calibrated transform).
 - **NAIP fallback (build 22):** if the Esri tile also errors, `mapSource='naip'` tries
