@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥭',name:'MANGO',build:23};
+const VERSION={fruit:'🍇',name:'GRAPE',build:24};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -828,12 +828,13 @@ function collectSegments(){const segs=[];
 /* Rebuild the green offset lane lines (same math as drawOffsets) as world-coord
    segments so the snap engine can catch endpoints/intersections on them. */
 function collectOffsetSegments(){const segs=[];
-  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
-    const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    let active=null;const per=all.map((p,k)=>{if(stepsAt[k])active=stepsAt[k];const result=k<startK?null:active;if(stopAt[k])active=null;return result;});
-    const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
-    for(let L=0;L<lanes;L++){const op=per.map((s,k)=>(s&&L<s.length)?offsetAt(all,k,s[L].h,s[L].v):null);
+  figures().forEach(f=>{const all=[],stepsAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);});
+    // offset applies ONLY at a point carrying its own steps — it does NOT
+    // persist onto a following point with no steps of its own; it resumes
+    // (a new lane segment) at whichever later point next carries its own steps.
+    const lanes=Math.max(0,...stepsAt.map(s=>s?s.length:0));if(!lanes)return;
+    for(let L=0;L<lanes;L++){const op=stepsAt.map((s,k)=>(s&&L<s.length)?offsetAt(all,k,s[L].h,s[L].v):null);
       let prev=null;
       op.forEach(o=>{if(!o){prev=null;return;}
         if(prev){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);
@@ -1353,21 +1354,21 @@ function drawArrows(proj){
 /* ---------- H/V offsets + curb cross-section (parallel figures) ----------
    Each H/V step offsets the shot perpendicular by H (signed, right of travel)
    and vertical by V. A point can carry several steps (a curb template); each
-   step index draws its own continuous parallel line ("lane"). Steps PERSIST
-   along the run until a new set appears, matching Civil 3D offset codes.      */
+   step index draws its own continuous parallel line ("lane"). Steps apply
+   ONLY at the point that carries them — a following point with no steps of
+   its own is left un-offset (lane line breaks there), resuming as a new lane
+   segment wherever a later point next carries its own steps.                 */
 function offsetAt(all,k,h,v){
   const a=all[Math.max(0,k-1)],b=all[Math.min(all.length-1,k+1)];
   let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;dE/=L;dN/=L;   // travel dir
   return {E:all[k].E+dN*h,N:all[k].N-dE*h,Z:all[k].Z+v};}               // perp-right by H, up by V
 function drawOffsets(proj){ctx.save();
-  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
-    const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    let active=null;const per=all.map((p,k)=>{
-      if(stepsAt[k])active=stepsAt[k];
-      const result=k<startK?null:active;
-      if(stopAt[k])active=null;                          // SO stops offset AFTER this point
-      return result;});
+  figures().forEach(f=>{const all=[],stepsAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);});
+    // offset applies ONLY at a point carrying its own steps — it does NOT
+    // persist onto a following point with no steps of its own; it resumes
+    // (a new lane segment) at whichever later point next carries its own steps.
+    const per=stepsAt;
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     ctx.strokeStyle='rgba(110,224,166,.4)';ctx.lineWidth=1;ctx.setLineDash([2,3]);   // cross-section ribs
     per.forEach((s,k)=>{if(!s)return;let p0=proj(all[k].E,all[k].N,all[k].Z);
