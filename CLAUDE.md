@@ -37,7 +37,9 @@ first and follow it on every task in this repo.
     | 21 | 🍑 PEACH | box (marquee) multi-select in SEL: drag to select many points, Shift-drag adds, bulk Delete/Restore, Del key + Esc-clear |
     | 22 | 🍍 PINEAPPLE | fix MAP blank/no imagery: county ImageServer request used the wrong REST op (`/export`, a MapServer-only name) instead of `/exportImage` — every tile 404'd silently; added USGS NAIP as a 3rd fallback (county → Esri → NAIP) |
     | 23 | 🥭 MANGO | fix MAP tiles misaligning relative to each other on zoom: grid cells requested a fixed *square* pixel size against a non-square bbox, and `adjustAspectRatio` (default true) was silently expanding each cell's bbox server-side to compensate — by a different amount per cell, so they drifted apart; forced `adjustAspectRatio=false` on all 3 map sources |
-  - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
+    | 24 | 🍇 GRAPE | **REVERTED (build 25)** — attempted to stop the H/V curb offset from persisting past an uncoded point; broke real usage, where a code is shot once at the start of a curb run and is meant to keep applying to every following point until an explicit `SO` |
+    | 25 | 🍊 ORANGE | revert build 24: offset behavior restored to persist-along-the-run (matching Civil 3D offset codes) — a point's H/V steps keep applying to every following point until a new code or `SO` appears, as before |
+  - Suggested next fruits to rotate through: 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
