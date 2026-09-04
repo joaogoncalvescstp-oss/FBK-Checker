@@ -38,7 +38,8 @@ first and follow it on every task in this repo.
     | 22 | 🍍 PINEAPPLE | fix MAP blank/no imagery: county ImageServer request used the wrong REST op (`/export`, a MapServer-only name) instead of `/exportImage` — every tile 404'd silently; added USGS NAIP as a 3rd fallback (county → Esri → NAIP) |
     | 23 | 🥭 MANGO | fix MAP tiles misaligning relative to each other on zoom: grid cells requested a fixed *square* pixel size against a non-square bbox, and `adjustAspectRatio` (default true) was silently expanding each cell's bbox server-side to compensate — by a different amount per cell, so they drifted apart; forced `adjustAspectRatio=false` on all 3 map sources |
     | 24 | 🍇 GRAPE | BC..EC linework now fits a true best-fit constant-radius arc (least-squares circle fit through all the shots) instead of a wiggly cubic spline — matches how a real curve is staked; falls back to the old spline only when the points are near-collinear and don't fit a circle |
-  - Suggested next fruits to rotate through: 🍊 ORANGE, 🍓 STRAWBERRY,
+    | 25 | 🍊 ORANGE | fix build-24 arc fit silently returning a wildly wrong giant circle on real survey coords: county/state-plane N/E run in the 100,000s-1,000,000s of feet, and squaring raw values that large loses precision (catastrophic cancellation) in the least-squares normal equations — `circleFitLS` now recenters on the points' local centroid before fitting, then shifts the solved center back to world coords |
+  - Suggested next fruits to rotate through: 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -67,6 +68,15 @@ first and follow it on every task in this repo.
   - If the points are effectively collinear (no meaningful circle fits, or the
     fitted radius is unrealistically huge), `sampleArcFit` returns `null` and
     `sampleCurve` **falls back to the old spline** rather than drawing garbage.
+  - **Build 25 fix:** `circleFitLS` recenters points on their local centroid
+    before running the least-squares fit, then shifts the solved center back
+    to world coords. Real N/E are county/state-plane coords (100,000s-
+    1,000,000s of ft); fitting directly on those raw values squares numbers
+    that large and loses enough double-precision to the normal-equations
+    determinant that build 24 was silently returning a wrong giant-radius
+    circle (not `null` — it slipped past the `r<1e7` sanity check too) instead
+    of the true curve. Always test this fit with realistic large coordinates,
+    not small ones near the origin — small coords hide this class of bug.
   - A 2-point BC..EC span (no interior shots) has no unique circle — stays a
     straight line, same as before.
   - Curb cross-section offset lane lines (`drawOffsets`/`collectOffsetSegments`)

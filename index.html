@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:24};
+const VERSION={fruit:'🍊',name:'ORANGE',build:25};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1137,8 +1137,14 @@ function sampleSpline(pts){            // smooth best-fit cubic spline through e
   return out;}
 function circleFitLS(pts){             // least-squares (Kåsa) circle fit through N/E points → {E,N,r}
   const n=pts.length;if(n<3)return null;
+  // Recenter on the local centroid first: survey coords run in the 100,000s-1,000,000s of feet
+  // (state-plane/county grid), and squaring raw values that large blows the double-precision
+  // budget (catastrophic cancellation in the normal-equations determinant) — the fit silently
+  // returns a wildly wrong giant circle instead of failing loudly. Fit in local coords, then
+  // shift the solved center back to world coords.
+  const cx0=pts.reduce((s,p)=>s+p.E,0)/n,cy0=pts.reduce((s,p)=>s+p.N,0)/n;
   let Sx=0,Sy=0,Sxx=0,Syy=0,Sxy=0,Sxz=0,Syz=0,Sz=0;
-  pts.forEach(p=>{const x=p.E,y=p.N,z=x*x+y*y;
+  pts.forEach(p=>{const x=p.E-cx0,y=p.N-cy0,z=x*x+y*y;
     Sx+=x;Sy+=y;Sxx+=x*x;Syy+=y*y;Sxy+=x*y;Sxz+=x*z;Syz+=y*z;Sz+=z;});
   const M=[[2*Sxx,2*Sxy,Sx],[2*Sxy,2*Syy,Sy],[2*Sx,2*Sy,n]],v=[Sxz,Syz,Sz];
   const det3=m=>m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
@@ -1147,7 +1153,7 @@ function circleFitLS(pts){             // least-squares (Kåsa) circle fit throu
   const a=det3(withCol(0,v))/D,b=det3(withCol(1,v))/D,cc=det3(withCol(2,v))/D;
   const r2=cc+a*a+b*b;if(!(r2>1e-9))return null;
   const r=Math.sqrt(r2);if(!(r<1e7))return null;           // effectively straight/collinear → let caller fall back
-  return {E:a,N:b,r};}
+  return {E:a+cx0,N:b+cy0,r};}
 function sampleArcFit(span){           // BC..EC → true constant-radius arc, least-squares best fit through all the shots
   const c=circleFitLS(span);if(!c)return null;
   const n=span.length,rawA=span.map(p=>Math.atan2(p.N-c.N,p.E-c.E));
