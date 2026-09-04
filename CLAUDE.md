@@ -40,7 +40,8 @@ first and follow it on every task in this repo.
     | 24 | 🍇 GRAPE | BC..EC linework now fits a true best-fit constant-radius arc (least-squares circle fit through all the shots) instead of a wiggly cubic spline — matches how a real curve is staked; falls back to the old spline only when the points are near-collinear and don't fit a circle |
     | 25 | 🍊 ORANGE | fix build-24 arc fit silently returning a wildly wrong giant circle on real survey coords: county/state-plane N/E run in the 100,000s-1,000,000s of feet, and squaring raw values that large loses precision (catastrophic cancellation) in the least-squares normal equations — `circleFitLS` now recenters on the points' local centroid before fitting, then shifts the solved center back to world coords |
     | 26 | 🍓 STRAWBERRY | fix build-25 arc: it drew each point PROJECTED onto the single least-squares circle, so real (noisy) shots that weren't perfectly concyclic drifted slightly off their true position — now every consecutive pair gets its own circle of (as close as possible to) the fitted design radius solved to pass through BOTH real points exactly, so the drawn curve always hits every shot on the nose |
-  - Suggested next fruits to rotate through: 🍒 CHERRY, 🥝 KIWI, 🍑 PEACH,
+    | 27 | 🍒 CHERRY | the green curb offset **lane lines** now curve through a BC..EC run too, instead of chording straight across it — `drawOffsets` detects the run on the base line and runs the *same* `sampleCurve` best-fit-through-every-point machinery on that lane's own offset points, so it independently best-fits (and passes through) its own points, tracking the base curve's curvature in parallel |
+  - Suggested next fruits to rotate through: 🥝 KIWI, 🍑 PEACH,
     🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -93,9 +94,25 @@ first and follow it on every task in this repo.
     origin — small coords hide that class of bug.
   - A 2-point BC..EC span (no interior shots) has no unique circle — stays a
     straight line, same as before.
-  - Curb cross-section offset lane lines (`drawOffsets`/`collectOffsetSegments`)
-    are unaffected — they're built per-vertex off the base points, not off the
-    sampled curve.
+  - **Build 27:** the curb cross-section offset **lane lines** in `drawOffsets`
+    now curve through a BC..EC run too (previously always chorded straight
+    vertex-to-vertex regardless of the base line — a curb offset line looked
+    faceted next to the now-curved base line it was standing off). For each
+    lane, `drawOffsets` still computes each vertex's offset point exactly as
+    before (`offsetAt`, unchanged), but when the base line's vertex range for
+    that stretch is a BC..EC run, it now calls the *same* `sampleCurve` used
+    for the base line on that lane's own run of offset points — an
+    independent least-squares circle fit through the offset points
+    themselves, guaranteed to pass through every one of them exactly (same
+    guarantee as the base curve), and it naturally tracks the base curve's
+    center/radius since the offset points are geometrically a parallel copy
+    of it. Falls back to the old straight vertex-to-vertex connector if any
+    point in that lane's run is missing (a gap from `SO`/an uncoded point).
+    `collectOffsetSegments` (used for the OSNAP endpoint/intersection engine)
+    is intentionally left as straight vertex-to-vertex chords — same
+    approximation the main figure's own snap segments (`collectSegments`)
+    already use for a curved base line, so this isn't a regression, just
+    consistent with the existing snap tradeoff.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 

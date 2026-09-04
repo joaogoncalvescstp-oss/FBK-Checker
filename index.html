@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:26};
+const VERSION={fruit:'🍒',name:'CHERRY',build:27};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1399,8 +1399,8 @@ function offsetAt(all,k,h,v){
   let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;dE/=L;dN/=L;   // travel dir
   return {E:all[k].E+dN*h,N:all[k].N-dE*h,Z:all[k].Z+v};}               // perp-right by H, up by V
 function drawOffsets(proj){ctx.save();
-  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
+  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
     let active=null;const per=all.map((p,k)=>{
       if(stepsAt[k])active=stepsAt[k];
@@ -1414,9 +1414,18 @@ function drawOffsets(proj){ctx.save();
       s.forEach(st=>{const o=offsetAt(all,k,st.h,st.v),sp=proj(o.E,o.N,o.Z);ctx.lineTo(sp[0],sp[1]);});ctx.stroke();});
     ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.9)';ctx.lineWidth=1.4;     // lane lines
     for(let L=0;L<lanes;L++){const op=per.map((s,k)=>(s&&L<s.length)?offsetAt(all,k,s[L].h,s[L].v):null);
-      ctx.beginPath();let started=false;
-      op.forEach(o=>{if(!o){started=false;return;}const s=proj(o.E,o.N,o.Z);
-        started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);});
+      ctx.beginPath();let started=false,k=0;
+      while(k<op.length){
+        if(!op[k]){started=false;k++;continue;}
+        if(!started){const s0=proj(op[k].E,op[k].N,op[k].Z);ctx.moveTo(s0[0],s0[1]);started=true;k++;continue;}
+        if(bcAt[k-1]){                                     // base line starts a BC..EC run here → curve this lane the same way, through its own offset points
+          let j=k;while(j<op.length&&!ecAt[j])j++;
+          if(j<op.length&&op.slice(k-1,j+1).every(Boolean)){
+            const sub=op.slice(k-1,j+1),samp=sampleCurve(sub);
+            (samp||sub.slice(1)).forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});
+            k=j+1;continue;}}
+        const s=proj(op[k].E,op[k].N,op[k].Z);ctx.lineTo(s[0],s[1]);k++;
+      }
       ctx.stroke();}});
   ctx.restore();}
 
