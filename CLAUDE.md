@@ -37,7 +37,8 @@ first and follow it on every task in this repo.
     | 21 | 🍑 PEACH | box (marquee) multi-select in SEL: drag to select many points, Shift-drag adds, bulk Delete/Restore, Del key + Esc-clear |
     | 22 | 🍍 PINEAPPLE | fix MAP blank/no imagery: county ImageServer request used the wrong REST op (`/export`, a MapServer-only name) instead of `/exportImage` — every tile 404'd silently; added USGS NAIP as a 3rd fallback (county → Esri → NAIP) |
     | 23 | 🥭 MANGO | fix MAP tiles misaligning relative to each other on zoom: grid cells requested a fixed *square* pixel size against a non-square bbox, and `adjustAspectRatio` (default true) was silently expanding each cell's bbox server-side to compensate — by a different amount per cell, so they drifted apart; forced `adjustAspectRatio=false` on all 3 map sources |
-  - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
+    | 24 | 🍇 GRAPE | BC..EC linework now fits a true best-fit constant-radius arc (least-squares circle fit through all the shots) instead of a wiggly cubic spline — matches how a real curve is staked; falls back to the old spline only when the points are near-collinear and don't fit a circle |
+  - Suggested next fruits to rotate through: 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -50,6 +51,27 @@ first and follow it on every task in this repo.
   cross-section (full reveal), but **only at points that carry their OWN curb
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
+
+## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24)
+
+- A **BC..EC** span (`PC`/`PT` are aliases) renders as a **true constant-radius
+  arc**, not an arbitrary wiggly spline: `circleFitLS` does a least-squares
+  (Kåsa) circle fit through every shot's N/E in the span, then `sampleArcFit`
+  walks the unwrapped angle from the BC point to the EC point (direction/side
+  inferred from the actual point order, so out-of-order or CW/CCW runs both
+  work) sampling points on that one circle. **This matches how a real curve is
+  staked in the field** — one radius for the whole run — instead of drawing a
+  spline that wiggles through shot noise.
+  - Elevation is still eased through each shot's actual Z (angle-parameterized
+    cubic spline), so superelevation/grade changes along the curve are kept.
+  - If the points are effectively collinear (no meaningful circle fits, or the
+    fitted radius is unrealistically huge), `sampleArcFit` returns `null` and
+    `sampleCurve` **falls back to the old spline** rather than drawing garbage.
+  - A 2-point BC..EC span (no interior shots) has no unique circle — stays a
+    straight line, same as before.
+  - Curb cross-section offset lane lines (`drawOffsets`/`collectOffsetSegments`)
+    are unaffected — they're built per-vertex off the base points, not off the
+    sampled curve.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 
