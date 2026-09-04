@@ -41,7 +41,8 @@ first and follow it on every task in this repo.
     | 25 | 🍊 ORANGE | fix build-24 arc fit silently returning a wildly wrong giant circle on real survey coords: county/state-plane N/E run in the 100,000s-1,000,000s of feet, and squaring raw values that large loses precision (catastrophic cancellation) in the least-squares normal equations — `circleFitLS` now recenters on the points' local centroid before fitting, then shifts the solved center back to world coords |
     | 26 | 🍓 STRAWBERRY | fix build-25 arc: it drew each point PROJECTED onto the single least-squares circle, so real (noisy) shots that weren't perfectly concyclic drifted slightly off their true position — now every consecutive pair gets its own circle of (as close as possible to) the fitted design radius solved to pass through BOTH real points exactly, so the drawn curve always hits every shot on the nose |
     | 27 | 🍒 CHERRY | the green curb offset **lane lines** now curve through a BC..EC run too, instead of chording straight across it — `drawOffsets` detects the run on the base line and runs the *same* `sampleCurve` best-fit-through-every-point machinery on that lane's own offset points, so it independently best-fits (and passes through) its own points, tracking the base curve's curvature in parallel |
-  - Suggested next fruits to rotate through: 🥝 KIWI, 🍑 PEACH,
+    | 28 | 🥝 KIWI | fix `offsetAt` corners: it offset each vertex using the AVERAGED prev→next secant direction, which pinches a sharp corner in short instead of extending it — a 1.0 offset at a 90° corner (e.g. a rectangle) landed only 1.0 from the true corner instead of the correct 1.4142 (√2) miter distance. `offsetAt` now offsets each adjacent segment individually and intersects the two offset lines at interior vertices — the standard mitered/extended corner (CAD `OFFSETGAPTYPE=0`) |
+  - Suggested next fruits to rotate through: 🍑 PEACH,
     🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -98,10 +99,10 @@ first and follow it on every task in this repo.
     now curve through a BC..EC run too (previously always chorded straight
     vertex-to-vertex regardless of the base line — a curb offset line looked
     faceted next to the now-curved base line it was standing off). For each
-    lane, `drawOffsets` still computes each vertex's offset point exactly as
-    before (`offsetAt`, unchanged), but when the base line's vertex range for
-    that stretch is a BC..EC run, it now calls the *same* `sampleCurve` used
-    for the base line on that lane's own run of offset points — an
+    lane, `drawOffsets` still computes each vertex's offset point via
+    `offsetAt` (see build 28 below), but when the base line's vertex range
+    for that stretch is a BC..EC run, it now calls the *same* `sampleCurve`
+    used for the base line on that lane's own run of offset points — an
     independent least-squares circle fit through the offset points
     themselves, guaranteed to pass through every one of them exactly (same
     guarantee as the base curve), and it naturally tracks the base curve's
@@ -113,6 +114,24 @@ first and follow it on every task in this repo.
     approximation the main figure's own snap segments (`collectSegments`)
     already use for a curved base line, so this isn't a regression, just
     consistent with the existing snap tradeoff.
+  - **Build 28 fix — mitered/extended corners (`offsetAt`):** at an interior
+    vertex, `offsetAt` used to offset perpendicular to the AVERAGED
+    prev→next secant direction — at a sharp corner (e.g. a rectangle/RECT
+    turn, or any real curb corner) that pinches the corner in short instead
+    of extending it: a 1.0 ft offset on a 90° corner landed only 1.0 ft from
+    the true corner, when the correct mitered/extended distance (what every
+    CAD OFFSET command draws by default — `OFFSETGAPTYPE=0`) is `1.0·√2 ≈
+    1.4142` ft. `offsetAt` now offsets the incoming and outgoing segments
+    individually (each parallel to its own segment, at distance `h`) and
+    intersects those two offset lines (`lineIntersect`) to get the corner —
+    verified this reproduces the exact √2 ratio on a 90° corner, leaves a
+    straight run untouched (no false miter when there's no turn — parallel
+    offset lines fall back to the plain perpendicular), and stays finite
+    (no crash/NaN) even on a near-180° reversal. First/last vertex (no
+    opposite neighbor) still gets a plain single-segment perpendicular, same
+    as before. This feeds every offset consumer — the dashed cross-section
+    ribs, the build-27 curving lane lines, and (unchanged) the straight
+    `collectOffsetSegments` snap chords all sit on the corrected corners now.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 

@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:27};
+const VERSION={fruit:'🥝',name:'KIWI',build:28};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1394,10 +1394,18 @@ function drawArrows(proj){
    and vertical by V. A point can carry several steps (a curb template); each
    step index draws its own continuous parallel line ("lane"). Steps PERSIST
    along the run until a new set appears, matching Civil 3D offset codes.      */
-function offsetAt(all,k,h,v){
-  const a=all[Math.max(0,k-1)],b=all[Math.min(all.length-1,k+1)];
-  let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;dE/=L;dN/=L;   // travel dir
-  return {E:all[k].E+dN*h,N:all[k].N-dE*h,Z:all[k].Z+v};}               // perp-right by H, up by V
+function offsetAt(all,k,h,v){          // offset point at vertex k, mitered/extended at a corner (CAD OFFSETGAPTYPE=0)
+  const n=all.length,perp=(a,b)=>{let dE=b.E-a.E,dN=b.N-a.N;const L=Math.hypot(dE,dN)||1;return{E:dN/L,N:-dE/L};};
+  const hasPrev=k>0,hasNext=k<n-1;
+  let E,N;
+  if(hasPrev&&hasNext){                                  // interior vertex → intersect the two adjacent offset lines
+    const p1=perp(all[k-1],all[k]),p2=perp(all[k],all[k+1]);
+    const A={E:all[k-1].E+p1.E*h,N:all[k-1].N+p1.N*h},d1={E:all[k].E-all[k-1].E,N:all[k].N-all[k-1].N};
+    const C={E:all[k].E+p2.E*h,N:all[k].N+p2.N*h},d2={E:all[k+1].E-all[k].E,N:all[k+1].N-all[k].N};
+    const X=lineIntersect(A,d1,C,d2);
+    if(X){E=X.E;N=X.N;}else{E=all[k].E+p1.E*h;N=all[k].N+p1.N*h;}       // straight through (no turn) → offset lines coincide
+  }else{const p=hasPrev?perp(all[k-1],all[k]):perp(all[k],all[k+1]);E=all[k].E+p.E*h;N=all[k].N+p.N*h;}
+  return {E,N,Z:all[k].Z+v};}
 function drawOffsets(proj){ctx.save();
   figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[];
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);});
