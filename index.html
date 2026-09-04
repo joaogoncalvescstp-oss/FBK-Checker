@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -184,7 +184,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <h3>Edits <span class="n" id="logn">0</span></h3>
         <div class="logscroll" id="logbox"></div>
       </div>
-      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a constant best-fit-radius arc that passes exactly through every point (falls back to a smooth spline if the points don't fit a circle); <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> + a value draw parallel offset lines (persist along the run). <b>RBCB</b>/<b>RCFL</b> curb codes (L624, R606…) auto-expand to the curb cross-section from the built-in template DB. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
+      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a constant best-fit-radius arc that passes exactly through every point (falls back to a smooth spline if the points don't fit a circle); add <b>PCC</b>/<b>PRC</b> at an interior point to start a new independent radius there (compound/reverse curve); offset lane lines through a curve get their own radius = that segment's radius ± the offset distance. <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> + a value draw parallel offset lines (persist along the run). <b>RBCB</b>/<b>RCFL</b> curb codes (L624, R606…) auto-expand to the curb cross-section from the built-in template DB. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
     </div>
   </div>
 </div>
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:28};
+const VERSION={fruit:'🍑',name:'PEACH',build:29};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -597,9 +597,11 @@ function parseDesc(desc){const map={};let cur=null,pend=null;
     else if(T==='BC'||T==='PC'){if(cur)map[cur].bc=true;}
     else if(T==='EC'||T==='PT'){if(cur)map[cur].ec=true;}
     else if(T==='OC'||T==='POC'){if(cur)map[cur].oc=true;}   // point on curve (tangent fit)
+    else if(T==='PCC'){if(cur)map[cur].pcc=true;}        // point of compound curve — new independent radius starts here (same turn direction)
+    else if(T==='PRC'){if(cur)map[cur].prc=true;}        // point of reverse curve — new independent radius starts here (turn direction reverses)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
     else if(T==='SO'){if(cur)map[cur].so=true;}          // stop offsets at this point
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null};cur=T;}
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null};cur=T;}
   });return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
@@ -612,7 +614,7 @@ function figures(){const figs=[];
     CODES[code].forEach(({i,f})=>{
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
       if(!run)return;                                   // no B yet → not a line
-      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
+      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
@@ -625,7 +627,7 @@ function figures(){const figs=[];
     const extra=figExtra[r.id];                          // pull in existing points, placed after their anchor
     if(extra)extra.forEach(x=>{
       if(r.verts.some(v=>v.i===x.i)||!PTS[x.i]||PTS[x.i].deleted)return;
-      const nv={i:x.i,bc:false,ec:false,oc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null,added:true};
+      const nv={i:x.i,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null,added:true};
       const ai=r.verts.findIndex(v=>v.i===x.after);
       if(ai<0)r.verts.push(nv);else r.verts.splice(ai+1,0,nv);});
     r.circle=r.code==='CIR'||r.verts.some(v=>v.cir);
@@ -1162,21 +1164,36 @@ function circleThroughChordR(P,Q,R,ref){   // the circle of radius R through P a
   const c1={E:mid.E+perp.E*h,N:mid.N+perp.N*h},c2={E:mid.E-perp.E*h,N:mid.N-perp.N*h};
   const dd1=Math.hypot(c1.E-ref.E,c1.N-ref.N),dd2=Math.hypot(c2.E-ref.E,c2.N-ref.N);
   return {center:dd1<=dd2?c1:c2,R:effR};}
-function sampleArcFit(span){           // BC..EC → constant-radius arc (the least-squares best-fit radius) that PASSES THROUGH every shot exactly
+function arcSegmentsForSpan(span){     // BC..EC → per-consecutive-pair circle geometry {center,R,aP,sweep} at the one least-squares design radius for this span (or null if it doesn't fit a circle)
   const fit=circleFitLS(span);if(!fit)return null;            // fit.r is the one design radius used for the whole span
-  const n=span.length,out=[];
+  const n=span.length,segs=[];
   for(let i=0;i<n-1;i++){const P=span[i],Q=span[i+1];
-    const arc=circleThroughChordR(P,Q,fit.r,fit);if(!arc)continue;   // P===Q (duplicate shot) → nothing to draw
+    const arc=circleThroughChordR(P,Q,fit.r,fit);if(!arc){segs.push(null);continue;}   // P===Q (duplicate shot)
     const{center,R}=arc;
     let aP=Math.atan2(P.N-center.N,P.E-center.E),aQ=Math.atan2(Q.N-center.N,Q.E-center.E);
     let sweep=aQ-aP;while(sweep>Math.PI)sweep-=2*Math.PI;while(sweep<-Math.PI)sweep+=2*Math.PI;   // shorter way around — always correct once `center` is on the fitted side
-    const ST=Math.max(8,Math.min(40,Math.round(Math.abs(sweep)/(Math.PI/24))||1));
-    for(let s=1;s<=ST;s++){const t=s/ST,a=aP+sweep*t;         // t=1 (s=ST) lands exactly on Q, by construction of `center`/R
-      out.push({E:center.E+R*Math.cos(a),N:center.N+R*Math.sin(a),Z:P.Z+(Q.Z-P.Z)*t});}}
+    segs.push({center,R,aP,sweep});}
+  return segs;}
+function sampleArcFit(span){           // BC..EC → constant-radius arc (the least-squares best-fit radius) that PASSES THROUGH every shot exactly
+  const segs=arcSegmentsForSpan(span);if(!segs)return null;
+  const out=[];
+  for(let i=0;i<segs.length;i++){const seg=segs[i];if(!seg)continue;const P=span[i],Q=span[i+1];
+    const ST=Math.max(8,Math.min(40,Math.round(Math.abs(seg.sweep)/(Math.PI/24))||1));
+    for(let s=1;s<=ST;s++){const t=s/ST,a=seg.aP+seg.sweep*t;   // t=1 (s=ST) lands exactly on Q, by construction of `center`/R
+      out.push({E:seg.center.E+seg.R*Math.cos(a),N:seg.center.N+seg.R*Math.sin(a),Z:P.Z+(Q.Z-P.Z)*t});}}
   return out;}
 function sampleCurve(span){            // BC..EC → best-fit constant-radius arc through all the points
   if(span.length<2)return null;if(span.length===2)return [span[1]];
   return sampleArcFit(span)||sampleSpline(span);}          // fall back to the spline if the points don't fit a circle (near-collinear)
+function breakIndices(pts){            // interior indices where a PCC (compound curve) / PRC (reverse curve) starts a new independent radius
+  const idx=[0];
+  for(let i=1;i<pts.length-1;i++)if(pts[i].pcc||pts[i].prc)idx.push(i);
+  idx.push(pts.length-1);
+  return idx;}
+function splitAtBreaks(span){          // split a BC..EC span into sub-spans at each PCC/PRC — each sub-span gets its own independent circle fit (compound/reverse curve)
+  const idx=breakIndices(span),subs=[];
+  for(let s=0;s<idx.length-1;s++)subs.push(span.slice(idx[s],idx[s+1]+1));
+  return subs;}
 function circle3(p1,p2,p3){          // circumcircle through 3 pts → {E,N,Z,r}
   const ax=p1.E,ay=p1.N,bx=p2.E,by=p2.N,cx=p3.E,cy=p3.N;
   const d=2*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));if(Math.abs(d)<1e-9)return null;
@@ -1213,7 +1230,7 @@ function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, th
   const T1={E:PI.E+u1.E*Tl,N:PI.N+u1.N*Tl},T2={E:PI.E+u2.E*Tl,N:PI.N+u2.N*Tl};
   return arcSamplesCenter(c,T1,T2,OC,B.Z,C.Z);}
 function strokeFigure(f,proj,color){
-  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,so:v.so,rect:v.rect,rt:v.rt,x:v.x,steps:v.steps};}).filter(Boolean);
+  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,rt:v.rt,x:v.x,steps:v.steps};}).filter(Boolean);
   if(vs.length<2)return;
   if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
     ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
@@ -1226,21 +1243,23 @@ function strokeFigure(f,proj,color){
     if(v.steps)activeSteps=v.steps;
     if(v.bc){let j=k+1;while(j<vs.length&&!vs[j].ec)j++;
       if(j<vs.length){const span=vs.slice(k,j+1);put(span[0].E,span[0].N,span[0].Z);
-        const samp=sampleCurve(span);
-        if(samp){
-          const full=[span[0],...samp,span[span.length-1]];
-          samp.forEach((s,idx)=>{
-            let outE=s.E,outN=s.N,outZ=s.Z;
-            if(activeSteps&&activeSteps.length>0){
-              const st=activeSteps[0];
-              const prevPt=full[idx],nextPt=full[idx+2];
-              let dE=nextPt.E-prevPt.E,dN=nextPt.N-prevPt.N;const L=Math.hypot(dE,dN)||1;
-              dE/=L;dN/=L;
-              outE+=dN*st.h;outN-=dE*st.h;outZ+=st.v;
-            }
-            put(outE,outN,outZ);
-          });
-        }else span.slice(1).forEach(p=>put(p.E,p.N,p.Z));
+        splitAtBreaks(span).forEach(sub=>{                 // PCC (compound curve) / PRC (reverse curve) → independent radius per sub-span
+          const samp=sampleCurve(sub);
+          if(samp){
+            const full=[sub[0],...samp,sub[sub.length-1]];
+            samp.forEach((s,idx)=>{
+              let outE=s.E,outN=s.N,outZ=s.Z;
+              if(activeSteps&&activeSteps.length>0){
+                const st=activeSteps[0];
+                const prevPt=full[idx],nextPt=full[idx+2];
+                let dE=nextPt.E-prevPt.E,dN=nextPt.N-prevPt.N;const L=Math.hypot(dE,dN)||1;
+                dE/=L;dN/=L;
+                outE+=dN*st.h;outN-=dE*st.h;outZ+=st.v;
+              }
+              put(outE,outN,outZ);
+            });
+          }else sub.slice(1).forEach(p=>put(p.E,p.N,p.Z));
+        });
         k=j+1;if(vs[j]&&vs[j].so)activeSteps=null;continue;}}
     if(v.oc&&k>=2&&k<=vs.length-3){                       // tangent arc through the OC point
       const A=vs[k-2],B=vs[k-1],C=vs[k+1],D=vs[k+2];
@@ -1406,9 +1425,29 @@ function offsetAt(all,k,h,v){          // offset point at vertex k, mitered/exte
     if(X){E=X.E;N=X.N;}else{E=all[k].E+p1.E*h;N=all[k].N+p1.N*h;}       // straight through (no turn) → offset lines coincide
   }else{const p=hasPrev?perp(all[k-1],all[k]):perp(all[k],all[k+1]);E=all[k].E+p.E*h;N=all[k].N+p.N*h;}
   return {E,N,Z:all[k].Z+v};}
+function curvedOffsetPts(baseSub,opSub,hSub){   // an offset lane's run through a BC..EC (sub-)span: same PCC/PRC compound/reverse-curve splits as the base line, and each segment's radius is the BASE segment's own fitted radius, adjusted by this lane's offset distance (not an independent re-fit)
+  const idx=breakIndices(baseSub),out=[];
+  for(let s=0;s<idx.length-1;s++){
+    const a=idx[s],b=idx[s+1];
+    const baseP=baseSub.slice(a,b+1),opP=opSub.slice(a,b+1),hP=hSub.slice(a,b+1);
+    const segs=arcSegmentsForSpan(baseP);
+    if(!segs){for(let i=a+1;i<=b;i++)out.push(opSub[i]);continue;}   // doesn't fit a circle → straight connectors for this piece
+    for(let i=0;i<segs.length;i++){const seg=segs[i],P=opP[i],Q=opP[i+1];
+      if(!seg){out.push(Q);continue;}
+      const dirSign=seg.sweep>=0?1:-1,hAvg=(hP[i]+hP[i+1])/2;      // right-of-travel is outward when the base run is turning CCW (sweep>0), inward when CW
+      const targetR=Math.max(1e-6,Math.abs(seg.R+hAvg*dirSign));   // radius CHANGES based on the offset distance, tied to this exact base segment's own fitted radius
+      const arc=circleThroughChordR(P,Q,targetR,seg.center);
+      if(!arc){out.push(Q);continue;}
+      const{center,R}=arc;
+      let aP=Math.atan2(P.N-center.N,P.E-center.E),aQ=Math.atan2(Q.N-center.N,Q.E-center.E);
+      let sweep=aQ-aP;while(sweep>Math.PI)sweep-=2*Math.PI;while(sweep<-Math.PI)sweep+=2*Math.PI;
+      const ST=Math.max(8,Math.min(40,Math.round(Math.abs(sweep)/(Math.PI/24))||1));
+      for(let s2=1;s2<=ST;s2++){const t=s2/ST,a2=aP+sweep*t;
+        out.push({E:center.E+R*Math.cos(a2),N:center.N+R*Math.sin(a2),Z:P.Z+(Q.Z-P.Z)*t});}}}
+  return out;}
 function drawOffsets(proj){ctx.save();
   figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);});
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
     let active=null;const per=all.map((p,k)=>{
       if(stepsAt[k])active=stepsAt[k];
@@ -1429,8 +1468,9 @@ function drawOffsets(proj){ctx.save();
         if(bcAt[k-1]){                                     // base line starts a BC..EC run here → curve this lane the same way, through its own offset points
           let j=k;while(j<op.length&&!ecAt[j])j++;
           if(j<op.length&&op.slice(k-1,j+1).every(Boolean)){
-            const sub=op.slice(k-1,j+1),samp=sampleCurve(sub);
-            (samp||sub.slice(1)).forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});
+            const baseSub=all.slice(k-1,j+1),opSub=op.slice(k-1,j+1);
+            const hSub=[];for(let m=k-1;m<=j;m++)hSub.push(per[m][L].h);
+            curvedOffsetPts(baseSub,opSub,hSub).forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});
             k=j+1;continue;}}
         const s=proj(op[k].E,op[k].N,op[k].Z);ctx.lineTo(s[0],s[1]);k++;
       }
@@ -1724,7 +1764,7 @@ function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
   let out=toks;
   if(desc){const d=desc.replace(/^"|"$/g,'');
     const dd=esc(d).split(/\s+/).map(t=>{
-      if(/^(B|E|CLS|CL|BC|EC|PC|PT|OC|POC|CIR|CIRCLE|SO)$/i.test(t))return `<span class="t-mod">${t}</span>`;
+      if(/^(B|E|CLS|CL|BC|EC|PC|PT|OC|POC|PCC|PRC|CIR|CIRCLE|SO)$/i.test(t))return `<span class="t-mod">${t}</span>`;
       if(/^(RECT|RT|X)(-?[0-9.]+)?$/i.test(t))return `<span class="t-mod">${t}</span>`;
       if(/^[HV]-?[0-9.]+$/i.test(t)||/^-?[0-9.]+$/.test(t))return `<span class="t-rev">${t}</span>`;
       return `<span class="t-code">${t}</span>`;}).join(' ');

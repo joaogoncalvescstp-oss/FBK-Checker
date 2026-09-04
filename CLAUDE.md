@@ -42,7 +42,8 @@ first and follow it on every task in this repo.
     | 26 | 🍓 STRAWBERRY | fix build-25 arc: it drew each point PROJECTED onto the single least-squares circle, so real (noisy) shots that weren't perfectly concyclic drifted slightly off their true position — now every consecutive pair gets its own circle of (as close as possible to) the fitted design radius solved to pass through BOTH real points exactly, so the drawn curve always hits every shot on the nose |
     | 27 | 🍒 CHERRY | the green curb offset **lane lines** now curve through a BC..EC run too, instead of chording straight across it — `drawOffsets` detects the run on the base line and runs the *same* `sampleCurve` best-fit-through-every-point machinery on that lane's own offset points, so it independently best-fits (and passes through) its own points, tracking the base curve's curvature in parallel |
     | 28 | 🥝 KIWI | fix `offsetAt` corners: it offset each vertex using the AVERAGED prev→next secant direction, which pinches a sharp corner in short instead of extending it — a 1.0 offset at a 90° corner (e.g. a rectangle) landed only 1.0 from the true corner instead of the correct 1.4142 (√2) miter distance. `offsetAt` now offsets each adjacent segment individually and intersects the two offset lines at interior vertices — the standard mitered/extended corner (CAD `OFFSETGAPTYPE=0`) |
-  - Suggested next fruits to rotate through: 🍑 PEACH,
+    | 29 | 🍑 PEACH | BC..EC now understands **PCC** (point of compound curve) and **PRC** (point of reverse curve) — either splits the run into independently-fit sub-arcs, so a real compound/reverse curve no longer gets crammed into one meaningless average-radius circle; and the curb offset lane lines through a curve now derive their radius explicitly as that base segment's own fitted radius ± the lane's offset distance (not an independent re-fit of the offset points) |
+  - Suggested next fruits to rotate through:
     🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -56,7 +57,7 @@ first and follow it on every task in this repo.
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
 
-## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-26)
+## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-29)
 
 - A **BC..EC** span (`PC`/`PT` are aliases) renders as a **constant-radius
   arc that passes exactly through every shot** — not an arbitrary wiggly
@@ -132,6 +133,51 @@ first and follow it on every task in this repo.
     as before. This feeds every offset consumer — the dashed cross-section
     ribs, the build-27 curving lane lines, and (unchanged) the straight
     `collectOffsetSegments` snap chords all sit on the corrected corners now.
+  - **Build 29 — PCC (compound curve) / PRC (reverse curve), and offsets tied
+    to the base radius:**
+    - A single `circleFitLS` over an ENTIRE BC..EC run assumes it's all one
+      constant-radius arc. Real roadway geometry often isn't: a **compound
+      curve** changes radius (same turn direction) at a **PCC**, and a
+      **reverse curve** flips turn direction at a **PRC** — either way, one
+      least-squares circle over both pieces produces a meaningless average
+      (verified: a true 300ft-radius arc joined to a true 150ft-radius arc
+      fit, as one span, to a nonsense ~237ft circle that matches neither).
+    - Put **`PCC`** or **`PRC`** on the point where the curve's radius or
+      direction changes — same token style as `BC`/`EC`/`OC`. It does not
+      end the run (no new `B`/`E`, still one figure) — `parseDesc` just sets
+      a flag (`map[cur].pcc`/`.prc`) that rides the vertex through `figures()`
+      into `f.verts[].pcc/.prc`, same plumbing as `bc`/`ec`.
+    - `breakIndices`/`splitAtBreaks` cut a BC..EC span into sub-spans at every
+      interior `PCC`/`PRC` (the marker point is shared as both the last point
+      of one sub-span and the first of the next, so there's no gap). Both
+      `strokeFigure` (the base line) and `drawOffsets` (the offset lane
+      lines) run `sampleCurve`/the curved-offset logic **per sub-span**
+      instead of over the whole run, so each piece gets its own independent
+      circle fit — verified this recovers the true 300ft/150ft radii (a
+      compound curve) and two true ~200ft arcs of opposite curvature (a
+      reverse curve/S-curve) respectively, in both cases still passing
+      through every real shot exactly, with no code needed to special-case
+      "compound" vs "reverse" — an independent least-squares fit per
+      sub-span naturally finds whichever radius and turn direction the real
+      points describe.
+    - **Offset radius now explicitly tied to the base curve, not
+      independently re-fit:** build 27 fit a separate least-squares circle to
+      the lane's OWN offset points, which tracked the base curve closely
+      but only approximately (~0.2 ft off on a real test case) since it
+      didn't know the base radius at all. `curvedOffsetPts` (replacing that
+      approach) instead reuses `arcSegmentsForSpan` on the BASE points to get
+      each segment's own already-solved `{center,R,sweep}`, then computes
+      that lane's target radius as `R ± h` — outward (`+h`) when the base
+      segment sweeps CCW, inward (`-h`) when CW (`dirSign = sweep>=0?1:-1`),
+      matching which side "right of travel" (the `offsetAt`/CAD offset
+      convention) falls on for a circle. `circleThroughChordR` then solves
+      the *specific* circle at that exact target radius through the two real
+      offset points — verified every segment's solved radius matches
+      `R±h` to float precision (e.g. base R=250, h=8.5 → offset segment R is
+      exactly 258.5, every segment, every time), while still passing through
+      every real offset point exactly, same as before. PCC/PRC splits apply
+      here too (`curvedOffsetPts` calls `breakIndices` on the base sub-span
+      first) — verified end-to-end through a compound curve's offset run.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 
