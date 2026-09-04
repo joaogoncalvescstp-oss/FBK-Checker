@@ -39,8 +39,9 @@ first and follow it on every task in this repo.
     | 23 | 🥭 MANGO | fix MAP tiles misaligning relative to each other on zoom: grid cells requested a fixed *square* pixel size against a non-square bbox, and `adjustAspectRatio` (default true) was silently expanding each cell's bbox server-side to compensate — by a different amount per cell, so they drifted apart; forced `adjustAspectRatio=false` on all 3 map sources |
     | 24 | 🍇 GRAPE | BC..EC linework now fits a true best-fit constant-radius arc (least-squares circle fit through all the shots) instead of a wiggly cubic spline — matches how a real curve is staked; falls back to the old spline only when the points are near-collinear and don't fit a circle |
     | 25 | 🍊 ORANGE | fix build-24 arc fit silently returning a wildly wrong giant circle on real survey coords: county/state-plane N/E run in the 100,000s-1,000,000s of feet, and squaring raw values that large loses precision (catastrophic cancellation) in the least-squares normal equations — `circleFitLS` now recenters on the points' local centroid before fitting, then shifts the solved center back to world coords |
-  - Suggested next fruits to rotate through: 🍓 STRAWBERRY,
-    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    | 26 | 🍓 STRAWBERRY | fix build-25 arc: it drew each point PROJECTED onto the single least-squares circle, so real (noisy) shots that weren't perfectly concyclic drifted slightly off their true position — now every consecutive pair gets its own circle of (as close as possible to) the fitted design radius solved to pass through BOTH real points exactly, so the drawn curve always hits every shot on the nose |
+  - Suggested next fruits to rotate through: 🍒 CHERRY, 🥝 KIWI, 🍑 PEACH,
+    🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -53,30 +54,43 @@ first and follow it on every task in this repo.
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
 
-## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24)
+## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-26)
 
-- A **BC..EC** span (`PC`/`PT` are aliases) renders as a **true constant-radius
-  arc**, not an arbitrary wiggly spline: `circleFitLS` does a least-squares
-  (Kåsa) circle fit through every shot's N/E in the span, then `sampleArcFit`
-  walks the unwrapped angle from the BC point to the EC point (direction/side
-  inferred from the actual point order, so out-of-order or CW/CCW runs both
-  work) sampling points on that one circle. **This matches how a real curve is
-  staked in the field** — one radius for the whole run — instead of drawing a
-  spline that wiggles through shot noise.
-  - Elevation is still eased through each shot's actual Z (angle-parameterized
-    cubic spline), so superelevation/grade changes along the curve are kept.
+- A **BC..EC** span (`PC`/`PT` are aliases) renders as a **constant-radius
+  arc that passes exactly through every shot** — not an arbitrary wiggly
+  spline, and not a curve that only approximates the shots. `circleFitLS`
+  does a least-squares (Kåsa) circle fit through every shot's N/E in the span
+  to get the one **design radius** for the whole run (matches how a real
+  curve is staked in the field). Then `sampleArcFit` walks the span pair by
+  pair: for each consecutive real shot P→Q, `circleThroughChordR` solves the
+  *specific* circle of (as close as possible to) that design radius that
+  passes through **both** P and Q exactly, picking whichever of the two
+  solutions sits on the same side as the overall fit (so direction stays
+  consistent run to run, out-of-order/CW/CCW included), then arcs the shorter
+  way around from P to Q. Elevation is linear between each real P.Z/Q.Z, so
+  every shot's Z is hit exactly too.
+  - **Build 26 fix:** build 24/25 sampled points straight off the single
+    least-squares circle (`c.E+c.r*cos(angle)`), which only lies exactly on a
+    real shot when that shot happens to sit exactly on the fitted circle —
+    real (noisy) shots don't, so the drawn curve quietly drifted off the
+    actual point positions. Solving a per-segment circle through the real
+    P/Q pair (this section) fixes that: the curve now passes through every
+    point, always, not just approximately.
+  - If a chord is longer than the fitted diameter (a sparse/outlier shot),
+    `circleThroughChordR` widens just enough for that one segment (semicircle
+    limit) rather than failing — verified this still lands exactly on both
+    endpoints.
   - If the points are effectively collinear (no meaningful circle fits, or the
-    fitted radius is unrealistically huge), `sampleArcFit` returns `null` and
-    `sampleCurve` **falls back to the old spline** rather than drawing garbage.
-  - **Build 25 fix:** `circleFitLS` recenters points on their local centroid
-    before running the least-squares fit, then shifts the solved center back
-    to world coords. Real N/E are county/state-plane coords (100,000s-
-    1,000,000s of ft); fitting directly on those raw values squares numbers
-    that large and loses enough double-precision to the normal-equations
-    determinant that build 24 was silently returning a wrong giant-radius
-    circle (not `null` — it slipped past the `r<1e7` sanity check too) instead
-    of the true curve. Always test this fit with realistic large coordinates,
-    not small ones near the origin — small coords hide this class of bug.
+    fitted radius is unrealistically huge), `circleFitLS` returns `null` and
+    `sampleCurve` **falls back to the old spline** (which also interpolates
+    every point exactly) rather than drawing garbage.
+  - `circleFitLS` recenters points on their local centroid before fitting,
+    then shifts the solved center back to world coords — real N/E are
+    county/state-plane coords (100,000s-1,000,000s of ft), and fitting
+    directly on raw values that large loses too much double-precision
+    (catastrophic cancellation) in the normal-equations determinant. Always
+    test this code with realistic large coordinates, not small ones near the
+    origin — small coords hide that class of bug.
   - A 2-point BC..EC span (no interior shots) has no unique circle — stays a
     straight line, same as before.
   - Curb cross-section offset lane lines (`drawOffsets`/`collectOffsetSegments`)

@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -184,7 +184,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <h3>Edits <span class="n" id="logn">0</span></h3>
         <div class="logscroll" id="logbox"></div>
       </div>
-      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a best-fit constant-radius arc through every point (falls back to a smooth spline if the points don't fit a circle); <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> + a value draw parallel offset lines (persist along the run). <b>RBCB</b>/<b>RCFL</b> curb codes (L624, R606…) auto-expand to the curb cross-section from the built-in template DB. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
+      <div class="note">Touch: drag pans, pinch zooms, one finger orbits in 3D. Lines need a <b>B</b> (begin) — codes with no B stay points. <b>BC…EC</b> fits a constant best-fit-radius arc that passes exactly through every point (falls back to a smooth spline if the points don't fit a circle); <b>OC</b> fits a tangent arc between two tangent runs. <b>CIR</b> draws the full circle through 3 points. <b>H/V</b> + a value draw parallel offset lines (persist along the run). <b>RBCB</b>/<b>RCFL</b> curb codes (L624, R606…) auto-expand to the curb cross-section from the built-in template DB. <b>RT</b>/<b>X</b>/<b>RECT</b> + a value insert right-turn, extend, and rectangle vertices. RWLK1/2/3 are separate figures.</div>
     </div>
   </div>
 </div>
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:25};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:26};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1154,19 +1154,25 @@ function circleFitLS(pts){             // least-squares (Kåsa) circle fit throu
   const r2=cc+a*a+b*b;if(!(r2>1e-9))return null;
   const r=Math.sqrt(r2);if(!(r<1e7))return null;           // effectively straight/collinear → let caller fall back
   return {E:a+cx0,N:b+cy0,r};}
-function sampleArcFit(span){           // BC..EC → true constant-radius arc, least-squares best fit through all the shots
-  const c=circleFitLS(span);if(!c)return null;
-  const n=span.length,rawA=span.map(p=>Math.atan2(p.N-c.N,p.E-c.E));
-  const ang=[rawA[0]];
-  for(let i=1;i<n;i++){let d=rawA[i]-rawA[i-1];while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;ang.push(ang[i-1]+d);}
-  const Z=span.map(p=>p.Z),MZ=cubicSpline(ang,Z);           // elevation still eased through the actual shots (angle-parameterized)
-  const evZ=(i,a)=>{const h=ang[i+1]-ang[i]||1e-6,A=(ang[i+1]-a)/h,B=(a-ang[i])/h;
-    return A*Z[i]+B*Z[i+1]+((A*A*A-A)*MZ[i]+(B*B*B-B)*MZ[i+1])*h*h/6;};
-  const out=[];
-  for(let i=0;i<n-1;i++){const dA=ang[i+1]-ang[i];
-    const ST=Math.max(8,Math.min(40,Math.round(Math.abs(dA)/(Math.PI/24))||1));
-    for(let s=1;s<=ST;s++){const a=ang[i]+dA*s/ST;
-      out.push({E:c.E+c.r*Math.cos(a),N:c.N+c.r*Math.sin(a),Z:n>2?evZ(i,a):Z[i]+(Z[i+1]-Z[i])*(s/ST)});}}
+function circleThroughChordR(P,Q,R,ref){   // the circle of radius R through P and Q, whichever of the (up to) two solutions sits nearer `ref`
+  const dx=Q.E-P.E,dy=Q.N-P.N,d=Math.hypot(dx,dy);if(d<1e-9)return null;
+  const halfD=d/2,effR=Math.max(R,halfD);   // chord longer than the fitted diameter → widen just enough to still join the two points (semicircle limit)
+  const h=Math.sqrt(Math.max(0,effR*effR-halfD*halfD));
+  const mid={E:(P.E+Q.E)/2,N:(P.N+Q.N)/2},cd={E:dx/d,N:dy/d},perp={E:-cd.N,N:cd.E};
+  const c1={E:mid.E+perp.E*h,N:mid.N+perp.N*h},c2={E:mid.E-perp.E*h,N:mid.N-perp.N*h};
+  const dd1=Math.hypot(c1.E-ref.E,c1.N-ref.N),dd2=Math.hypot(c2.E-ref.E,c2.N-ref.N);
+  return {center:dd1<=dd2?c1:c2,R:effR};}
+function sampleArcFit(span){           // BC..EC → constant-radius arc (the least-squares best-fit radius) that PASSES THROUGH every shot exactly
+  const fit=circleFitLS(span);if(!fit)return null;            // fit.r is the one design radius used for the whole span
+  const n=span.length,out=[];
+  for(let i=0;i<n-1;i++){const P=span[i],Q=span[i+1];
+    const arc=circleThroughChordR(P,Q,fit.r,fit);if(!arc)continue;   // P===Q (duplicate shot) → nothing to draw
+    const{center,R}=arc;
+    let aP=Math.atan2(P.N-center.N,P.E-center.E),aQ=Math.atan2(Q.N-center.N,Q.E-center.E);
+    let sweep=aQ-aP;while(sweep>Math.PI)sweep-=2*Math.PI;while(sweep<-Math.PI)sweep+=2*Math.PI;   // shorter way around — always correct once `center` is on the fitted side
+    const ST=Math.max(8,Math.min(40,Math.round(Math.abs(sweep)/(Math.PI/24))||1));
+    for(let s=1;s<=ST;s++){const t=s/ST,a=aP+sweep*t;         // t=1 (s=ST) lands exactly on Q, by construction of `center`/R
+      out.push({E:center.E+R*Math.cos(a),N:center.N+R*Math.sin(a),Z:P.Z+(Q.Z-P.Z)*t});}}
   return out;}
 function sampleCurve(span){            // BC..EC → best-fit constant-radius arc through all the points
   if(span.length<2)return null;if(span.length===2)return [span[1]];
