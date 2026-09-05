@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:31};
+const VERSION={fruit:'🥥',name:'COCONUT',build:32};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -651,16 +651,26 @@ function pickSegmentForInsert(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)
   if(!insertPt)return null;
   const f=getFig(insertPt.figId);if(!f)return null;
   const vs=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
-  for(let k=0;k<vs.length-1;k++){
-    const A=proj(vs[k].E,vs[k].N,vs[k].Z),B=proj(vs[k+1].E,vs[k+1].N,vs[k+1].Z);
+  const figSegs=[];                                       // this figure's own segments, for the intersection-snap pass below
+  const track=(A,B,i1,i2,p1,p2)=>{
+    figSegs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:p1.E,aN:p1.N,aZ:p1.Z,bE:p2.E,bN:p2.N,bZ:p2.Z,i1,i2,p1,p2});
     const proj_info=projectPointOnSegment(sx,sy,A[0],A[1],B[0],B[1]);
     const d=Math.hypot(proj_info.x-sx,proj_info.y-sy);
-    if(d<bd){bd=d;best={figId:f.id,i1:k,i2:k+1,p1:vs[k],p2:vs[k+1],t:proj_info.t};}}
-  if(f.closed&&vs.length>1){
-    const A=proj(vs[vs.length-1].E,vs[vs.length-1].N,vs[vs.length-1].Z),B=proj(vs[0].E,vs[0].N,vs[0].Z);
-    const proj_info=projectPointOnSegment(sx,sy,A[0],A[1],B[0],B[1]);
-    const d=Math.hypot(proj_info.x-sx,proj_info.y-sy);
-    if(d<bd){best={figId:f.id,i1:vs.length-1,i2:0,p1:vs[vs.length-1],p2:vs[0],t:proj_info.t};}}
+    if(d<bd){bd=d;best={figId:f.id,i1,i2,p1,p2,t:proj_info.t};}};
+  for(let k=0;k<vs.length-1;k++)track(proj(vs[k].E,vs[k].N,vs[k].Z),proj(vs[k+1].E,vs[k+1].N,vs[k+1].Z),k,k+1,vs[k],vs[k+1]);
+  if(f.closed&&vs.length>1)track(proj(vs[vs.length-1].E,vs[vs.length-1].N,vs[vs.length-1].Z),proj(vs[0].E,vs[0].N,vs[0].Z),vs.length-1,0,vs[vs.length-1],vs[0]);
+  if(!is3D){                                              // CAD-style snap: landing near where this line crosses ANY other line (or its own offset lanes) — ask which elevation to use
+    const other=collectSegments();
+    const TOL_X=14;let bxd=TOL_X,bxBest=null;
+    figSegs.forEach(fs=>other.forEach(os=>{
+      const X=lineLineX(fs,os);if(!X||!isFinite(X.x)||X.t<-0.02||X.t>1.02)return;   // crossing must fall within THIS figure's segment
+      const d=Math.hypot(X.x-sx,X.y-sy);if(d>=bxd)return;
+      const z1=fs.aZ+X.t*(fs.bZ-fs.aZ),z2=os.aZ+X.u*(os.bZ-os.aZ);
+      const[E,N]=S2W(X.x,X.y);
+      bxd=d;bxBest={figId:f.id,i1:fs.i1,i2:fs.i2,p1:fs.p1,p2:fs.p2,t:Math.max(0,Math.min(1,X.t)),
+        E,N,z1,z2,la:f.code,lb:os.label||'line B',label:'apparent intersection',type:'intersection'};}));
+    if(bxBest)return bxBest;                              // an in-range crossing wins over the plain along-the-line landing
+  }
   return best;
 }
 function reorderFig(id,from,to){const f=getFig(id);if(!f)return;
@@ -730,10 +740,11 @@ function importCSV(text){
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
   hud(`imported ${news.length} point(s)${bad?`, ${bad} skipped`:''}`);}
-function insertPointOnLine(figId,ptIdx1,ptIdx2,t){saveState();
+function insertPointOnLine(figId,ptIdx1,ptIdx2,t,zOverride){saveState();
   const f=getFig(figId);if(!f)return;
   const p1=PTS[ptIdx1],p2=PTS[ptIdx2];if(!p1||!p2)return;
-  const newE=p1.E+(p2.E-p1.E)*t,newN=p1.N+(p2.N-p1.N)*t,newZ=p1.Z+(p2.Z-p1.Z)*t;
+  const newE=p1.E+(p2.E-p1.E)*t,newN=p1.N+(p2.N-p1.N)*t;
+  const newZ=isFinite(zOverride)?zOverride:p1.Z+(p2.Z-p1.Z)*t;   // an apparent-intersection insert carries its own chosen Z instead of the plain along-the-line interpolation
   const newId=getNextPointNumber();
   const newDesc=f.code;
   const newPt={id:newId,code:f.code,desc:newDesc,N:newN,E:newE,Z:newZ,srcLine:-1,kind:'ctrl',deleted:false,edited:true};
@@ -905,10 +916,13 @@ function endCogoPick(snap){
   ($('simplCogoZ')).focus();}
 /* At an apparent intersection the two lines can have different elevations, so
    ask which Z to use (line A, line B, average, or a custom value). N/E are
-   already set from the crossing; this only resolves the ambiguous Z. */
-function openZPick(snap){
+   already set from the crossing; this only resolves the ambiguous Z.
+   Generic across callers: `onDone(z)` gets the chosen Z, or `null` on cancel —
+   the caller decides what to do with it (used by COGO canvas-pick and by
+   insert-point-on-line, both of which can land on a line/line crossing). */
+function openZPick(snap,onDone){
   cogoPick=null;cogoSnap=null;cv.style.cursor=prevCursor||'crosshair';draw();
-  zpickCtx={snap};const z1=snap.z1,z2=snap.z2,avg=(z1+z2)/2;
+  zpickCtx={snap,onDone};const z1=snap.z1,z2=snap.z2,avg=(z1+z2)/2;
   $('zpickOpts').innerHTML=
     `<button class="btn zopt" data-z="${z1}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.la}<b>Z ${z1.toFixed(3)}</b></button>`+
     `<button class="btn zopt" data-z="${z2}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.lb}<b>Z ${z2.toFixed(3)}</b></button>`+
@@ -917,14 +931,12 @@ function openZPick(snap){
   $('zpickScrim').classList.add('show');
   $('zpickOpts').querySelectorAll('.zopt').forEach(b=>b.onclick=()=>applyZPick(+b.dataset.z));
   hud('two lines cross — choose the elevation');}
-function applyZPick(z){if(!zpickCtx)return;const lbl=zpickCtx.snap.label;
-  if(isFinite(z))$('simplCogoZ').value=(+z).toFixed(3);
+function applyZPick(z){if(!zpickCtx)return;const{onDone}=zpickCtx;
   $('zpickScrim').classList.remove('show');zpickCtx=null;
-  $('simplCogoScrim').classList.add('show');$('simplCogoZ').focus();
-  hud(`picked ${lbl} · Z ${isFinite(z)?(+z).toFixed(3):'—'}`);}
-function closeZPick(){if(!zpickCtx)return;zpickCtx=null;
-  $('zpickScrim').classList.remove('show');$('simplCogoScrim').classList.add('show');
-  hud('elevation pick cancelled');}
+  onDone(z);}
+function closeZPick(){if(!zpickCtx)return;const{onDone}=zpickCtx;
+  $('zpickScrim').classList.remove('show');zpickCtx=null;
+  onDone(null);}
 
 function openCircleTool(){circleTool={centerPt:-1};$('circleScrim').classList.add('show');hud('click a point for circle center');}
 function closeCircleTool(){circleTool=null;$('circleScrim').classList.remove('show');}
@@ -1625,7 +1637,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     ${is3D?'':`<button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>`}
     ${adding?`<div class="warnbox">${addPt.anchor<0?'Click a point <b>already on this line</b> (the insert anchor).':'Now click the <b>existing point</b> to add — it drops in right after the anchor.'}</div>`:''}
     ${is3D?'':`<button class="btn ${insertPt?.figId===f.id?'gold':''}" id="insertModeBtn" style="width:100%;justify-content:center;margin-top:7px">${insertPt?.figId===f.id?'✕ Cancel insert':'⊕ Click line to insert point'}</button>`}
-    ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location.</div>`:''}
+    ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location. Click near where this line crosses another line (or a curb offset lane) to snap to that crossing — since the two lines can sit at different elevations there, you'll be asked which <b>Z</b> to use.</div>`:''}
     ${is3D?'':`<button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>`}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
     <label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
@@ -2004,7 +2016,12 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   if(cogoPick){const snap=snapPoint(sx,sy);
     if(snap&&snap.type==='intersection'){                  // ambiguous Z → set N/E, then prompt for elevation
       $('simplCogoN').value=snap.N.toFixed(3);$('simplCogoE').value=snap.E.toFixed(3);
-      openZPick(snap);return;}
+      openZPick(snap,(z)=>{
+        if(isFinite(z)){$('simplCogoZ').value=(+z).toFixed(3);
+          $('simplCogoScrim').classList.add('show');$('simplCogoZ').focus();
+          hud(`picked ${snap.label} · Z ${(+z).toFixed(3)}`);
+        }else{$('simplCogoScrim').classList.add('show');hud('elevation pick cancelled');}
+      });return;}
     let E,N,Z;
     if(snap){E=snap.E;N=snap.N;Z=snap.Z;}else{[E,N]=S2W(sx,sy);Z=NaN;}
     $('simplCogoN').value=N.toFixed(3);$('simplCogoE').value=E.toFixed(3);
@@ -2023,7 +2040,11 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       inspectFig(getFig(addPt.figId));draw();return;}
     addPointToFig(addPt.figId,addPt.anchor,i);addPt=null;return;}
   if(insertPt){const seg=pickSegmentForInsert(sx,sy);
-    if(seg){insertPointOnLine(seg.figId,seg.p1.i===PTS[seg.p1.i]?PTS.indexOf(seg.p1):seg.p1.i,seg.p2.i===PTS[seg.p2.i]?PTS.indexOf(seg.p2):seg.p2.i,seg.t);return;}
+    if(seg){const i1=PTS.indexOf(seg.p1),i2=PTS.indexOf(seg.p2);
+      if(seg.type==='intersection'){                      // this line crosses another — ask which elevation before inserting
+        openZPick(seg,(z)=>{if(isFinite(z))insertPointOnLine(seg.figId,i1,i2,seg.t,z);else hud('insert cancelled');});
+      }else insertPointOnLine(seg.figId,i1,i2,seg.t);
+      return;}
     else{hud('click on the line');return;}}
   if(circleTool){const i=pick(sx,sy);
     if(i>=0){circleTool.centerPt=i;$('circlePtLabel').textContent=`Center: ${PTS[i].id}`;$('circleRadius').value='';$('circleRadius').focus();hud(`enter radius for circle at ${PTS[i].id}`);}

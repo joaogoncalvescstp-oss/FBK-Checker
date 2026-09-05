@@ -45,8 +45,9 @@ first and follow it on every task in this repo.
     | 29 | 🍑 PEACH | BC..EC now understands **PCC** (point of compound curve) and **PRC** (point of reverse curve) — either splits the run into independently-fit sub-arcs, so a real compound/reverse curve no longer gets crammed into one meaningless average-radius circle; and the curb offset lane lines through a curve now derive their radius explicitly as that base segment's own fitted radius ± the lane's offset distance (not an independent re-fit of the offset points) |
     | 30 | 🍐 PEAR | Zoom window (⊕ WIN / `Z`) now works in the 3D orbit view, not just 2D — picking it no longer force-switches you back to plan view; drag a box on the 3D canvas and it zooms to fit exactly like 2D does, via a screen-space affine fit of `orbit.s/ox/oy` (there's no world-space inverse for the oblique orbit projection, unlike 2D's `S2W`) |
     | 31 | 🍉 WATERMELON | inspector now shows a shot's **Rod HT** (prism height) and lets you correct it — HA/SD/ZA stay the exact same observation, only Z is recomputed (`reduce()`); export brackets the corrected shot with `PRISM <new>` / `PRISM <original>` lines so it never touches any other point still relying on the original height on that setup — verified with a full parse→edit→export→re-parse round trip |
+    | 32 | 🥥 COCONUT | **Insert point on line** (⊕ Click line to insert point) now gets the same CAD apparent-intersection snap as COGO canvas-pick — click near where the line crosses another line (or a curb offset lane) and it snaps to that crossing, then asks which elevation to use, since the two lines can sit at different Z. `openZPick` generalized (caller-supplied callback) so both flows share one elevation-chooser |
   - Suggested next fruits to rotate through:
-    🥥 COCONUT, 🍋 LEMON.
+    🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -265,6 +266,35 @@ first and follow it on every task in this repo.
   lines can have two different Z values, so picking an intersection sets N/E and
   then opens a chooser — line A's Z, line B's Z, the average, or a custom value.
   Esc/Cancel returns to the Add Point dialog.
+- **Build 32 — `openZPick` generalized:** it used to hardcode writing the chosen
+  Z into the COGO dialog's `#simplCogoZ` field. It now takes `openZPick(snap,
+  onDone)` — `onDone(z)` gets the chosen Z (or `null` on cancel) and the CALLER
+  decides what to do with it. The COGO call site's callback reproduces the old
+  behavior exactly (fills `#simplCogoZ`, re-shows the dialog, hud message).
+  This is what let **Insert point on line** (below) share the same chooser
+  without touching the COGO flow at all — only that one call site changed to
+  pass a callback; `applyZPick`/`closeZPick` themselves are now just plumbing
+  (`zpickCtx.onDone(z)` / `onDone(null)`).
+- **Insert point on line snap (`pickSegmentForInsert`, build 32):** the
+  separate, simpler **⊕ Click line to insert point** tool (`insertPt` /
+  `insertPointOnLine` — distinct from the COGO dialog above; it drops a plain
+  `NEZ` point at a clicked spot along one figure's own segments, chosen by
+  nearest screen distance) previously had no CAD snap at all — a click only
+  ever projected onto the figure's own line. It now also checks, for whichever
+  of the figure's own segments is nearest the click, whether that segment
+  crosses ANY other line (another figure, or a curb offset lane, via
+  `collectSegments()` + `lineLineX` — the same primitives `snapPoint` already
+  uses) within `TOL_X=14`px of the click; an in-range crossing wins over the
+  plain along-the-line landing. On a crossing, `openZPick` prompts for the
+  elevation (line A / line B / average / custom) exactly like COGO's
+  intersection snap, and only then calls `insertPointOnLine(...,t,z)` — a new
+  optional 5th arg that overrides the plain `p1.Z+(p2.Z-p1.Z)*t` interpolation.
+  N/E still come from `t` along the figure's own segment (equivalent to the
+  crossing point, verified: intersecting two synthetic lines crossing at a
+  known world point recovered that exact E/N, and each line's own Z at the
+  crossing to float precision). 2D only (guarded by `!is3D`, matching
+  `snapPoint`), same as the insert tool itself (its toolbar button doesn't
+  render in 3D).
 
 ## Zoom window in 3D (`setMode`, `endInteract`, build 30)
 
