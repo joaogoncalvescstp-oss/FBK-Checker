@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:34};
+const VERSION={fruit:'🍊',name:'ORANGE',build:35};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1168,7 +1168,10 @@ function circleFitLS(pts){             // least-squares (Kåsa) circle fit throu
   const a=det3(withCol(0,v))/D,b=det3(withCol(1,v))/D,cc=det3(withCol(2,v))/D;
   const r2=cc+a*a+b*b;if(!(r2>1e-9))return null;
   const r=Math.sqrt(r2);if(!(r<1e7))return null;           // effectively straight/collinear → let caller fall back
-  return {E:a+cx0,N:b+cy0,r};}
+  const E0=a+cx0,N0=b+cy0;
+  const maxDev=Math.max(...pts.map(p=>Math.abs(Math.hypot(p.E-E0,p.N-N0)-r)));
+  if(maxDev>0.12*r)return null;   // points don't actually lie near ANY circle (e.g. a spline-like/irregular curve, not a true constant-radius arc) — let caller fall back to the spline rather than forcing a fake design radius through them
+  return {E:E0,N:N0,r};}
 function circleThroughChordR(P,Q,R,ref){   // the circle of radius R through P and Q, whichever of the (up to) two solutions sits nearer `ref`
   const dx=Q.E-P.E,dy=Q.N-P.N,d=Math.hypot(dx,dy);if(d<1e-9)return null;
   const halfD=d/2,effR=Math.max(R,halfD);   // chord longer than the fitted diameter → widen just enough to still join the two points (semicircle limit)

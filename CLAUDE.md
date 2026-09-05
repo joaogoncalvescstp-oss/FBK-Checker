@@ -48,7 +48,8 @@ first and follow it on every task in this repo.
     | 32 | 🥥 COCONUT | **Insert point on line** (⊕ Click line to insert point) now gets the same CAD apparent-intersection snap as COGO canvas-pick — click near where the line crosses another line (or a curb offset lane) and it snaps to that crossing, then asks which elevation to use, since the two lines can sit at different Z. `openZPick` generalized (caller-supplied callback) so both flows share one elevation-chooser |
     | 33 | 🍋 LEMON | added a **Snap to line crossings** checkbox (`insertSnapOn`, on by default) next to the insert-on-line button — unticking it skips the build-32 crossing-snap pass entirely, so a click always lands at the plain along-the-line position with no elevation prompt, for when you're inserting near a crossing you don't actually want to snap to |
     | 34 | 🍇 GRAPE | fix BC..EC curve rendering a spurious "double line": `strokeFigure` was nudging every curve-sampled point sideways by a curb code's first `H`/`V` step whenever the curve's **BC** vertex happened to carry a curb code (e.g. `BC R624`) — real coded curb points don't; only a bare/uncoded BC would render clean. Removed the whole `activeSteps` mechanism (it was never applied to straight-line vertices, only curve samples, so it never matched CAD/the actual coded cross-section anyway — `applyKnockdown()`/`drawOffsets` already handle curb cross-sections correctly and don't touch this code path) |
-  - Suggested next fruits to rotate through: 🍊 ORANGE, 🍓 STRAWBERRY,
+    | 35 | 🍊 ORANGE | fix the SAME "double line" complaint for a curve that isn't actually circular: confirmed against a real Civil3D `LIST` dump of the owner's own curb polyline that our one-design-radius arc-fit can silently accept a terrible fit (this run's shots deviated up to **half the fitted radius**) instead of recognizing the points aren't on any circle and falling back to the spline — `circleFitLS` now rejects a fit whose max residual exceeds 12% of the solved radius |
+  - Suggested next fruits to rotate through: 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -222,6 +223,47 @@ first and follow it on every task in this repo.
       both the bc-branch and the plain-vertex branch. The base figure line
       now renders through raw/true point positions for curved sections
       exactly like it already did for straight ones — matching CAD.
+    - **Build 35 fix — `circleFitLS` accepted a genuinely bad fit instead of
+      falling back to the spline:** the owner reported build 34 didn't
+      actually fix the double-line they were seeing on this same curve, and
+      pointed at the real Civil3D drawing as the source of truth. Since
+      `help.autodesk.com` is blocked from this sandbox, the owner ran
+      Civil3D's own `LIST` command on their curb polyline and pasted the raw
+      output — segment-by-segment length/radius/radius-point/course for
+      every vertex. Matching those segments' end coordinates against the
+      FBK's real shots confirmed every 2nd segment lands exactly on a real
+      coded point (5520/5521/5522/5523), but Civil3D's polyline has an
+      **extra vertex between every pair of real shots that isn't in the FBK
+      data at all**, and the radii of these six segments (56.05, 13.84,
+      9.44, 7.67, 1.34, 3.41 ft) swing wildly with no consistent design
+      radius — a dead giveaway that Civil3D's own curve here isn't a single
+      circular arc either; it's a smooth spline-like fit that got exported
+      as a polyline with a short independent bulge per segment.
+      `circleFitLS`'s validity check only ever caught the DEGENERATE cases
+      (near-infinite radius from collinear points) — it never checked
+      whether the fitted circle was actually a good match for real,
+      messy/non-circular data like this. For this exact span, the
+      least-squares circle came back "valid" (r≈8.14 ft) but individual
+      shots deviated from it by up to **4.1 ft — literally half the
+      radius**; forcing a per-segment arc through consecutive pairs at that
+      fake shared design radius produced a curve that swung up to 1.04 ft
+      off Civil3D's actual path in the middle of the span (verified against
+      the real `LIST` output's un-shot intermediate vertices) — the visible
+      "double line". `circleFitLS` now computes the max residual of every
+      input point against the fitted circle and returns `null` (the
+      existing `sampleCurve` fallback path) whenever that residual exceeds
+      12% of the solved radius, so `sampleCurve` correctly drops to the
+      cubic spline instead — which, on the same real data, tracks Civil3D's
+      un-shot intermediate vertices to within 0.04-0.13 ft (an 8-25× better
+      match) while still hitting every real shot exactly, same guarantee as
+      before. Scanned every BC..EC sub-span in the owner's real job file
+      (55 total) with this new threshold: only this one gets rejected — the
+      other 54 genuinely circular curves fit essentially exactly (near-zero
+      residual) and are unaffected, so this is a targeted fix for
+      non-circular data, not a behavior change for real curves. Also
+      verified against synthetic true circles (a 300 ft radius arc and a
+      small 8 ft radius arc with ~0.01 ft noise) that the 12% threshold
+      still accepts a genuine constant-radius curve without regression.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 
