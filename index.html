@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍐',name:'PEAR',build:30};
+const VERSION={fruit:'🍉',name:'WATERMELON',build:31};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -452,7 +452,7 @@ function parse(text){
         const az=(ori+ha)%360,hd=sd*Math.sin(za*Math.PI/180),vd=sd*Math.cos(za*Math.PI/180);
         const N=S.N+hd*Math.cos(az*Math.PI/180),E=S.E+hd*Math.sin(az*Math.PI/180),Z=S.Z+vd+hi-prism;
         PTS.push({id:t[2],code:(desc.split(/\s+/)[0]||'').toUpperCase(),desc,N,E,Z,srcLine:idx,kind:'shot',
-          stn:stn.id,hi,ori,ha,sd,za,prism,sN:S.N,sE:S.E,sZ:S.Z,face:t[0],deleted:false,edited:false});
+          stn:stn.id,hi,ori,ha,sd,za,prism,origPrism:prism,sN:S.N,sE:S.E,sZ:S.Z,face:t[0],deleted:false,edited:false});
         resolved.add(idx);added=true;
         if(!known[t[2]])known[t[2]]={N,E,Z};        // this point can now anchor a later setup
       }});
@@ -1544,17 +1544,18 @@ function inspect(){const box=$('insp');
       <div class="field"><label>SD</label><input id="eSD" type="number" step="0.001" value="${p.sd.toFixed(3)}" ${is3D?'disabled':''}></div>
       <div class="field"><label>ZA</label><input id="eZA" value="${deg2dms(p.za)}" ${is3D?'disabled':''}></div>
     </div>
+    <div class="field"><label>Rod HT${p.prism!==p.origPrism?' (edited)':''}</label><input id="eRod" type="number" step="0.001" value="${p.prism.toFixed(3)}" ${is3D?'disabled':''}></div>
     <div class="kv"><span class="k">From STN</span><span class="v">${p.stn} (HI ${p.hi.toFixed(3)}) · ${p.face}</span></div>
     <div class="kv"><span class="k">src line</span><span class="v">${p.srcLine+1}</span></div>
     ${(()=>{const fs=figuresOfPoint(sel);return fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:'';})()}
     ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit codes or coordinates.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete shot'}</button></div>
-    <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.</div>
+    <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Edit <b>Rod HT</b> to correct a mis-recorded rod/prism height — HA/SD/ZA stay the same observation, only Z is recomputed; export brackets the corrected shot with <b>PRISM</b> lines so later shots on the same setup keep the original height. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.</div>
     ${mode==='move'?'<div class="warnbox">Move active — dragging rewrites HA &amp; SD on line '+(p.srcLine+1)+'.</div>':''}`}`;
   box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
   if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
-    ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
+    ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA','eRod'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
     $('delBtn').onclick=()=>toggleDel(p);}
 }
 /* Inspector for a box (marquee) selection of multiple points. */
@@ -1721,6 +1722,9 @@ function applyPointEdit(p){
   saveState();
   if(p.kind==='shot'){
     const haV=dms2deg($('eHA').value),sdV=parseFloat($('eSD').value),zaV=dms2deg($('eZA').value);
+    const rodV=parseFloat($('eRod').value);
+    const rodChg=isFinite(rodV)&&$('eRod').value.trim()!==p.prism.toFixed(3);
+    if(rodChg)p.prism=rodV;                          // apply BEFORE the coord/angle re-solve below, so either one picks up the corrected height
     // detect edits by comparing inputs to the rendered values (no DMS round-trip drift)
     const coordChg=$('eN').value.trim()!==p.N.toFixed(3)||$('eE').value.trim()!==p.E.toFixed(3)||$('eZ').value.trim()!==p.Z.toFixed(3);
     const angChg=$('eHA').value.trim()!==deg2dms(p.ha)||$('eSD').value.trim()!==p.sd.toFixed(3)||$('eZA').value.trim()!==deg2dms(p.za);
@@ -1728,6 +1732,8 @@ function applyPointEdit(p){
       p.ha=haV;p.sd=sdV;p.za=zaV;reduce(p);          // angle/dist edit → recompute coords
     }else if(coordChg){
       setShotFromNEZ(p,N,E,Z);                         // coordinate edit → re-solve the VA shot
+    }else if(rodChg){
+      reduce(p);                                       // rod-height-only edit → same HA/SD/ZA observation, just recompute Z
     }
     p.rawOverride=undefined;
   }else{                                               // ctrl / NEZ / inserted point
@@ -1735,7 +1741,8 @@ function applyPointEdit(p){
     if(p.srcLine>=0)p.rawOverride=`NEZ ${id} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${desc}"`;
   }
   p.id=id;p.desc=desc;p.code=(desc.split(/\s+/)[0]||'').toUpperCase()||p.code;p.edited=true;p.kdInfo=undefined;
-  logEdit('code',`pt ${oldId}${oldId!==id?' → '+id:''} line ${p.srcLine+1}: N ${p.N.toFixed(3)} E ${p.E.toFixed(3)} Z ${p.Z.toFixed(3)} "${desc}"`);
+  const rodNote=(p.kind==='shot'&&p.prism!==p.origPrism)?`, rod HT ${p.origPrism.toFixed(3)}→${p.prism.toFixed(3)}`:'';
+  logEdit('code',`pt ${oldId}${oldId!==id?' → '+id:''} line ${p.srcLine+1}: N ${p.N.toFixed(3)} E ${p.E.toFixed(3)} Z ${p.Z.toFixed(3)}${rodNote} "${desc}"`);
   buildLinework();draw();inspect();flagDirty();}
 function toggleDel(p){saveState();p.deleted=!p.deleted;p.edited=true;
   logEdit('del',`pt ${p.id} line ${p.srcLine+1} ${p.deleted?'deleted':'restored'}`);
@@ -1858,6 +1865,16 @@ function exportFBK(expandCodes=true){
     const match=line.match(/^(.*?)"([^"]*)"$/);
     if(match){const expandedDesc=expandCodes?expandDescForExport(match[2]):match[2];line=match[1]+'"'+expandedDesc+'"';}
     editedContent[p.srcLine]=line;});
+  // 1b. rod/prism height corrections: a PRISM line applies to every subsequent shot on
+  //     the setup, so a corrected height gets bracketed — the new height right before
+  //     this one shot's line, the original height right after it, restoring it for
+  //     whatever else on the setup still relied on it. Never touches other points' data.
+  const rodEdits=[];
+  PTS.filter(p=>p.kind==='shot'&&!p.deleted&&p.srcLine>=0&&p.prism!==p.origPrism).forEach(p=>{
+    (nezBefore[p.srcLine]=nezBefore[p.srcLine]||[]).push(`PRISM ${p.prism.toFixed(3)}`);
+    const next=p.srcLine+1;
+    if(next<RAW.length)(nezBefore[next]=nezBefore[next]||[]).push(`PRISM ${p.origPrism.toFixed(3)}`);
+    rodEdits.push(`pt ${p.id} (${p.origPrism.toFixed(3)}→${p.prism.toFixed(3)})`);});
   const permuted=[], nezed=[], shared=new Set();
   // 2a. figures flagged "render as NEZ" → every vertex (natural + added, in figure
   //     order) is emitted as an NEZ coordinate record, so the linework no longer
@@ -1939,7 +1956,8 @@ function exportFBK(expandCodes=true){
   logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?'':' (codes unapplied)'}`);
   if(permuted.length)logEdit('code',`reordered in-setup: ${[...new Set(permuted)].join(', ')}`);
   if(nezed.length)logEdit('mv',`cross-setup → NEZ: ${nezed.join(', ')} (originals archived as Deleted)`);
-  if(shared.size)logEdit('del',`shared pts NEZ-moved, check other figures: ${[...shared].join(', ')}`);}
+  if(shared.size)logEdit('del',`shared pts NEZ-moved, check other figures: ${[...shared].join(', ')}`);
+  if(rodEdits.length)logEdit('code',`rod HT corrected: ${rodEdits.join(', ')} — bracketed with PRISM lines`);}
 
 /* Export every non-deleted point as a comma-delimited PNEZD file: point number,
    Northing, Easting, Elevation (Z), Description. Round-trips with importCSV. */

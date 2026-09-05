@@ -44,8 +44,9 @@ first and follow it on every task in this repo.
     | 28 | 🥝 KIWI | fix `offsetAt` corners: it offset each vertex using the AVERAGED prev→next secant direction, which pinches a sharp corner in short instead of extending it — a 1.0 offset at a 90° corner (e.g. a rectangle) landed only 1.0 from the true corner instead of the correct 1.4142 (√2) miter distance. `offsetAt` now offsets each adjacent segment individually and intersects the two offset lines at interior vertices — the standard mitered/extended corner (CAD `OFFSETGAPTYPE=0`) |
     | 29 | 🍑 PEACH | BC..EC now understands **PCC** (point of compound curve) and **PRC** (point of reverse curve) — either splits the run into independently-fit sub-arcs, so a real compound/reverse curve no longer gets crammed into one meaningless average-radius circle; and the curb offset lane lines through a curve now derive their radius explicitly as that base segment's own fitted radius ± the lane's offset distance (not an independent re-fit of the offset points) |
     | 30 | 🍐 PEAR | Zoom window (⊕ WIN / `Z`) now works in the 3D orbit view, not just 2D — picking it no longer force-switches you back to plan view; drag a box on the 3D canvas and it zooms to fit exactly like 2D does, via a screen-space affine fit of `orbit.s/ox/oy` (there's no world-space inverse for the oblique orbit projection, unlike 2D's `S2W`) |
+    | 31 | 🍉 WATERMELON | inspector now shows a shot's **Rod HT** (prism height) and lets you correct it — HA/SD/ZA stay the exact same observation, only Z is recomputed (`reduce()`); export brackets the corrected shot with `PRISM <new>` / `PRISM <original>` lines so it never touches any other point still relying on the original height on that setup — verified with a full parse→edit→export→re-parse round trip |
   - Suggested next fruits to rotate through:
-    🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -300,6 +301,42 @@ first and follow it on every task in this repo.
 - Cursor and the 3D hint text (`#orbHint`) now key off `mode==='zoom'` before
   `is3D`, so the cursor shows `zoom-in` and the hint reads "drag a box to
   zoom…" instead of the orbit-drag hint while the tool is active in 3D.
+
+## Rod height (prism) — view + correct (`origPrism`, build 31)
+
+- A shot's rod/prism height (`p.prism`) was always parsed (from the FBK's
+  standalone `PRISM <value>` line, which applies to every subsequent shot on
+  that setup until the next `PRISM` line) and used to compute `Z = station.Z +
+  hi + vertical_component - prism`, but it was never shown or editable — if a
+  crew logged the wrong rod height for one shot, there was no way to fix it
+  in the app.
+- The inspector now shows a **Rod HT** field for shot points (next to the
+  `From STN … (HI …)` line). Editing it and hitting Apply sets `p.prism` and
+  calls `reduce(p)` — the exact same recompute used for an angle/distance
+  edit — which leaves `p.ha/p.sd/p.za` (the actual total-station observation)
+  untouched and only recomputes `Z`. If N/E/Z or HA/SD/ZA are edited in the
+  *same* Apply, the new rod height is applied first, so `setShotFromNEZ`/the
+  angle branch both pick it up automatically — no special-case interaction
+  needed, verified physically: increasing the rod height by 0.5 ft lowers Z
+  by exactly 0.5 ft, nothing else on the shot changes.
+- **Export is the tricky part**, because `PRISM` is not a per-shot field — one
+  line sets the height for every subsequent shot on the setup, so you can't
+  just rewrite it in place without silently changing every OTHER unedited
+  shot that relied on the original value. `exportFBK` instead brackets only
+  the corrected shot: a `PRISM <new height>` line immediately before it (in
+  `nezBefore[p.srcLine]`, the same "insert extra lines before line L" hook
+  the NEZ-reordering logic already uses) and a `PRISM <original height>` line
+  immediately after (`nezBefore[p.srcLine+1]`) restoring it for whatever
+  follows. `p.origPrism` (captured once at parse time, never mutated) is what
+  the restore line and the "is this shot edited" check (`p.prism!==
+  p.origPrism`) both key off.
+- Verified with a full round trip: parsed a synthetic setup (`PRISM 5.000`
+  then three shots), edited the middle shot's rod height to `5.500`,
+  generated the bracketed export text, then re-parsed THAT text with the
+  unmodified original parser — the edited shot's Z came back exactly
+  corrected, and both neighboring shots (before and after, same setup) came
+  back with their Z completely unchanged, proving the bracket never leaks
+  into any other point's data.
 
 ## Box (marquee) multi-select (`selSet`, `inspectMulti`, `multiDelete`)
 
