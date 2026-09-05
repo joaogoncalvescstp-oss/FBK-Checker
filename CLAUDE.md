@@ -47,7 +47,8 @@ first and follow it on every task in this repo.
     | 31 | 🍉 WATERMELON | inspector now shows a shot's **Rod HT** (prism height) and lets you correct it — HA/SD/ZA stay the exact same observation, only Z is recomputed (`reduce()`); export brackets the corrected shot with `PRISM <new>` / `PRISM <original>` lines so it never touches any other point still relying on the original height on that setup — verified with a full parse→edit→export→re-parse round trip |
     | 32 | 🥥 COCONUT | **Insert point on line** (⊕ Click line to insert point) now gets the same CAD apparent-intersection snap as COGO canvas-pick — click near where the line crosses another line (or a curb offset lane) and it snaps to that crossing, then asks which elevation to use, since the two lines can sit at different Z. `openZPick` generalized (caller-supplied callback) so both flows share one elevation-chooser |
     | 33 | 🍋 LEMON | added a **Snap to line crossings** checkbox (`insertSnapOn`, on by default) next to the insert-on-line button — unticking it skips the build-32 crossing-snap pass entirely, so a click always lands at the plain along-the-line position with no elevation prompt, for when you're inserting near a crossing you don't actually want to snap to |
-  - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
+    | 34 | 🍇 GRAPE | fix BC..EC curve rendering a spurious "double line": `strokeFigure` was nudging every curve-sampled point sideways by a curb code's first `H`/`V` step whenever the curve's **BC** vertex happened to carry a curb code (e.g. `BC R624`) — real coded curb points don't; only a bare/uncoded BC would render clean. Removed the whole `activeSteps` mechanism (it was never applied to straight-line vertices, only curve samples, so it never matched CAD/the actual coded cross-section anyway — `applyKnockdown()`/`drawOffsets` already handle curb cross-sections correctly and don't touch this code path) |
+  - Suggested next fruits to rotate through: 🍊 ORANGE, 🍓 STRAWBERRY,
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -182,6 +183,45 @@ first and follow it on every task in this repo.
       every real offset point exactly, same as before. PCC/PRC splits apply
       here too (`curvedOffsetPts` calls `breakIndices` on the base sub-span
       first) — verified end-to-end through a compound curve's offset run.
+    - **Build 34 fix — spurious double line when the BC point itself carried
+      a curb code:** `strokeFigure`'s bc-branch had a leftover `activeSteps`
+      variable that tracked whichever vertex's `steps` (the `H`/`V` cross-
+      section offsets `expandCurb` attaches to the currently-active figure
+      code) were most recently seen, and — **only inside the curve-sample
+      loop, nowhere else** — nudged every sampled curve point sideways by
+      `activeSteps[0].h` (and up/down by `.v`) if that list was non-empty.
+      A BC point coded like `"RBCB B BC R624"` expands `R624` to its
+      `CURB_BOC` steps (`H-0.5 V0.0 H-0.67 V-0.5 H-2.67 V-0.38`) attached to
+      the still-active `RBCB` figure code, so `activeSteps[0]` was
+      `{h:-0.5,v:0}` right as the curve started — every sample along the
+      curve got silently shifted 0.5 ft sideways off the real shots, while
+      the straight segments immediately before/after the curve (rendered via
+      the plain `put(v.E,v.N,v.Z)` branch, which never consulted
+      `activeSteps`) stayed at true position. The result: a curve that
+      visibly ran parallel to, and offset from, its own straight lead-in/
+      lead-out — the reported "two curbs, one from CAD, one from the FBK
+      app" — and the arc no longer even passed through its own coded
+      vertices (5520/5521/5522 in the reported job), contradicting the
+      build-24-29 guarantee that the fitted arc always hits every real shot.
+      Reproduced numerically against the reported job's real data (RBCB run
+      5519 BC R624 → 5523 EC): the old code's curve samples sat exactly
+      0.5 ft off the true point positions at every sample (matching R624's
+      first `H` step precisely), while removing `activeSteps` entirely made
+      every sample land exactly on the real coordinates again — confirmed
+      sample-for-sample before applying the fix. `activeSteps` was always
+      vestigial: curb cross-sections are correctly handled by two completely
+      separate, already-correct systems — the explicit user-triggered
+      `applyKnockdown()` (bakes a curb code's cross-section into real point
+      coordinates) and the automatic `drawOffsets`/`curvedOffsetPts` green
+      offset lane lines (build 27-29) — neither of which touches
+      `strokeFigure`'s local `activeSteps` at all. Fix: deleted the
+      `activeSteps` declaration, the `if(v.steps)activeSteps=v.steps;`
+      tracking line, the nudge block inside the curve-sample `forEach`
+      (curve samples now just `put(s.E,s.N,s.Z)` directly, same as every
+      other vertex), and the now-dead `if(v.so)activeSteps=null;` resets in
+      both the bc-branch and the plain-vertex branch. The base figure line
+      now renders through raw/true point positions for curved sections
+      exactly like it already did for straight ones — matching CAD.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 
