@@ -46,8 +46,9 @@ first and follow it on every task in this repo.
     | 30 | 🍐 PEAR | Zoom window (⊕ WIN / `Z`) now works in the 3D orbit view, not just 2D — picking it no longer force-switches you back to plan view; drag a box on the 3D canvas and it zooms to fit exactly like 2D does, via a screen-space affine fit of `orbit.s/ox/oy` (there's no world-space inverse for the oblique orbit projection, unlike 2D's `S2W`) |
     | 31 | 🍉 WATERMELON | inspector now shows a shot's **Rod HT** (prism height) and lets you correct it — HA/SD/ZA stay the exact same observation, only Z is recomputed (`reduce()`); export brackets the corrected shot with `PRISM <new>` / `PRISM <original>` lines so it never touches any other point still relying on the original height on that setup — verified with a full parse→edit→export→re-parse round trip |
     | 32 | 🥥 COCONUT | **Insert point on line** (⊕ Click line to insert point) now gets the same CAD apparent-intersection snap as COGO canvas-pick — click near where the line crosses another line (or a curb offset lane) and it snaps to that crossing, then asks which elevation to use, since the two lines can sit at different Z. `openZPick` generalized (caller-supplied callback) so both flows share one elevation-chooser |
-  - Suggested next fruits to rotate through:
-    🍋 LEMON.
+    | 33 | 🍋 LEMON | added a **Snap to line crossings** checkbox (`insertSnapOn`, on by default) next to the insert-on-line button — unticking it skips the build-32 crossing-snap pass entirely, so a click always lands at the plain along-the-line position with no elevation prompt, for when you're inserting near a crossing you don't actually want to snap to |
+  - Suggested next fruits to rotate through: 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY,
+    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -295,6 +296,16 @@ first and follow it on every task in this repo.
   crossing to float precision). 2D only (guarded by `!is3D`, matching
   `snapPoint`), same as the insert tool itself (its toolbar button doesn't
   render in 3D).
+- **Build 33 — `insertSnapOn` checkbox:** the crossing-snap above always won
+  over the plain along-the-line landing whenever a crossing was in range,
+  with no way to opt out — inserting near a crossing you didn't actually
+  want to snap to always triggered the elevation prompt. A **Snap to line
+  crossings** checkbox next to the insert-mode button (checked by default)
+  gates the whole intersection-detection pass in `pickSegmentForInsert`
+  (`if(!is3D&&insertSnapOn){...}`); unticked, a click always lands at the
+  plain along-the-line position, same as before build 32. Purely a global
+  UI toggle (`insertSnapOn`), not per-figure — persists across figures/tool
+  switches, resets only on a fresh page load.
 
 ## Zoom window in 3D (`setMode`, `endInteract`, build 30)
 
