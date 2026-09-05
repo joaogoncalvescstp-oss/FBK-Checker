@@ -43,8 +43,9 @@ first and follow it on every task in this repo.
     | 27 | 🍒 CHERRY | the green curb offset **lane lines** now curve through a BC..EC run too, instead of chording straight across it — `drawOffsets` detects the run on the base line and runs the *same* `sampleCurve` best-fit-through-every-point machinery on that lane's own offset points, so it independently best-fits (and passes through) its own points, tracking the base curve's curvature in parallel |
     | 28 | 🥝 KIWI | fix `offsetAt` corners: it offset each vertex using the AVERAGED prev→next secant direction, which pinches a sharp corner in short instead of extending it — a 1.0 offset at a 90° corner (e.g. a rectangle) landed only 1.0 from the true corner instead of the correct 1.4142 (√2) miter distance. `offsetAt` now offsets each adjacent segment individually and intersects the two offset lines at interior vertices — the standard mitered/extended corner (CAD `OFFSETGAPTYPE=0`) |
     | 29 | 🍑 PEACH | BC..EC now understands **PCC** (point of compound curve) and **PRC** (point of reverse curve) — either splits the run into independently-fit sub-arcs, so a real compound/reverse curve no longer gets crammed into one meaningless average-radius circle; and the curb offset lane lines through a curve now derive their radius explicitly as that base segment's own fitted radius ± the lane's offset distance (not an independent re-fit of the offset points) |
+    | 30 | 🍐 PEAR | Zoom window (⊕ WIN / `Z`) now works in the 3D orbit view, not just 2D — picking it no longer force-switches you back to plan view; drag a box on the 3D canvas and it zooms to fit exactly like 2D does, via a screen-space affine fit of `orbit.s/ox/oy` (there's no world-space inverse for the oblique orbit projection, unlike 2D's `S2W`) |
   - Suggested next fruits to rotate through:
-    🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -263,6 +264,42 @@ first and follow it on every task in this repo.
   lines can have two different Z values, so picking an intersection sets N/E and
   then opens a chooser — line A's Z, line B's Z, the average, or a custom value.
   Esc/Cancel returns to the Add Point dialog.
+
+## Zoom window in 3D (`setMode`, `endInteract`, build 30)
+
+- The **Zoom window** tool (⊕ WIN toolbar button / `Z` key, `mode='zoom'`) already
+  worked in 2D (drag a box, `S2W` inverts the two corners to world coords, fit
+  `view.s`/`view.x`/`view.y` to them). It did **nothing** in 3D — worse, clicking
+  it while orbiting silently forced you back to 2D, because `setMode` treated
+  "which view" (`is3D`) and "which tool" (`mode`) as the same switch: every tool
+  except `'orbit'` set `is3D=false`.
+- Fix: `setMode` now only forces `is3D=false` for tools OTHER than `'zoom'` —
+  `if(m==='orbit')is3D=true;else if(m!=='zoom')is3D=false;`. Picking Zoom while
+  orbiting leaves you in 3D with `mode='zoom'`; every other tool (`sel`/`move`/
+  `pan`/`inv`) still forces 2D exactly as before — this is the one deliberately
+  new reachable state (`is3D && mode==='zoom'`), not a general "any tool works in
+  any view" change.
+- `pointerdown`'s `is3D` branch checks `mode==='zoom'` first and starts the same
+  `zw` marquee box used in 2D instead of starting an orbit-drag.
+- **The actual zoom math is different in 3D**, because there's no inverse of the
+  oblique orbit projection (`P3`) back to world coordinates the way `S2W` inverts
+  the 2D affine view — so `endInteract` computes the new `orbit.s/ox/oy` directly
+  in **screen space**: `f=min(w/dx,h/dy)` (fit the tighter axis), then
+  `orbit.ox=-(bx-w/2-orbit.ox)*f` and the same for `oy` (`bx,by` = the drawn
+  box's screen-space center). This comes directly from solving `P3`'s own affine
+  form (`sx=x1*orbit.s+w/2+orbit.ox`) for the `ox` that puts the box center
+  exactly at the viewport center after scaling `orbit.s` by `f` — verified
+  numerically (a standalone reimplementation of `P3`): the box center maps to
+  exactly `(w/2,h/2)` post-zoom and the box's half-size scaled by `f` exactly
+  matches the viewport's half-size on the binding axis. (First draft of this
+  formula had a copy-paste bug — an extra `w/2 -` term carried over from the
+  2D `view.x` formula, which has a genuinely different shape — that put the
+  box center at `(w,h)` instead of `(w/2,h/2)`; caught by that same numeric
+  check, so always verify a projection-math change like this against the
+  actual forward projection, not just "the code runs without throwing.")
+- Cursor and the 3D hint text (`#orbHint`) now key off `mode==='zoom'` before
+  `is3D`, so the cursor shows `zoom-in` and the hint reads "drag a box to
+  zoom…" instead of the orbit-drag hint while the tool is active in 3D.
 
 ## Box (marquee) multi-select (`selSet`, `inspectMulti`, `multiDelete`)
 

@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:29};
+const VERSION={fruit:'🍐',name:'PEAR',build:30};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1992,7 +1992,9 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     $('simplCogoN').value=N.toFixed(3);$('simplCogoE').value=E.toFixed(3);
     if(isFinite(Z))$('simplCogoZ').value=Z.toFixed(3);
     endCogoPick(snap);return;}
-  if(is3D){drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey};
+  if(is3D){
+    if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
+    drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey};
     const i=pick(sx,sy);if(i>=0){sel=i;selFig=null;inspect();draw();}
     else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}}return;}
   if(addPt){const i=pick(sx,sy);const f=getFig(addPt.figId);
@@ -2041,11 +2043,17 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   else if(drag.move){const[E,N]=S2W(sx,sy);const p=PTS[drag.i];p.E=E;p.N=N;buildLinework();draw();}});
 function endInteract(e){const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   if(zw){$('zwbox').style.display='none';const dx=Math.abs(zw.x1-zw.x0),dy=Math.abs(zw.y1-zw.y0);
-    if(dx>8&&dy>8){const[E0,N0]=S2W(Math.min(zw.x0,zw.x1),Math.max(zw.y0,zw.y1));
-      const[E1,N1]=S2W(Math.max(zw.x0,zw.x1),Math.min(zw.y0,zw.y1));
-      const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
-      view.s=Math.min(w/((E1-E0)||1),h/((N1-N0)||1));
-      view.x=w/2-((E0+E1)/2)*view.s;view.y=h/2+((N0+N1)/2)*view.s;draw();}zw=null;}
+    if(dx>8&&dy>8){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+      if(is3D){                                          // screen-space box fit — no world-space inverse exists for the oblique orbit projection
+        const bx=(zw.x0+zw.x1)/2,by=(zw.y0+zw.y1)/2,f=Math.min(w/dx,h/dy);
+        orbit.ox=-(bx-w/2-orbit.ox)*f;orbit.oy=-(by-h/2-orbit.oy)*f;orbit.s*=f;
+      }else{
+        const[E0,N0]=S2W(Math.min(zw.x0,zw.x1),Math.max(zw.y0,zw.y1));
+        const[E1,N1]=S2W(Math.max(zw.x0,zw.x1),Math.min(zw.y0,zw.y1));
+        view.s=Math.min(w/((E1-E0)||1),h/((N1-N0)||1));
+        view.x=w/2-((E0+E1)/2)*view.s;view.y=h/2+((N0+N1)/2)*view.s;
+      }
+      draw();}zw=null;}
   if(drag&&drag.marquee){$('zwbox').style.display='none';
     const dx=Math.abs(drag.x1-drag.x0),dy=Math.abs(drag.y1-drag.y0);
     if(dx>5||dy>5){                                       // a real drag → box select the points inside
@@ -2078,14 +2086,15 @@ function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 function hud(t){$('hud').textContent=t;}
 function setMode(m){
   const wasOrbit=is3D;addPt=null;
-  if(m==='orbit'){is3D=true;}else{is3D=false;}
+  if(m==='orbit')is3D=true;else if(m!=='zoom')is3D=false;   // 'zoom' leaves the view as-is — window-zoom works in whichever view (2D or 3D) is already active
   mode=(m==='orbit')?'orbit':m;
   ['Sel','Move','Pan','Zoom','Orbit','Inv'].forEach(x=>$('t'+x).classList.remove('on'));
   $('t'+cap(m)).classList.add('on');
   $('vex').classList.toggle('show',is3D);
   $('legend').style.display=is3D?'none':'';
   if(is3D){const d=$('agmap');if(d)d.style.display='none';}   // 3D canvas is transparent — don't leak the aerial behind it
-  cv.style.cursor=is3D?'grab':m==='pan'?'grab':m==='zoom'?'zoom-in':m==='move'?'move':'crosshair';
+  if(is3D)$('orbHint').textContent=mode==='zoom'?'drag a box to zoom · wheel zoom · shift-drag pan':'drag orbit · wheel zoom · shift-drag pan';
+  cv.style.cursor=m==='zoom'?'zoom-in':is3D?'grab':m==='pan'?'grab':m==='move'?'move':'crosshair';
   if(is3D!==wasOrbit)fit();else draw();
   if(m==='inv')inspectInverse();else if(sel>=0)inspect();
 }
