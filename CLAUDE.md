@@ -51,8 +51,9 @@ first and follow it on every task in this repo.
     | 35 | 🍊 ORANGE | fix the SAME "double line" complaint for a curve that isn't actually circular: confirmed against a real Civil3D `LIST` dump of the owner's own curb polyline that our one-design-radius arc-fit can silently accept a terrible fit (this run's shots deviated up to **half the fitted radius**) instead of recognizing the points aren't on any circle and falling back to the spline — `circleFitLS` now rejects a fit whose max residual exceeds 12% of the solved radius |
     | 36 | 🍓 STRAWBERRY | owner confirmed build 35 fixed the base curve, but the green curb offset **lane lines** through that same non-circular span weren't following it — they went straight/faceted instead of curving. `curvedOffsetPts` derives each lane segment from the BASE line's `arcSegmentsForSpan`, which now (correctly, since build 35) returns `null` for a non-circular span, but its `null` fallback was a straight vertex-to-vertex chord, not a curve. It now falls back to running `sampleCurve` directly on the lane's own offset points (same spline the base line falls back to) instead of chording it straight |
     | 37 | 🍒 CHERRY | added a **↻ Refresh** toolbar button — forces `buildLinework()`+`draw()` so the drawing (base line + curb offset lanes) is always rebuilt from current point data on demand, in case a line edit ever leaves the canvas looking stale. Smoke-tested in a real headless browser: loads, enables after a file loads, click redraws and shows a hud confirmation, no console errors |
+    | 38 | 🥝 KIWI | new **⊙ CTR** tool: click 3 points (or a single existing CIR-coded line, using its own first 3 vertices) and it drops a new point at the circumcircle center — prompts for the elevation (average of the 3 points, or a custom value) and a code/description, then places the point's `NEZ` record immediately after the 3rd point in file order on export |
   - Suggested next fruits to rotate through:
-    🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -355,6 +356,48 @@ first and follow it on every task in this repo.
   back out as a `Point,Northing,Easting,Elevation,Description` file (3-dp coords,
   header row, descriptions CSV-quoted when they contain commas/quotes). Round-trips
   with `importCSV`.
+
+## Point at circle center (`startCircleCtrPick`, build 38, ⊙ CTR toolbar button)
+
+- Places a new point at the **circumcircle center** of 3 points — for a manhole,
+  catch basin, or any feature shot as 3 points around its rim rather than at its
+  actual center.
+- Click the **⊙ CTR** tool, then either **click 3 points** on the canvas (highlighted
+  gold with a 1/2/3 order marker as you go), or **click an existing CIR-coded line**
+  (a figure with a `CIR`/`CIRCLE` token — see the toolbar hint / `f.circle` in
+  `figures()`) to use that line's own first 3 vertices instead of picking manually.
+  **Esc** cancels a pick in progress.
+- `circle3(p1,p2,p3)` (already used by `strokeFigure`'s `f.circle` branch) computes
+  the center — collinear points return `null` and the tool just reports "collinear —
+  no circle" with no dialog, rather than crashing or silently producing a nonsense
+  center.
+- **Elevation prompt:** reuses the same `zpickScrim` chooser as the apparent-
+  intersection snap (`openZPick`, build 32), via a new `openAvgZPick(avg,hint,onDone)`
+  that shows a single "average of 3 points" option plus the existing custom-Z field —
+  `circle3` already computes that average (`(p1.Z+p2.Z+p3.Z)/3`), so this is just a
+  confirm-or-override step. (Hardened `openZPick` itself to always set its own hint
+  text, since the two now share the same dialog markup and a stale hint from one
+  flow must never leak into the other.)
+- **Code/description prompt:** a small dialog (`circleCtrScrim`) shows the computed
+  N/E/Z read-only and asks for a code/description — this point doesn't belong to any
+  existing figure's linework, so (unlike `insertPointOnLine`/`insertCogoPoint`) it
+  gets **whatever code the user types**, not a figure's code.
+- **File position — "after the 3rd point":** the new point is tagged
+  `posAfter: <PTS index of the 3rd point picked>` (or the CIR line's 3rd vertex).
+  `exportFBK` step 2c (new, runs before the main line-assembly loop so `nezBefore`
+  is fully populated first) resolves that anchor's *current* `srcLine` and emits the
+  new point as an `NEZ` record via `nezBefore[anchorSrcLine+1]` — immediately after
+  the anchor's own line, the same "insert extra lines before line L" hook build 31's
+  `PRISM` bracketing and the added-point logic (step 2b) already use. If the anchor
+  itself has no valid position (deleted, or itself a synthetic/inserted point with no
+  real `srcLine`), the point safely falls through to the existing step-3b safety net
+  (dumped as a plain `NEZ` at the very end) instead of being lost.
+- Verified end-to-end against the real job file: picking real points 5519/5520/5521
+  computed a center, average-Z, and produced a point whose exported `NEZ` line landed
+  on the line immediately following point 5521's own line; the CIR-line shortcut
+  (picking figure `MISCL@369`, `.circle=true`, 8 vertices) correctly used its own
+  first 3 vertices instead of requiring 3 manual clicks; 3 synthetic collinear points
+  correctly showed "collinear — no circle" with no new point created and no dialog.
 
 ## Add Point (COGO) canvas pick + CAD snap (`startCogoPick`/`snapPoint`)
 

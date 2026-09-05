@@ -137,7 +137,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -153,6 +153,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <button class="tool" id="tOrbit" title="3D orbit (O)"><span>⟲</span><span class="sub">3D</span></button>
         <button class="tool" id="tInv" title="Inverse — click two points (I)"><span>↔</span><span class="sub">INV</span></button>
         <button class="tool" id="tCircle" title="Draw circle (C)"><span>◯</span><span class="sub">CIR</span></button>
+        <button class="tool" id="tCircleCtr" title="Place a point at the center of a 3-point circle — click 3 points, or click an existing CIR-coded line to use its own 3 points"><span>⊙</span><span class="sub">CTR</span></button>
         <button class="tool" id="tArr" title="Toggle direction arrows (A)"><span>➤</span><span class="sub">DIR</span></button>
         <button class="tool" id="tMap" title="Toggle GIS map background (M)" style="margin-top:12px"><span>🗺</span><span class="sub">MAP</span></button>
       </div>
@@ -241,6 +242,27 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   </div>
 </div>
 
+<!-- circle-center point: 3-point pick → point at the circumcircle center -->
+<div class="scrim" id="circleCtrScrim">
+  <div class="modal">
+    <h4>Point at Circle Center</h4>
+    <div class="field">
+      <label>Computed center (N / E / Z)</label>
+      <div style="padding:8px;background:var(--panel2);border-radius:6px;color:var(--gold);font-weight:700">
+        N <span id="circleCtrInfoN">—</span>&nbsp;&nbsp;E <span id="circleCtrInfoE">—</span>&nbsp;&nbsp;Z <span id="circleCtrInfoZ">—</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Code/Description</label>
+      <input type="text" id="circleCtrCode" placeholder="e.g., CP CIRCLE CENTER" autocomplete="off">
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="circleCtrCancel">Cancel</button>
+      <button class="btn gold" id="circleCtrApply">Add Point</button>
+    </div>
+  </div>
+</div>
+
 <!-- insert point by COGO -->
 <div class="scrim" id="cogoScrim">
   <div class="modal">
@@ -325,7 +347,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:37};
+const VERSION={fruit:'🥝',name:'KIWI',build:38};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -352,6 +374,8 @@ let insertPt=null;                                        // insert-point flow: 
 let insertSnapOn=true;                                    // insert-on-line: snap to another line's crossing (and prompt for Z) when checked
 let circleTool=null;                                      // circle drawing: {centerPt:idx} or null
 let circles=[];                                           // drawn circles: [{centerIdx, radiusFt}]
+let circleCtrPick=null;                                    // circle-center-point tool: {pts:[idx,idx,idx?]} while picking
+let circleCtrCtx=null;                                     // pending circle-center point awaiting code entry: {N,E,Z,anchorIdx}
 let showMap=false;                                        // GIS map background toggle
 let mapAlpha=0.9;                                          // aerial opacity (over a white backing so it isn't darkened by the UI)
 let mapMaxPx=4096;                                         // max export size; drops to 2048 if the service rejects the large request
@@ -925,6 +949,7 @@ function endCogoPick(snap){
 function openZPick(snap,onDone){
   cogoPick=null;cogoSnap=null;cv.style.cursor=prevCursor||'crosshair';draw();
   zpickCtx={snap,onDone};const z1=snap.z1,z2=snap.z2,avg=(z1+z2)/2;
+  $('zpickHint').textContent='two lines cross here — choose the elevation';
   $('zpickOpts').innerHTML=
     `<button class="btn zopt" data-z="${z1}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.la}<b>Z ${z1.toFixed(3)}</b></button>`+
     `<button class="btn zopt" data-z="${z2}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.lb}<b>Z ${z2.toFixed(3)}</b></button>`+
@@ -933,6 +958,15 @@ function openZPick(snap,onDone){
   $('zpickScrim').classList.add('show');
   $('zpickOpts').querySelectorAll('.zopt').forEach(b=>b.onclick=()=>applyZPick(+b.dataset.z));
   hud('two lines cross — choose the elevation');}
+function openAvgZPick(avg,hint,onDone){       // same chooser as openZPick, but a single "average" option (used by the circle-center tool)
+  cogoPick=null;cogoSnap=null;cv.style.cursor=prevCursor||'crosshair';draw();
+  zpickCtx={snap:null,onDone};
+  $('zpickHint').textContent=hint;
+  $('zpickOpts').innerHTML=`<button class="btn zopt" data-z="${avg}" style="width:100%;justify-content:space-between;margin-bottom:6px">average of 3 points<b>Z ${avg.toFixed(3)}</b></button>`;
+  $('zpickCustom').value=avg.toFixed(3);
+  $('zpickScrim').classList.add('show');
+  $('zpickOpts').querySelectorAll('.zopt').forEach(b=>b.onclick=()=>applyZPick(+b.dataset.z));
+  hud(hint);}
 function applyZPick(z){if(!zpickCtx)return;const{onDone}=zpickCtx;
   $('zpickScrim').classList.remove('show');zpickCtx=null;
   onDone(z);}
@@ -948,6 +982,44 @@ function addCircle(){if(!circleTool||circleTool.centerPt<0)return;
   const p=PTS[circleTool.centerPt];
   logEdit('code',`circle at pt ${p.id}: radius ${r} ft`);
   closeCircleTool();draw();hud('circle added');}
+
+function startCircleCtrPick(){circleCtrPick={pts:[]};hud('circle center: click 3 points, or click a CIR-coded line to use its own 3 points · Esc to cancel');}
+function cancelCircleCtrPick(){circleCtrPick=null;hud('circle-center pick cancelled');draw();}
+function finishCircleCtrPick(i1,i2,i3){
+  circleCtrPick=null;
+  const p1=PTS[i1],p2=PTS[i2],p3=PTS[i3];
+  const c=circle3(p1,p2,p3);
+  if(!c){hud('those 3 points are collinear — no circle');draw();return;}
+  openAvgZPick(c.Z,'circle-center point — choose the elevation',(z)=>{
+    if(!isFinite(z)){hud('circle-center point cancelled');draw();return;}
+    circleCtrCtx={N:c.N,E:c.E,Z:z,anchorIdx:i3};
+    $('circleCtrCode').value='';
+    $('circleCtrInfoN').textContent=c.N.toFixed(3);
+    $('circleCtrInfoE').textContent=c.E.toFixed(3);
+    $('circleCtrInfoZ').textContent=z.toFixed(3);
+    $('circleCtrScrim').classList.add('show');$('circleCtrCode').focus();
+    hud('enter a code/description for the new circle-center point');
+  });
+  draw();}
+function closeCircleCtrDialog(){circleCtrCtx=null;$('circleCtrScrim').classList.remove('show');draw();}
+function addCircleCtrPoint(){
+  if(!circleCtrCtx)return;
+  const desc=($('circleCtrCode').value||'').trim();
+  if(!desc){hud('enter a code/description');return;}
+  saveState();
+  const newId=getNextPointNumber();
+  const code=(desc.split(/\s+/)[0]||'').toUpperCase();
+  const{N,E,Z,anchorIdx}=circleCtrCtx;
+  const newPt={id:newId,code,desc,N,E,Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true,posAfter:anchorIdx};
+  PTS.push(newPt);
+  logEdit('code',`circle-center pt ${newId} added at N ${N.toFixed(3)} E ${E.toFixed(3)} Z ${Z.toFixed(3)} "${desc}"`);
+  buildLinework();closeCircleCtrDialog();sel=PTS.length-1;selFig=null;inspect();draw();flagDirty();
+  hud(`circle-center point ${newId} added`);}
+function drawCircleCtrPick(proj){if(!circleCtrPick||!circleCtrPick.pts.length)return;ctx.save();
+  circleCtrPick.pts.forEach((i,k)=>{const p=PTS[i];if(!p)return;const s=proj(p.E,p.N,p.Z);
+    ctx.beginPath();ctx.arc(s[0],s[1],9,0,7);ctx.strokeStyle='#F1B434';ctx.lineWidth=2;ctx.stroke();
+    ctx.font='700 10px ui-monospace,monospace';ctx.fillStyle='#F1B434';ctx.fillText(String(k+1),s[0]+11,s[1]-8);});
+  ctx.restore();}
 function drawCircles(proj){ctx.save();
   circles.forEach(c=>{const p=PTS[c.centerIdx];if(!p)return;
     const s=proj(p.E,p.N,p.Z);
@@ -1341,7 +1413,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawMapError();drawSnapMarker();
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -1948,6 +2020,16 @@ function exportFBK(expandCodes=true){
         nezed.push(f.code+'+'+A.id);}
     });
   }
+  // 2c. standalone points with an explicit "place after this point" anchor (e.g. a
+  //     circle-center point, see startCircleCtrPick) — positioned via nezBefore like
+  //     everything else above; only falls through to the file-end dump (3b) if the
+  //     anchor itself has no valid position (deleted, or itself unanchored/inserted).
+  PTS.forEach(p=>{if(p.deleted||p.srcLine>=0||p.posAfter==null)return;
+    const anchor=PTS[p.posAfter];if(!anchor||anchor.deleted||anchor.srcLine<0)return;
+    const d=expandCodes?expandDescForExport(p.desc):p.desc;
+    const at=anchor.srcLine+1;
+    (nezBefore[at]=nezBefore[at]||[]).push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);
+    nezDone.add(p.id);});
   // 3. assemble
   const result=[];
   for(let L=0;L<RAW.length;L++){
@@ -2048,6 +2130,17 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   if(circleTool){const i=pick(sx,sy);
     if(i>=0){circleTool.centerPt=i;$('circlePtLabel').textContent=`Center: ${PTS[i].id}`;$('circleRadius').value='';$('circleRadius').focus();hud(`enter radius for circle at ${PTS[i].id}`);}
     else hud('click a point for circle center');return;}
+  if(circleCtrPick){
+    if(circleCtrPick.pts.length===0){const f=pickFig(sx,sy);   // before any point is picked, a click on a CIR-coded line uses its own 3 defining points
+      if(f&&f.circle){const vs=f.verts.map(v=>v.i).filter(i=>PTS[i]&&!PTS[i].deleted);
+        if(vs.length>=3){finishCircleCtrPick(vs[0],vs[1],vs[2]);return;}
+        hud('that line doesn\'t have 3 usable points');return;}}
+    const i=pick(sx,sy);
+    if(i>=0){circleCtrPick.pts.push(i);
+      if(circleCtrPick.pts.length>=3){const[a,b,c]=circleCtrPick.pts;finishCircleCtrPick(a,b,c);}
+      else{hud(`circle center: picked ${circleCtrPick.pts.length} of 3 points`);draw();}
+    }else hud('click a point, or a CIR-coded line, for the circle center');
+    return;}
   if(mode==='pan'){drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
   if(mode==='inv'){const i=pick(sx,sy);
@@ -2175,6 +2268,11 @@ $('tCircle').onclick=()=>{circleTool={centerPt:-1};openCircleTool();};
 $('circleCancel').onclick=closeCircleTool;
 $('circleAdd').onclick=addCircle;
 $('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
+$('tCircleCtr').onclick=startCircleCtrPick;
+$('circleCtrCancel').onclick=closeCircleCtrDialog;
+$('circleCtrApply').onclick=addCircleCtrPoint;
+$('circleCtrScrim').onclick=e=>{if(e.target===$('circleCtrScrim'))closeCircleCtrDialog();};
+$('circleCtrCode').addEventListener('keydown',e=>{if(e.key==='Enter')addCircleCtrPoint();});
 $('cogoCancel').onclick=closeCogoDialog;
 $('cogoInsert').onclick=insertCogoPoint;
 $('cogoScrim').onclick=e=>{if(e.target===$('cogoScrim'))closeCogoDialog();};
@@ -2188,6 +2286,8 @@ $('zpickScrim').onclick=e=>{if(e.target===$('zpickScrim'))closeZPick();};
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);return;}
+  if(e.key==='Escape'&&circleCtrCtx){e.preventDefault();closeCircleCtrDialog();return;}
+  if(e.key==='Escape'&&circleCtrPick){e.preventDefault();cancelCircleCtrPick();return;}
   const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
   if(!typing&&selSet.size&&(e.key==='Delete'||e.key==='Backspace')){e.preventDefault();multiDelete(true);return;}
   if(!typing&&e.key==='Escape'&&selSet.size){e.preventDefault();selSet.clear();sel=-1;selFig=null;inspect();draw();hud('selection cleared');}},true);
