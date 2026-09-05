@@ -129,6 +129,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <label class="btn file">↥ Load FBK<input type="file" id="fileInput" accept=".fbk,.txt"></label>
     <label class="btn file" title="Import a comma-delimited coordinate file: Point#, Northing, Easting, Elevation, Description (PNEZD). A header row is auto-detected. Points are added as NEZ records.">↥ Import CSV<input type="file" id="csvInput" accept=".csv,.txt"></label>
     <button class="btn ghost" id="fitBtn" disabled>⊡ Fit</button>
+    <button class="btn ghost" id="refreshBtn" disabled title="Force a full redraw — rebuild the linework and curb offset lanes from the current point data. Use this if the drawing (especially the green offset lines) looks stale after a line edit.">↻ Refresh</button>
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — a point with its own curb code gets that code's std cross-section (overrides REF), points without a code derive the reveal from the nearest REF point's Z difference. RCFL (flow line) — always gets the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
@@ -136,7 +137,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -324,7 +325,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:36};
+const VERSION={fruit:'🍒',name:'CHERRY',build:37};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -460,7 +461,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -736,7 +737,7 @@ function importCSV(text){
   buildLinework();
   if(wasEmpty){
     $('jobpill').textContent='CSV import';
-    ['fitBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
     is3D=false;setMode('sel');fit();
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
@@ -2146,6 +2147,7 @@ $('tArr').onclick=()=>{showArrows=!showArrows;$('tArr').classList.toggle('on',sh
 $('zIn').onclick=()=>zoomBy(1.25);
 $('zOut').onclick=()=>zoomBy(1/1.25);
 $('fitBtn').onclick=fit;
+$('refreshBtn').onclick=()=>{buildLinework();draw();hud('redrawn — linework and offsets rebuilt from current data');};
 $('dlBtn').onclick=exportFBK;
 $('dlRawBtn').onclick=()=>exportFBK(false);
 $('dlCsvBtn').onclick=exportCSV;
