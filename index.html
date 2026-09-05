@@ -136,7 +136,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -324,7 +324,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:35};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:36};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1433,7 +1433,10 @@ function curvedOffsetPts(baseSub,opSub,hSub){   // an offset lane's run through 
     const a=idx[s],b=idx[s+1];
     const baseP=baseSub.slice(a,b+1),opP=opSub.slice(a,b+1),hP=hSub.slice(a,b+1);
     const segs=arcSegmentsForSpan(baseP);
-    if(!segs){for(let i=a+1;i<=b;i++)out.push(opSub[i]);continue;}   // doesn't fit a circle → straight connectors for this piece
+    if(!segs){                             // base doesn't fit a circle (e.g. a spline-like curve, build 35) → curve this lane's own points the same way the base line falls back (spline), instead of chording it straight
+      const samp=sampleCurve(opP);
+      if(samp)out.push(...samp);else for(let i=a+1;i<=b;i++)out.push(opSub[i]);
+      continue;}
     for(let i=0;i<segs.length;i++){const seg=segs[i],P=opP[i],Q=opP[i+1];
       if(!seg){out.push(Q);continue;}
       const dirSign=seg.sweep>=0?1:-1,hAvg=(hP[i]+hP[i+1])/2;      // right-of-travel is outward when the base run is turning CCW (sweep>0), inward when CW

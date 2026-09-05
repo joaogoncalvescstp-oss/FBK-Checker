@@ -49,7 +49,8 @@ first and follow it on every task in this repo.
     | 33 | 🍋 LEMON | added a **Snap to line crossings** checkbox (`insertSnapOn`, on by default) next to the insert-on-line button — unticking it skips the build-32 crossing-snap pass entirely, so a click always lands at the plain along-the-line position with no elevation prompt, for when you're inserting near a crossing you don't actually want to snap to |
     | 34 | 🍇 GRAPE | fix BC..EC curve rendering a spurious "double line": `strokeFigure` was nudging every curve-sampled point sideways by a curb code's first `H`/`V` step whenever the curve's **BC** vertex happened to carry a curb code (e.g. `BC R624`) — real coded curb points don't; only a bare/uncoded BC would render clean. Removed the whole `activeSteps` mechanism (it was never applied to straight-line vertices, only curve samples, so it never matched CAD/the actual coded cross-section anyway — `applyKnockdown()`/`drawOffsets` already handle curb cross-sections correctly and don't touch this code path) |
     | 35 | 🍊 ORANGE | fix the SAME "double line" complaint for a curve that isn't actually circular: confirmed against a real Civil3D `LIST` dump of the owner's own curb polyline that our one-design-radius arc-fit can silently accept a terrible fit (this run's shots deviated up to **half the fitted radius**) instead of recognizing the points aren't on any circle and falling back to the spline — `circleFitLS` now rejects a fit whose max residual exceeds 12% of the solved radius |
-  - Suggested next fruits to rotate through: 🍓 STRAWBERRY,
+    | 36 | 🍓 STRAWBERRY | owner confirmed build 35 fixed the base curve, but the green curb offset **lane lines** through that same non-circular span weren't following it — they went straight/faceted instead of curving. `curvedOffsetPts` derives each lane segment from the BASE line's `arcSegmentsForSpan`, which now (correctly, since build 35) returns `null` for a non-circular span, but its `null` fallback was a straight vertex-to-vertex chord, not a curve. It now falls back to running `sampleCurve` directly on the lane's own offset points (same spline the base line falls back to) instead of chording it straight |
+  - Suggested next fruits to rotate through:
     🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -264,6 +265,30 @@ first and follow it on every task in this repo.
       verified against synthetic true circles (a 300 ft radius arc and a
       small 8 ft radius arc with ~0.01 ft noise) that the 12% threshold
       still accepts a genuine constant-radius curve without regression.
+    - **Build 36 fix — the offset lane lines stopped curving on the same
+      span:** the owner confirmed build 35's base-line fix worked (screenshot
+      showed the orange RBCB line curving cleanly through the corner), but
+      flagged that the green curb offset lane lines through that exact same
+      corner were now going straight/faceted instead of following the
+      curve. Cause: `curvedOffsetPts` (build 27/29) gets each lane segment's
+      geometry from `arcSegmentsForSpan(baseP)` — the BASE line's own
+      circle fit — and its existing `if(!segs){...}` branch (for "doesn't
+      fit a circle") fell back to a **straight** vertex-to-vertex chord for
+      that piece. That branch used to only fire for genuinely near-collinear
+      spans (where a straight fallback is correct — there's no curve to
+      draw). Since build 35 made `circleFitLS`/`arcSegmentsForSpan` also
+      return `null` for a span that fits a circle badly (this exact
+      non-circular curve), that same branch now also fires here — but this
+      span very much has curvature, so chording it straight was wrong.
+      Fixed by giving that branch the same fallback the base line itself
+      already uses: run `sampleCurve` directly on the lane's own offset
+      points (`opP`) — the same cubic spline `strokeFigure` falls back to —
+      instead of a straight chord, only falling further back to straight
+      points if that also fails (e.g. fewer than 2 points). Verified against
+      the real job's 5519-5523 span with a synthetic offset lane: the old
+      code produced 4 straight chord points (one per original vertex); the
+      fixed code produces 67 smooth curve samples, matching the base line's
+      own spline fallback in spirit and point count.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 
