@@ -54,8 +54,9 @@ first and follow it on every task in this repo.
     | 38 | 🥝 KIWI | new **⊙ CTR** tool: click 3 points (or a single existing CIR-coded line, using its own first 3 vertices) and it drops a new point at the circumcircle center — prompts for the elevation (average of the 3 points, or a custom value) and a code/description, then places the point's `NEZ` record immediately after the 3rd point in file order on export |
     | 39 | 🍑 PEACH | mobile UI pass: the top toolbar now scrolls horizontally instead of silently overflowing the page (confirmed with a real narrow-viewport browser test — buttons past ~390px were completely unclickable before); the tool column (left) is one scrollable flex column instead of a hardcoded-pixel-position zoom +/- pair that had started overlapping the MAP button; the Inspector side panel becomes a slide-in drawer (☰ toggle button, auto-opens on selecting a point/figure, ✕ close button, backdrop tap to close) below 840px instead of just vanishing with `display:none`; modals cap at `92vw`. Caught and fixed a real regression along the way: an invisible always-present drawer backdrop div was an unintended CSS Grid item in the 2-column `.main` layout, silently shoving the desktop side panel into its own row below the canvas — fixed by giving it (and the mobile-only close button) an explicit `display:none` base rule |
     | 40 | 🍐 PEAR | fix **CIR** requiring a **B** to draw anything: a code with no `begin` anywhere was dropped entirely (`buildLinework`'s "no B anywhere → not a line" filter), and even when the code survived (a B existed elsewhere for it), `figures()` only ever started a run at an explicit B — so a lone 3-shot circle marker like `"MISCL CIR"`/`"MISCL"`/`"MISCL"` with no B, common for small incidental features (a manhole rim, a tree), was silently dropped or invisible. A `CIR`/`CIRCLE` token now implicitly begins its own 3-point run when no run is currently open, auto-closing once it has exactly 3 vertices — matching how a circle figure is actually consumed (`circle3(vs[0],vs[1],vs[2])` only ever uses the first 3 anyway). Verified against the real job file: recovers exactly 3 previously-invisible circles (`TRL` 6377-6379, `MISCL` 5605-5607, `MISCL` 5608-5610) with zero change to any of the other 156 existing figures |
+    | 41 | 🍉 WATERMELON | line code review (`inspectFig`'s vertex row list) gets a **⌖ zoom-to-point** button per row — click it and the canvas pans/zooms in on that exact vertex with the same gold flash-ring animation as **⌖ Go to point**, without leaving the line editor (unlike Go to point, it doesn't switch to the single-point inspector). Extracted the pan/zoom/flash logic Go to point already had into a shared `zoomToPoint(i)` so both now share one implementation |
   - Suggested next fruits to rotate through:
-    🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -673,6 +674,18 @@ first and follow it on every task in this repo.
   `Deleted`). Use it so the linework is independent of which setup each point
   was shot from. The FBK code editor (`applyRawLine`) now also accepts `NEZ`
   lines, not just `F1/F2 VA`.
+- **Zoom to point (build 41):** each vertex row's button group has a **⌖**
+  button (alongside ▲▼ reorder / ✕ remove) that calls the new `zoomToPoint(i)`
+  — pans the view to center that point, zooms in (`view.s=Math.max(view.s,6)`
+  in 2D, re-centers `orbit.ox/oy` in 3D), and plays the same gold flash-ring
+  animation (`flash`/`drawFlash`) as the toolbar's **⌖ Go to point**. Unlike
+  Go to point, it does **not** call `inspect()`/change `sel`/`selFig` — you
+  stay on the figure's vertex list instead of getting bounced to the
+  single-point inspector, since the point being useful here is jumping the
+  *canvas* to a vertex while still mid-edit on the line, not inspecting that
+  one point in isolation. `gotoPoint()` (the toolbar button/`G` key) was
+  refactored to call the same `zoomToPoint(i)` internally instead of
+  duplicating the pan/zoom/flash math — one implementation, two entry points.
 
 ## Project layout
 
