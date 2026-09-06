@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -361,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:50};
+const VERSION={fruit:'🍑',name:'PEACH',build:51};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1096,6 +1096,28 @@ function llToSurvey(la,lo){const phi=la*RC.D,lam=lo*RC.D;
 function llToMerc(la,lo){const R=6378137;return [R*lo*RC.D,R*Math.log(Math.tan(Math.PI/4+la*RC.D/2))];}
 function mercToLL(x,y){const R=6378137;return [(2*Math.atan(Math.exp(y/R))-Math.PI/2)/RC.D,(x/R)/RC.D];}
 
+/* ---------- Street View — jump to a real-world ground-level view of the linework ----------
+   No API key / embed needed: google.com/maps' plain "pano" deep link opens Google Maps'
+   own Street View at a lat/lon with a given compass heading, in a new tab. Reuses the
+   SAME calibrated survey->lat/lon transform (surveyToLL) already used for the MAP aerial
+   background, so this is only accurate for a job in Ramsey County's own coordinate system
+   — same caveat as MAP. */
+function streetViewURL(E,N,headingDeg){
+  const[lat,lon]=surveyToLL(E,N);
+  const h=((headingDeg||0)%360+360)%360;
+  return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat.toFixed(6)},${lon.toFixed(6)}&heading=${h.toFixed(1)}&pitch=0&fov=90`;}
+function headingAt(vs,k){          // vs: [{p}] figure vertices in draw order; k: index — faces along the line through that vertex (prev->next), or the one adjoining segment at an end
+  const n=vs.length;if(n<2)return 0;
+  const a=vs[k===0?0:k-1].p,b=vs[k===n-1?n-1:k+1].p;
+  const dE=b.E-a.E,dN=b.N-a.N;if(!dE&&!dN)return 0;
+  return (Math.atan2(dE,dN)*180/Math.PI+360)%360;}
+function headingForPoint(i){       // best-effort heading when opening Street View for a single (non-line) point — faces along the first figure it's on, if any
+  const fs=figuresOfPoint(i);if(!fs.length)return 0;
+  const vs=fs[0].verts.map(v=>({p:PTS[v.i],i:v.i})).filter(o=>o.p&&!o.p.deleted);
+  const k=vs.findIndex(o=>o.i===i);if(k<0)return 0;
+  return headingAt(vs,k);}
+function openStreetView(p,headingDeg){window.open(streetViewURL(p.E,p.N,headingDeg),'_blank','noopener');}
+
 // the survey-coordinate rectangle currently visible on screen
 function viewportBounds(){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
   const tl=S2W(0,0),br=S2W(w,h);
@@ -1676,11 +1698,13 @@ function inspect(){const box=$('insp');
     </div>
     <div class="kv"><span class="k">source</span><span class="v">${inserted?'inserted (NEZ on export)':'NEZ line '+(p.srcLine+1)}</span></div>
     ${fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:''}
+    <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
     ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete'}</button></div>
     <div class="note" style="padding:8px 0 0">Edits republish this NEZ record on export (coords, code &amp; point #).</div>`}`;
     box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
+    $('svBtn').onclick=()=>openStreetView(p,headingForPoint(sel));
     if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
       ['fDesc','eId','eN','eE','eZ'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
       $('delBtn').onclick=()=>toggleDel(p);}
@@ -1702,12 +1726,14 @@ function inspect(){const box=$('insp');
     <div class="kv"><span class="k">From STN</span><span class="v">${p.stn} (HI ${p.hi.toFixed(3)}) · ${p.face}</span></div>
     <div class="kv"><span class="k">src line</span><span class="v">${p.srcLine+1}</span></div>
     ${(()=>{const fs=figuresOfPoint(sel);return fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:'';})()}
+    <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
     ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit codes or coordinates.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete shot'}</button></div>
     <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Edit <b>Rod HT</b> to correct a mis-recorded rod/prism height — HA/SD/ZA stay the same observation, only Z is recomputed; export brackets the corrected shot with <b>PRISM</b> lines so later shots on the same setup keep the original height. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.</div>
     ${mode==='move'?'<div class="warnbox">Move active — dragging rewrites HA &amp; SD on line '+(p.srcLine+1)+'.</div>':''}`}`;
   box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
+  $('svBtn').onclick=()=>openStreetView(p,headingForPoint(sel));
   if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
     ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA','eRod'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
     $('delBtn').onclick=()=>toggleDel(p);}
@@ -1763,6 +1789,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
         <span class="vln">L${o.p.srcLine+1}</span>
         <span class="vbtns">
           <button class="vb" data-act="zoom" data-i="${o.i}" title="Zoom to this point">⌖</button>
+          <button class="vb" data-act="sv" data-i="${o.i}" title="Open Street View here, facing along the line">📷</button>
           ${o.added?`<button class="vb" data-act="rm" data-i="${o.i}" title="remove from line">✕</button>`:
             `<button class="vb" data-act="up" data-k="${k}" ${k===0?'disabled':''}>▲</button>
           <button class="vb" data-act="dn" data-k="${k}" ${k===vs.length-1?'disabled':''}>▼</button>`}
@@ -1795,6 +1822,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     <div class="vlist">${rows}</div>`;
   box.querySelectorAll('.vb').forEach(b=>b.onclick=()=>{
     if(b.dataset.act==='zoom'){zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);return;}
+    if(b.dataset.act==='sv'){const i=+b.dataset.i,k=vs.findIndex(o=>o.i===i);openStreetView(PTS[i],headingAt(vs,k));return;}
     if(b.dataset.act==='rm'){removeExtra(f.id,+b.dataset.i);return;}
     const k=+b.dataset.k;if(b.dataset.act==='up')reorderFig(f.id,k,k-1);else reorderFig(f.id,k,k+1);});
   // drag a vertex row to drop it anywhere in the draw order
