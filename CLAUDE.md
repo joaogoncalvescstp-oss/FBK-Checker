@@ -67,8 +67,9 @@ first and follow it on every task in this repo.
     | 51 | 🍑 PEACH | new **📷 Street View** button — jump to a real-world, ground-level view of any point along the linework, to eyeball it against reality. Added to the single-point inspector (faces along whichever figure the point is on, if any) and to every vertex row in the figure/line editor (faces along that specific vertex's own line direction) — see the new dedicated section below. |
     | 52 | 🍍 PINEAPPLE | owner asked for more than a single Street View jump — wants to **walk the whole line** in Street View, one point at a time. Added **◀ / 📷 Walk line in Street View / ▶** controls to the figure/line editor: Walk starts at vertex 1, Next/Prev step through the line's own vertex order (clamped at both ends, buttons disable there), each step re-navigating the SAME browser tab (not spawning a new one per click) to that vertex's location, facing along the line. Required dropping `noopener` from `window.open` — it forces a brand-new tab on every call regardless of a matching window name, which defeated the whole "one tab, walk through it" idea; safe here since the URL is always one we build ourselves, never user-supplied. Verified in a real headless browser: exactly 1 browser tab/popup opened across 5 Walk/Next/Prev clicks (was 5 separate tabs before dropping `noopener`), the 4 navigated URLs matched the correct vertex sequence exactly (including a Prev landing back on the exact same URL as the earlier Next to that same vertex), and Prev/Next correctly disable at both ends of the line across the first 30 figures of both real job files (60 total) with zero console errors. |
     | 53 | 🥭 MANGO | owner supplied a real Google Maps JavaScript API key — Street View is now a **live, embedded, interactive panorama right in the app** (a modal with a `google.maps.StreetViewPanorama`), not a tab-opening deep link. Every point of the line is overlaid as a numbered marker directly on the panorama (Google's documented "overlays within Street View" — a `Marker`'s `.map` can be a `StreetViewPanorama` instead of a plain `Map`), and Prev/Next inside the SAME modal step the live panorama through the line's own vertex order, updating both position and heading. `streetViewURL`/the old tab-opening `openStreetView` are gone — this is a strictly better replacement, not an alternate mode, since it needs the same coordinate transform either way and a live in-app view beats a new tab every time. See the rewritten Street View section below for the full writeup, including a real bug this exposed (and fixed): clicking Prev/Next before the Maps script finishes loading used to throw (`svPano` was still `null`) — `svGoto` now no-ops until the panorama is ready, and the modal's nav buttons stay disabled with a "Loading Street View…" placeholder until then. **Caveat the owner should know:** this sandbox's own network policy blocks outbound connections to Google's domains entirely (confirmed via repeated `403 policy denial`/`tunnel closed` failures against `maps.googleapis.com`, `www.google.com`, `accounts.google.com`), so the live panorama itself — markers rendering correctly, position/heading actually updating on Next/Prev — could NOT be verified end-to-end from here. Everything reachable from this sandbox WAS verified: the script parses, the modal opens/closes cleanly, Prev/Next/Close never throw (including the premature-click case above), and a full sweep of the first 30 figures in BOTH real job files (60 figures, 241+215 Walk/vertex-row Street View button clicks) produced zero console errors. The owner should confirm the actual panorama+marker rendering once opened in a normal browser with real internet access — and if testing by double-clicking `index.html` locally (a `file://` URL), a referrer-restricted API key will likely refuse to load there (no `file://` origin sends a matching HTTP referrer), so local testing may need the key's restriction loosened temporarily or the page served from an actual domain that matches the restriction. |
+    | 54 | 🍐 PEAR | owner tested build 53 in a real browser (the first live confirmation this sandbox's own Google-domain block couldn't provide) and reported two things: markers show up but don't line up well with the real curb, and the panorama's photo colors are inverted (a negative). The color issue turned out to be isolated to the Street View panel itself — nothing else in the app looked wrong — which points at Chrome's own "Force Dark Mode for Web Content" (or a Dark-Reader-style extension) heuristically inverting the panorama's WebGL/canvas imagery because it can't recognize it as a photo the way it recognizes normal `<img>` content, while leaving the rest of the page's ordinary HTML/CSS alone (exactly the asymmetry reported). Fixed by adding `color-scheme:light;forced-color-adjust:none` to `#svPanoDiv`, which explicitly tells the browser this element is intentionally light-themed content it shouldn't auto-invert — confirmed via computed style in a real headless browser that both properties land as set, with no console errors. **The marker-alignment issue is still open** — waiting on a screenshot from the owner before touching any coordinate/marker code, since "markers a little off" could mean either a real bug in our math or plain Street View camera-vs-curb parallax (the panorama's photo is taken from wherever Google's car actually drove, which is rarely the exact curb line a marker sits on — a well-known, unavoidable Street View limitation, not something fixable by us) and guessing which one it is without seeing it risks fixing a non-bug or missing a real one. |
   - Suggested next fruits to rotate through:
-    🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
+    🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1317,6 +1318,37 @@ first and follow it on every task in this repo.
     temporary unrestricted (or `file://`-inclusive, if Google's console
     supports that) key, or serving the page from an actual domain the key's
     restriction allows.
+  - **Build 54 fix — inverted panorama colors:** the owner's first real
+    (non-sandboxed) test of build 53 confirmed the panorama and markers DO
+    render, but the photo's colors came back inverted — a negative — while
+    nothing else in the app looked wrong. That asymmetry (only the
+    panorama, not the rest of an otherwise-normal page) points at Chrome's
+    own "Force Dark Mode for Web Content" heuristic (or a Dark-Reader-style
+    extension doing the same thing): it tries to auto-darken pages for
+    users who want dark mode everywhere, and it recognizes plain `<img>`
+    photos well enough to leave them alone, but a Maps `StreetViewPanorama`
+    renders its imagery through WebGL/canvas, which that heuristic can't
+    reliably identify as "already a photo" — so it inverts it like it would
+    invert a plain white background, while the rest of our page (ordinary
+    HTML/CSS) gets recolored correctly and looks fine. Fixed by adding
+    `color-scheme:light;forced-color-adjust:none` directly to `#svPanoDiv` —
+    both properties tell the browser this element is deliberately
+    light-themed content that its automatic dark-mode/forced-colors
+    machinery shouldn't touch. Verified via computed style in a real
+    headless browser that both properties land as set with no console
+    errors (the sandbox's Google-domain block still prevented seeing the
+    actual before/after photo, so the owner should confirm the panorama
+    now renders in true color).
+  - **Marker alignment — still open, intentionally not touched yet:** the
+    owner also reported the markers don't line up well with the real curb.
+    Deliberately not guessing at a fix here without seeing it first — this
+    could be a real bug in our coordinate math, OR it could be ordinary
+    Street View camera-vs-curb parallax (the panorama photo is taken from
+    wherever Google's imagery car actually drove down the street, which is
+    essentially never the exact curb line a marker sits on a few feet away
+    — a well-known, unavoidable characteristic of Street View, not
+    something fixable in our code). Waiting on a screenshot before touching
+    `svLatLng`/`svShowMarkers`/the `surveyToLL` transform.
 
 ## Project layout
 
