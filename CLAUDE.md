@@ -57,8 +57,9 @@ first and follow it on every task in this repo.
     | 41 | 🍉 WATERMELON | line code review (`inspectFig`'s vertex row list) gets a **⌖ zoom-to-point** button per row — click it and the canvas pans/zooms in on that exact vertex with the same gold flash-ring animation as **⌖ Go to point**, without leaving the line editor (unlike Go to point, it doesn't switch to the single-point inspector). Extracted the pan/zoom/flash logic Go to point already had into a shared `zoomToPoint(i)` so both now share one implementation |
     | 42 | 🥥 COCONUT | fix **RT ... RECT**: `"CODE RT 6 RECT"` — a right-turn jog of 6, closed into a rectangle — parsed the jog fine but silently dropped the closing `RECT` (it has no number of its own here; the vendor spec says a bare `RECT` "completes" the preceding `RT` at its own distance), so it rendered as one dangling perpendicular tick instead of a closed box. `parseDesc` now tracks that a bare `RECT` was seen and, if it never got an explicit value of its own, defaults it to the same distance as `RT` — confirmed on the real job file's only `RT` occurrence (pt 5301, `"MISCL RT 6 RECT"`): before the fix `rect` stayed `null`; after, it resolves to `6` and renders as a proper closed rectangle between points 5300 and 5301 |
     | 43 | 🍋 LEMON | fix **RT** direction on a CHAIN of consecutive right-turn jogs: real usage repeats `"CODE RT <d>"` on many consecutive points (e.g. a wall shot in a straight run needing a constant correction) — each jog's 90° turn was computed from the direction between the two REAL vertices (`vs[k-1]`→`vs[k]`), skipping over the PRECEDING point's own jog detour entirely. Verified against a real Civil3D `LIST` dump of the actual figure that the correct turn direction is the segment *actually just drawn* (from the prior jog point back to this point, not vertex-to-vertex) — the old code was off by ~70° in azimuth on this real run, landing new jog points up to **11.5 ft** from their true CAD position; the fixed version matches the `LIST` dump to within 0.008 ft. `strokeFigure` now tracks the true last-drawn pen position (`lastE/lastN/lastZ`) through the whole loop — updated after every `put()`, including curve spans and OC tangent arcs — and RT/X/RECT compute their incoming direction from that, not from the previous vertex in the array |
+    | 44 | 🍎 APPLE | fix **RECT** per the vendor Civil3D doc (`RT`/`X`/`RECT` reference page, pasted by the owner): the real syntax lets an arbitrary CHAIN of values follow one `RT` — e.g. `"BLD1 RT X10.1 5 -12.2 -5 -12.2"` extends the segment then jogs perpendicular 4 more times, each off the PREVIOUS leg's own direction — but `parseDesc` only ever captured the FIRST value after `RT`/`X` and silently dropped every value after it (confirmed: parsing that exact doc example returned only `rt=5`, discarding `-12.2/-5/-12.2` entirely). Replaced the single `rt`/`x` scalars with a `jogs` array so every value in the chain survives, in order, tagged `x` (straight extend) or `rt` (90° turn, sign = right/left) — `strokeFigure` walks the array leg by leg, each turn rotating 90° off whatever direction the PREVIOUS leg ended facing (same alternating-turn math build 43 already proved correct, just applied within one point's chain instead of across several points). Also fixed **`RECT` closing a chain**: it now computes the true "perpendicular/perpendicular line intersection back to the starting segment" the doc describes — projecting the chain's own endpoint onto the base segment's perpendicular axis through the prior point (`lineIntersect`-equivalent closed form) — instead of only working when `RECT` and `RT` happened to share the same single value. Verified this collapses to the EXACT byte-identical geometry as the old (build 42/43-verified) formula for every real case on file — the single-turn `"RT 6 RECT"` (pt 5300→5301) and the plain multi-point `"RT 9.52"` chain (Hamline BLD1) both reproduced their previously-ground-truth-verified coordinates exactly through the real `index.html` parse→figures→strokeFigure pipeline, not just a standalone reimplementation — before adding the new chain support. No real job file on hand actually uses a multi-value `RT` chain yet, so this is verified against the vendor doc's own worked example (all 5 legs now parsed vs. 1 before) and a synthetic multi-leg chain rendered end-to-end in a real headless browser with no console errors. |
   - Suggested next fruits to rotate through:
-    🍎 APPLE, 🍌 BANANA, 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
+    🍌 BANANA, 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
     🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -480,7 +481,7 @@ first and follow it on every task in this repo.
   guessing when an unclosed run should implicitly end, a materially
   different and riskier change than this one.
 
-## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`/`strokeFigure`, build 42-43)
+## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`/`strokeFigure`, build 42-44)
 
 - Vendor (Trimble/Carlson-style) description-key codes for inserting computed
   vertices without shooting every corner:
@@ -563,6 +564,91 @@ first and follow it on every task in this repo.
     up to **11.5 ft**. (2) Re-verified the build-42 single-`RT`+`RECT` case
     (point 5301, different job) produces the identical closed rectangle as
     before — this change doesn't touch that path's numbers at all.
+- **Build 44 fix — `RECT` only ever handled ONE `RT`/`X` value, silently
+  dropping a whole documented feature:** the owner pointed at the actual
+  Autodesk Civil3D vendor doc page for these codes (pasted in full, since
+  `docs.autodesk.com`/`help.autodesk.com` are both blocked from this sandbox)
+  and it gives its own worked example: `"BLD1 RT X10.1 5 -12.2 -5 -12.2"` —
+  "Continues an active figure BLD1 to the current point, extends the current
+  segment 10.1 units, and then draws perpendicular segments **for each
+  value**." That's a **chain**: one `X` extend leg followed by *four more*
+  perpendicular jog legs (`5`, `-12.2`, `-5`, `-12.2`), all off ONE point's
+  description. `parseDesc`'s tokenizer only ever kept a single scalar
+  `rt`/`x`/`rect` per code (`map[cur][key]=+rx[2]`, overwritten on repeat) and
+  had no rule at all for a BARE number with no `RT`/`X`/`RECT` prefix — so
+  every value after the first was silently discarded. Confirmed directly:
+  parsing that exact doc sentence with the pre-build-44 code returned only
+  `rt=5`; `X10.1`, `-12.2`, `-5`, and the second `-12.2` all vanished with no
+  error. No real job file on hand happens to use a multi-value chain (both
+  real `RT` examples — Dale point 5301 and the Hamline run — use exactly one
+  value per point), so this was undetectable from job-file testing alone;
+  it only surfaced once the actual vendor spec was read.
+  - Fix, parsing: `rt`/`x` scalars replaced with a `jogs:[]` array. `RT`
+    still opens the chain (glued or spaced), but now sets `inJog=true`, and
+    while `inJog` is set, every subsequent **bare number** token (no letter
+    prefix at all — previously matched nothing and vanished) is pushed as
+    another `{t:'rt',v}` leg instead of being dropped; an `X<value>` token
+    appearing mid-chain (exactly like the doc's own example) is pushed as a
+    `{t:'x',v}` leg in the same array, in order. Any other real token (a new
+    code word, `H`/`V`, `BC`, `RECT`, end of description, …) clears `inJog`,
+    so chaining is strictly an `RT`-chain concept — a standalone `X<value>`
+    with no `RT` still behaves exactly as before (one extend, not a chain).
+    `rectSeen`'s post-pass now defaults a valueless closing `RECT` to the
+    *last* `rt`-type leg in the chain (was: the single `rt` scalar — same
+    result when there's only one, which is every real case on file).
+  - Fix, rendering (`strokeFigure`): the old code special-cased exactly one
+    `rt` value then one `x` value. It's now a loop over `v.jogs` starting
+    from the real point (`pos=v`, `dir=`the segment actually just drawn,
+    same `lastE/lastN` pen-tracking build 43 already verified): an `x` leg
+    extends `pos` along the CURRENT `dir` by its value (direction unchanged);
+    an `rt` leg turns `dir` 90° (sign of the value picks left/right, exactly
+    build 43's already-proven turn formula) and moves `pos` along the new
+    perpendicular. This is the same math as the build-43 cross-point chain,
+    just applied to several synthetic legs off ONE point instead of several
+    real points — no new formula, just no longer capped at one leg.
+  - Fix, `RECT` closing a chain: the doc calls this "closing back to the
+    starting segment as a perpendicular/perpendicular line intersection from
+    the current figure line segment" — a real geometric intersection, not
+    "reuse the same distance," which only happened to be equivalent for a
+    single-leg chain (proven algebraically: with exactly one `rt` leg, the
+    intersection of [a line through the chain's endpoint, parallel to the
+    base segment] and [a line through the prior point, perpendicular to the
+    base segment] reduces exactly to `prior + perp·rt` — the old formula).
+    For a general chain the two lines aren't parallel-degenerate, so it's
+    computed directly: project the chain's final endpoint onto the base
+    segment's own perpendicular axis through the prior point (`d = dot(pos
+    − prior, perp)`, `corner = prior + perp·d`) — closed-form equivalent of
+    intersecting those two fixed lines, and it no longer depends on which
+    leg types (extend vs. turn) built the chain, matching the doc's language
+    that this is a computed intersection, not a re-specified distance.
+  - Verified with zero regression by running the ACTUAL `index.html`
+    `parseDesc`/`buildLinework`/`figures`/`strokeFigure` (not a standalone
+    reimplementation) against both real jobs end-to-end: point 5301's
+    `"MISCL RT 6 RECT"` still produces the byte-identical closed rectangle
+    off points 5300/5301, and the Hamline `BLD1` 9627–9640 chain still
+    produces the identical previously-`LIST`-verified sawtooth coordinates,
+    both through the live parse→figures→render pipeline. Then verified the
+    new chain support itself: parsing the doc's own example now keeps all 5
+    legs (`x10.1, rt5, rt-12.2, rt-5, rt-12.2`, none dropped), and a
+    synthetic multi-leg-chain + a standalone `RT 6 RECT` figure both
+    rendered correctly (clean closed box for the simple case, a sensible
+    zigzag with a closing notch for the chain) in a real headless browser
+    with no console errors.
+  - **Unrelated pre-existing issue found, NOT touched:** point 5301's figure
+    in the real Dale job (`MISCL@369`) is the same run build 40's notes
+    already flag as never closing (`5300 B...5304` has no `E`/`CLS`) and
+    swallowing a later `5580 CIR/5581/5582` cluster into one run — that
+    merged run also picks up `.circle=true` (since ANY vertex in it, 5302,
+    carries a `CIR` flag) and `strokeFigure`'s circle branch draws a full
+    circle through the run's first 3 vertices and returns immediately,
+    before ever reaching the RT/RECT jog code. So in the live app, THIS
+    SPECIFIC real figure renders as a circle, not a rectangle, regardless of
+    the RT/RECT fix — a separate, already-documented, deliberately-untouched
+    bug (fixing it means guessing when an unclosed run should implicitly
+    end, per build 40's own notes). Confirmed the RT/RECT code itself is
+    correct by testing it in isolation (a standalone 2-vertex figure built
+    from those same real points' real coordinates, bypassing the unrelated
+    merge) — see verification above.
 
 ## Point at circle center (`startCircleCtrPick`, build 38, ⊙ CTR toolbar button)
 
