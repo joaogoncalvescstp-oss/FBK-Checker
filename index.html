@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
   </div>
 
   <div class="main">
@@ -361,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:41};
+const VERSION={fruit:'🥥',name:'COCONUT',build:42};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -630,6 +630,7 @@ function parseDesc(desc){const map={};let cur=null,pend=null;
     if((T==='H'||T==='V')&&cur){pend=T;return;}          // spaced offset e.g. H 0.5
     const rx=T.match(/^(RECT|RT|X)(-?[0-9.]+)?$/);       // rectangle / right-turn / extend (+value)
     if(rx&&cur){const key=rx[1]==='RECT'?'rect':rx[1]==='RT'?'rt':'x';
+      if(key==='rect')map[cur].rectSeen=true;             // bare RECT with no value of its own → completes/closes the preceding RT at ITS value (see post-pass below)
       if(rx[2]!==undefined&&rx[2]!=='')map[cur][key]=+rx[2];else pend=key;return;}
     if(T==='B'){if(cur)map[cur].begin=true;}
     else if(T==='E'){if(cur)map[cur].end=true;}
@@ -641,8 +642,11 @@ function parseDesc(desc){const map={};let cur=null,pend=null;
     else if(T==='PRC'){if(cur)map[cur].prc=true;}        // point of reverse curve — new independent radius starts here (turn direction reverses)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
     else if(T==='SO'){if(cur)map[cur].so=true;}          // stop offsets at this point
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null};cur=T;}
-  });return map;}
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,rt:null,x:null,rectSeen:false};cur=T;}
+  });
+  for(const code in map){                                 // "RT <d> RECT" (RECT with no value of its own) closes the right-turn jog into a rectangle at RT's own distance
+    const m=map[code];if(m.rectSeen&&m.rect==null&&m.rt!=null)m.rect=m.rt;}
+  return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
     const m=parseDesc(expandCurb(p.desc));for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});

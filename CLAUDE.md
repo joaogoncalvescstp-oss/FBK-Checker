@@ -55,8 +55,9 @@ first and follow it on every task in this repo.
     | 39 | 🍑 PEACH | mobile UI pass: the top toolbar now scrolls horizontally instead of silently overflowing the page (confirmed with a real narrow-viewport browser test — buttons past ~390px were completely unclickable before); the tool column (left) is one scrollable flex column instead of a hardcoded-pixel-position zoom +/- pair that had started overlapping the MAP button; the Inspector side panel becomes a slide-in drawer (☰ toggle button, auto-opens on selecting a point/figure, ✕ close button, backdrop tap to close) below 840px instead of just vanishing with `display:none`; modals cap at `92vw`. Caught and fixed a real regression along the way: an invisible always-present drawer backdrop div was an unintended CSS Grid item in the 2-column `.main` layout, silently shoving the desktop side panel into its own row below the canvas — fixed by giving it (and the mobile-only close button) an explicit `display:none` base rule |
     | 40 | 🍐 PEAR | fix **CIR** requiring a **B** to draw anything: a code with no `begin` anywhere was dropped entirely (`buildLinework`'s "no B anywhere → not a line" filter), and even when the code survived (a B existed elsewhere for it), `figures()` only ever started a run at an explicit B — so a lone 3-shot circle marker like `"MISCL CIR"`/`"MISCL"`/`"MISCL"` with no B, common for small incidental features (a manhole rim, a tree), was silently dropped or invisible. A `CIR`/`CIRCLE` token now implicitly begins its own 3-point run when no run is currently open, auto-closing once it has exactly 3 vertices — matching how a circle figure is actually consumed (`circle3(vs[0],vs[1],vs[2])` only ever uses the first 3 anyway). Verified against the real job file: recovers exactly 3 previously-invisible circles (`TRL` 6377-6379, `MISCL` 5605-5607, `MISCL` 5608-5610) with zero change to any of the other 156 existing figures |
     | 41 | 🍉 WATERMELON | line code review (`inspectFig`'s vertex row list) gets a **⌖ zoom-to-point** button per row — click it and the canvas pans/zooms in on that exact vertex with the same gold flash-ring animation as **⌖ Go to point**, without leaving the line editor (unlike Go to point, it doesn't switch to the single-point inspector). Extracted the pan/zoom/flash logic Go to point already had into a shared `zoomToPoint(i)` so both now share one implementation |
+    | 42 | 🥥 COCONUT | fix **RT ... RECT**: `"CODE RT 6 RECT"` — a right-turn jog of 6, closed into a rectangle — parsed the jog fine but silently dropped the closing `RECT` (it has no number of its own here; the vendor spec says a bare `RECT` "completes" the preceding `RT` at its own distance), so it rendered as one dangling perpendicular tick instead of a closed box. `parseDesc` now tracks that a bare `RECT` was seen and, if it never got an explicit value of its own, defaults it to the same distance as `RT` — confirmed on the real job file's only `RT` occurrence (pt 5301, `"MISCL RT 6 RECT"`): before the fix `rect` stayed `null`; after, it resolves to `6` and renders as a proper closed rectangle between points 5300 and 5301 |
   - Suggested next fruits to rotate through:
-    🥥 COCONUT, 🍋 LEMON.
+    🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -476,6 +477,52 @@ first and follow it on every task in this repo.
   closes" problem, not a "CIR needs B" problem, and fixing it would mean
   guessing when an unclosed run should implicitly end, a materially
   different and riskier change than this one.
+
+## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`, build 42)
+
+- Vendor (Trimble/Carlson-style) description-key codes for inserting computed
+  vertices without shooting every corner:
+  - **`X<value>`** (Extend) extends the *current* segment (prev→this point)
+    straight through this point by `value` — positive extends further ahead,
+    negative falls short of the point actually shot.
+  - **`RT<value>`** (Right Turn) turns 90° off the current travel direction at
+    this point and draws a perpendicular segment of `value` — positive jogs
+    right (of travel), negative jogs left.
+  - **`RECT<value>`** (Rectangle) closes an `RT` jog into a full closed
+    rectangle: from the `RT` endpoint, turn another 90° (back parallel to the
+    original segment) and close back to it — the two far corners are the
+    *perpendicular offset* of both the current point and the previous one,
+    connected back to the previous point and this one (`offsetAt`-style
+    corner math, not a re-fit).
+  - All three can carry the number either glued (`RT6`) or spaced (`RT 6`).
+- **Build 42 fix — bare `RECT` (no value of its own) after `RT` was silently
+  dropped:** the real, documented usage is `"CODE RT <d> RECT"` — `RT`
+  establishes the jog distance, and a **bare** `RECT` (no number following it)
+  means "close the rectangle at that same distance" — the vendor spec calls
+  this "using the Rectangle code to complete the Right turn code, closing
+  back to the starting segment as a perpendicular/perpendicular line
+  intersection." `parseDesc` handled `RECT` exactly like `RT`/`X`: it always
+  expected its OWN number (glued or spaced) and left `rect` at its default
+  `null` if none ever came — since the closing `RECT` in real usage never has
+  its own number (it's meant to reuse `RT`'s), `rect` silently stayed `null`
+  forever and `strokeFigure`'s render logic (`if(v.rect!=null){...draw closed
+  box...}else if(v.rt!=null){...draw one open jog point...}`) fell through to
+  the single-dangling-tick path instead of the intended closed rectangle.
+  Confirmed on the real job file's only `RT` occurrence (point 5301,
+  `"MISCL RT 6 RECT"`): `rect` came back `null` before the fix, and the
+  rendered shape was one perpendicular tick off the 5300→5301 segment with
+  no closing side.
+- Fix: `parseDesc` now flags `rectSeen=true` the moment a `RECT` token is
+  seen (regardless of whether a value follows), and in a small post-pass
+  after tokenizing the whole description, any code where `rectSeen` is true
+  but `rect` is still `null` (no explicit value was ever given) defaults
+  `rect` to that same code's `rt` value. This only fires when `RECT` truly
+  had no number of its own — a standalone `"CODE RECT 5"` (no `RT` at all,
+  or `RECT` given its own distinct value) is completely unaffected, since
+  `rect` is already non-null in that case and the post-pass is a no-op.
+  Verified against the real job file: point 5301 now resolves `rect=6`
+  (matching `rt=6`) and renders as a full closed rectangle between points
+  5300 and 5301, confirmed visually in a real browser at high zoom.
 
 ## Point at circle center (`startCircleCtrPick`, build 38, ⊙ CTR toolbar button)
 
