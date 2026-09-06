@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
   </div>
 
   <div class="main">
@@ -354,6 +354,22 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   </div>
 </div>
 
+<!-- embedded Street View panorama — walk the line, points overlaid as markers -->
+<div class="scrim" id="svScrim">
+  <div class="modal big">
+    <h4 style="display:flex;align-items:center;justify-content:space-between">
+      <span>Street View <span id="svModalSub" style="color:var(--mut);font-weight:400;text-transform:none;letter-spacing:0"></span></span>
+      <button class="sideClose" id="svCloseBtn" style="display:inline-flex" title="Close">✕</button>
+    </h4>
+    <div id="svPanoDiv" style="width:100%;height:min(56vh,420px);border:1px solid var(--rule);border-radius:6px;background:#0a1426;display:flex;align-items:center;justify-content:center;color:var(--mut);font:12px var(--mono)">Loading Street View…</div>
+    <div class="chgrp" style="margin-top:10px">
+      <button class="btn" id="svmPrevBtn" title="Previous point">◀</button>
+      <div class="hint" id="svmLbl" style="flex:1;text-align:center;margin:0;align-self:center"></div>
+      <button class="btn" id="svmNextBtn" title="Next point">▶</button>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -361,7 +377,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍍',name:'PINEAPPLE',build:52};
+const VERSION={fruit:'🥭',name:'MANGO',build:53};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1111,12 +1127,42 @@ function headingAt(vs,k){          // vs: [{p}] figure vertices in draw order; k
   const a=vs[k===0?0:k-1].p,b=vs[k===n-1?n-1:k+1].p;
   const dE=b.E-a.E,dN=b.N-a.N;if(!dE&&!dN)return 0;
   return (Math.atan2(dE,dN)*180/Math.PI+360)%360;}
-function headingForPoint(i){       // best-effort heading when opening Street View for a single (non-line) point — faces along the first figure it's on, if any
-  const fs=figuresOfPoint(i);if(!fs.length)return 0;
-  const vs=fs[0].verts.map(v=>({p:PTS[v.i],i:v.i})).filter(o=>o.p&&!o.p.deleted);
-  const k=vs.findIndex(o=>o.i===i);if(k<0)return 0;
-  return headingAt(vs,k);}
-function openStreetView(p,headingDeg){window.open(streetViewURL(p.E,p.N,headingDeg),'fbk_streetview');}   // deliberately NO 'noopener' — it forces a brand-new tab on every call (bypasses browsing-context name matching entirely), which would defeat the whole point of naming this window: reusing the SAME tab across repeated calls, incl. the walk-the-line Prev/Next below, so it re-navigates one tab instead of spawning a new one each time. The URL is always one we build ourselves (google.com/maps), never user-supplied, so the usual reverse-tabnabbing risk noopener guards against doesn't apply here.
+/* ---------- Embedded Street View panorama (build 53) — a live, interactive panorama
+   right in the app, with every point of the line overlaid as a numbered marker (the
+   Maps JavaScript API's documented "overlays within Street View" — a Marker's .map
+   can be a StreetViewPanorama instead of a plain Map). Requires a real Maps
+   JavaScript API key (google.maps.StreetViewPanorama has no keyless path, unlike
+   `streetViewURL` above) — see the script tag at the end of the file. If the key/
+   network ever fails and the panorama never loads, `openSvModal` falls back to a
+   `streetViewURL` link the user can open in a new tab instead of a dead modal. */
+let svPano=null,svMarkers=[],svCtx=null;
+function ensureGMaps(cb,onTimeout,tries){tries=tries||0;
+  if(window.google&&google.maps&&google.maps.StreetViewPanorama){cb();return;}
+  if(tries>150){onTimeout();return;}
+  setTimeout(()=>ensureGMaps(cb,onTimeout,tries+1),150);}
+function svLatLng(p){const[lat,lon]=surveyToLL(p.E,p.N);return new google.maps.LatLng(lat,lon);}
+function svShowMarkers(vs){svMarkers.forEach(m=>m.setMap(null));
+  svMarkers=vs.map((o,k)=>new google.maps.Marker({position:svLatLng(o.p),map:svPano,label:String(k+1),title:'pt '+o.p.id}));}
+function svGoto(idx){if(!svPano||!svCtx)return;   // guard against Prev/Next clicked before the Maps script has finished loading
+  const vs=svCtx.vs;idx=Math.max(0,Math.min(vs.length-1,idx));svCtx.idx=idx;
+  const p=vs[idx].p;
+  svPano.setPosition(svLatLng(p));svPano.setPov({heading:headingAt(vs,idx),pitch:0});
+  $('svmLbl').textContent=`pt ${p.id} · ${idx+1}/${vs.length}`;
+  $('svmPrevBtn').disabled=idx===0;$('svmNextBtn').disabled=idx===vs.length-1;}
+function openSvModal(vs,idx){svCtx={vs,idx};$('svScrim').classList.add('show');
+  $('svmLbl').textContent='';$('svmPrevBtn').disabled=true;$('svmNextBtn').disabled=true;   // disabled until the panorama is actually ready — svGoto is a no-op until then anyway, but this also gives clear visual feedback while loading
+  ensureGMaps(()=>{if(!svPano)svPano=new google.maps.StreetViewPanorama($('svPanoDiv'),{addressControl:false,showRoadLabels:false,linksControl:true,panControl:true,zoomControl:true});
+    svShowMarkers(vs);svGoto(idx);},
+    ()=>{const p=vs[idx].p,url=streetViewURL(p.E,p.N,headingAt(vs,idx));   // the embedded panorama needs a real Maps JS API key with no keyless fallback — if it never loads (bad/quota'd key, no network), fall back to the old no-key deep-link tab instead of leaving a dead modal
+      $('svPanoDiv').innerHTML=`<div style="text-align:center;line-height:1.8">Street View didn't load in-app (check the API key/network).<br><a href="${url}" target="_blank" rel="noopener" style="color:var(--gold)">Open in Google Maps instead ↗</a></div>`;});}   // wrapped in its own block div — #svPanoDiv is a flex container, and a <br> between two DIRECT flex-item children is ignored (ends up all on one line); nesting a normal block element sidesteps that
+function svOpenForPoint(i){const fs=figuresOfPoint(i);
+  if(fs.length){const vs=fs[0].verts.map(v=>({p:PTS[v.i],i:v.i})).filter(o=>o.p&&!o.p.deleted);
+    const k=vs.findIndex(o=>o.i===i);$('svModalSub').textContent=fs[0].code;openSvModal(vs,k<0?0:k);}
+  else{$('svModalSub').textContent='';openSvModal([{p:PTS[i],i}],0);}}
+$('svmPrevBtn').onclick=()=>svGoto(svCtx.idx-1);
+$('svmNextBtn').onclick=()=>svGoto(svCtx.idx+1);
+$('svCloseBtn').onclick=()=>$('svScrim').classList.remove('show');
+$('svScrim').onclick=e=>{if(e.target===$('svScrim'))$('svScrim').classList.remove('show');};
 
 // the survey-coordinate rectangle currently visible on screen
 function viewportBounds(){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
@@ -1704,7 +1750,7 @@ function inspect(){const box=$('insp');
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete'}</button></div>
     <div class="note" style="padding:8px 0 0">Edits republish this NEZ record on export (coords, code &amp; point #).</div>`}`;
     box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
-    $('svBtn').onclick=()=>openStreetView(p,headingForPoint(sel));
+    $('svBtn').onclick=()=>svOpenForPoint(sel);
     if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
       ['fDesc','eId','eN','eE','eZ'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
       $('delBtn').onclick=()=>toggleDel(p);}
@@ -1733,7 +1779,7 @@ function inspect(){const box=$('insp');
     <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Edit <b>Rod HT</b> to correct a mis-recorded rod/prism height — HA/SD/ZA stay the same observation, only Z is recomputed; export brackets the corrected shot with <b>PRISM</b> lines so later shots on the same setup keep the original height. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.</div>
     ${mode==='move'?'<div class="warnbox">Move active — dragging rewrites HA &amp; SD on line '+(p.srcLine+1)+'.</div>':''}`}`;
   box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
-  $('svBtn').onclick=()=>openStreetView(p,headingForPoint(sel));
+  $('svBtn').onclick=()=>svOpenForPoint(sel);
   if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
     ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA','eRod'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
     $('delBtn').onclick=()=>toggleDel(p);}
@@ -1802,12 +1848,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     <div class="field"><label>Figure</label>
       <div class="fighead"><span class="figname" style="color:${codeColor(f.code)}">${f.code}</span>
         <span class="figmeta">${vs.length} vtx · ${f.closed?'closed':'open'}${moved?' · reordered':''}${figNEZ[f.id]?' · NEZ':''}</span></div></div>
-    ${vs.length?`<div class="chgrp">
-      <button class="btn" id="svPrevBtn" title="Previous point">◀</button>
-      <button class="btn gold" id="svWalkBtn" style="flex:1">📷 Walk line in Street View</button>
-      <button class="btn" id="svNextBtn" title="Next point">▶</button>
-    </div>
-    <div class="note" id="svWalkLbl" style="text-align:center;padding:4px 0 9px"></div>`:''}
+    ${vs.length?`<button class="btn gold" id="svWalkBtn" style="width:100%;justify-content:center;margin-bottom:9px">📷 Walk line in Street View</button>`:''}
     <div class="chgrp">
       <button class="btn" id="revBtn">⇄ Reverse</button>
       <button class="btn" id="resetBtn" ${moved?'':'disabled'}>↺ Reset order</button>
@@ -1828,21 +1869,10 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     <div class="vlist">${rows}</div>`;
   box.querySelectorAll('.vb').forEach(b=>b.onclick=()=>{
     if(b.dataset.act==='zoom'){zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);return;}
-    if(b.dataset.act==='sv'){const i=+b.dataset.i,k=vs.findIndex(o=>o.i===i);openStreetView(PTS[i],headingAt(vs,k));return;}
+    if(b.dataset.act==='sv'){const i=+b.dataset.i,k=vs.findIndex(o=>o.i===i);$('svModalSub').textContent=f.code;openSvModal(vs,k);return;}
     if(b.dataset.act==='rm'){removeExtra(f.id,+b.dataset.i);return;}
     const k=+b.dataset.k;if(b.dataset.act==='up')reorderFig(f.id,k,k-1);else reorderFig(f.id,k,k+1);});
-  if(vs.length){                     // "walk the line" in Street View: Prev/Next re-navigate the SAME Street View tab (see openStreetView) down the line's own vertex order, one point at a time, each facing along the line
-    let walkIdx=0;
-    const lbl=$('svWalkLbl');
-    const showWalk=()=>{lbl.textContent=`pt ${vs[walkIdx].p.id} · ${walkIdx+1}/${vs.length}`;
-      $('svPrevBtn').disabled=walkIdx===0;$('svNextBtn').disabled=walkIdx===vs.length-1;};
-    const gotoWalk=i=>{walkIdx=Math.max(0,Math.min(vs.length-1,i));showWalk();
-      openStreetView(vs[walkIdx].p,headingAt(vs,walkIdx));};
-    showWalk();
-    $('svWalkBtn').onclick=()=>gotoWalk(0);
-    $('svPrevBtn').onclick=()=>gotoWalk(walkIdx-1);
-    $('svNextBtn').onclick=()=>gotoWalk(walkIdx+1);
-  }
+  if(vs.length)$('svWalkBtn').onclick=()=>{$('svModalSub').textContent=f.code;openSvModal(vs,0);};
   // drag a vertex row to drop it anywhere in the draw order
   let dragK=-1;
   const clearDrop=()=>box.querySelectorAll('.vrow').forEach(r=>r.classList.remove('dragging','dropbefore','dropafter'));
@@ -2448,5 +2478,6 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('resize',resize);
 resize();
 </script>
+<script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPElNLxIiNtfjfj64Ff3NDZdEluGGBO-E&v=weekly&loading=async"></script>
 </body>
 </html>

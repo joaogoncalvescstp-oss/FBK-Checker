@@ -66,8 +66,9 @@ first and follow it on every task in this repo.
     | 50 | 🥝 KIWI | fix **build 49's own local-window radius fit producing a tight self-crossing loop** on a DIFFERENT curve: the owner's very next screenshot pair ("FIX THIS CURVED MESS") showed a genuinely wrong tangled loop in a different `RBCB` curve (points 9649-9658), right after build 49 shipped. Root cause: build 49's local-window `circleFitLS` (a least-squares circle fit over a small ~4-point window sliding along the span) is numerically ill-conditioned when the real shots in that window sit unusually close together — this span has 3 real shots (9655/9656/9657/9658) crammed within ~1-2 ft of each other. A Kåsa fit through near-coincident points can return a wildly tiny "radius" that still passes its own internal residual check (the points really are close to *that* circle) while being nowhere near the run's true curvature — confirmed directly: this span's local windows came back with radii of 3.16, 1.43, 1.12 ft against a whole-span design radius of 59.96 ft, and forcing per-segment arcs at those bogus radii is exactly what drew the tight loop. A first fix attempt added a per-segment sanity guard (reject one segment's local fit if its ratio to the whole-span radius fell outside a band calibrated against every `BC..EC` span in both real job files — `[0.28,3.7]×` covers every currently-good span, so `[0.15,6]×` was picked as a safe margin) and fall that ONE segment back to the whole-span radius. But the owner then supplied a much richer 30-segment Civil3D `LIST` dump (matching this exact figure's real start point, N158865.06'/E558343.56', to the hundredth of a foot) that proved this particular span isn't a compound-curve-with-one-bad-segment at all — it's a genuinely non-circular, spline-like real path: the `LIST`'s own true sub-segment radii swing from 86.52 down to 0.76 up to 4388.91 ft within a handful of real shots, the same "short independent bulge per segment" pattern build 35 first identified. Direct nearest-point comparison against the `LIST`'s un-shot intermediate vertices confirmed the plain cubic-spline fallback (already used elsewhere for non-circular spans) tracks this true path far better (0.60 ft max deviation) than forcing even a locally-patched circular arc through it (1.41 ft max deviation) — patching just the one bad segment still isn't a good match once the underlying data isn't circular at all. Final fix: `arcSegmentsForSpan` now computes every segment's local-window ratio FIRST, and if ANY of them falls outside the `[0.15,6]×` band, the WHOLE span returns `null` (not just that one segment) — this is the same signal `sampleCurve` already uses to fall back to the spline, so the entire run drops to the spline fallback instead of forcing part of it into a circle that doesn't fit. The whole-span `circleFitLS` accept/reject gate (build 35's 12%-of-radius threshold) is completely untouched — this only adds a second, independent way a span can be rejected to the spline. Verified with a full before/after scan of every `BC..EC` span in both real job files (94 total): exactly one span changed (the reported 9649-9658 loop, now correctly `null`/spline) and every other span — including the two closest-to-the-band cases on file, Hamline `RBCB@427` (min ratio 0.275) and Dale `RBCB@560` (max ratio 3.711) — passed through completely unaffected, byte-identical radii to build 49. Confirmed the rendered base-line path for the fixed span is now strictly monotonic (E increases continuously through the whole 9649-9658 window with no reversal) — the loop is gone — and confirmed `drawOffsets`/`curvedOffsetPts` (the green curb offset lane lines) still run end-to-end with no error now that this span's `arcSegmentsForSpan` returns `null` (falls back to the existing build-27/36 spline-on-offset-points path, same as any other non-circular span). |
     | 51 | 🍑 PEACH | new **📷 Street View** button — jump to a real-world, ground-level view of any point along the linework, to eyeball it against reality. Added to the single-point inspector (faces along whichever figure the point is on, if any) and to every vertex row in the figure/line editor (faces along that specific vertex's own line direction) — see the new dedicated section below. |
     | 52 | 🍍 PINEAPPLE | owner asked for more than a single Street View jump — wants to **walk the whole line** in Street View, one point at a time. Added **◀ / 📷 Walk line in Street View / ▶** controls to the figure/line editor: Walk starts at vertex 1, Next/Prev step through the line's own vertex order (clamped at both ends, buttons disable there), each step re-navigating the SAME browser tab (not spawning a new one per click) to that vertex's location, facing along the line. Required dropping `noopener` from `window.open` — it forces a brand-new tab on every call regardless of a matching window name, which defeated the whole "one tab, walk through it" idea; safe here since the URL is always one we build ourselves, never user-supplied. Verified in a real headless browser: exactly 1 browser tab/popup opened across 5 Walk/Next/Prev clicks (was 5 separate tabs before dropping `noopener`), the 4 navigated URLs matched the correct vertex sequence exactly (including a Prev landing back on the exact same URL as the earlier Next to that same vertex), and Prev/Next correctly disable at both ends of the line across the first 30 figures of both real job files (60 total) with zero console errors. |
+    | 53 | 🥭 MANGO | owner supplied a real Google Maps JavaScript API key — Street View is now a **live, embedded, interactive panorama right in the app** (a modal with a `google.maps.StreetViewPanorama`), not a tab-opening deep link. Every point of the line is overlaid as a numbered marker directly on the panorama (Google's documented "overlays within Street View" — a `Marker`'s `.map` can be a `StreetViewPanorama` instead of a plain `Map`), and Prev/Next inside the SAME modal step the live panorama through the line's own vertex order, updating both position and heading. `streetViewURL`/the old tab-opening `openStreetView` are gone — this is a strictly better replacement, not an alternate mode, since it needs the same coordinate transform either way and a live in-app view beats a new tab every time. See the rewritten Street View section below for the full writeup, including a real bug this exposed (and fixed): clicking Prev/Next before the Maps script finishes loading used to throw (`svPano` was still `null`) — `svGoto` now no-ops until the panorama is ready, and the modal's nav buttons stay disabled with a "Loading Street View…" placeholder until then. **Caveat the owner should know:** this sandbox's own network policy blocks outbound connections to Google's domains entirely (confirmed via repeated `403 policy denial`/`tunnel closed` failures against `maps.googleapis.com`, `www.google.com`, `accounts.google.com`), so the live panorama itself — markers rendering correctly, position/heading actually updating on Next/Prev — could NOT be verified end-to-end from here. Everything reachable from this sandbox WAS verified: the script parses, the modal opens/closes cleanly, Prev/Next/Close never throw (including the premature-click case above), and a full sweep of the first 30 figures in BOTH real job files (60 figures, 241+215 Walk/vertex-row Street View button clicks) produced zero console errors. The owner should confirm the actual panorama+marker rendering once opened in a normal browser with real internet access — and if testing by double-clicking `index.html` locally (a `file://` URL), a referrer-restricted API key will likely refuse to load there (no `file://` origin sends a matching HTTP referrer), so local testing may need the key's restriction loosened temporarily or the page served from an actual domain that matches the restriction. |
   - Suggested next fruits to rotate through:
-    🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
+    🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1200,91 +1201,122 @@ first and follow it on every task in this repo.
   refactored to call the same `zoomToPoint(i)` internally instead of
   duplicating the pan/zoom/flash math — one implementation, two entry points.
 
-## Street View (`streetViewURL`/`headingAt`/`openStreetView`, build 51)
+## Street View (build 51-53) — embedded panorama with the line's points overlaid
 
-- A new **📷 Street View** button opens Google Maps' own Street View, in a new
-  tab, at the real-world location of a point — the point-in-the-field
-  equivalent of the app's existing "compare against a Civil3D `LIST` dump"
-  workflow, but for eyeballing the actual curb/curve against reality instead
-  of a CAD drawing.
-- **No API key, no embed:** this uses Google Maps' plain deep-link URL scheme
-  (`google.com/maps/@?api=1&map_action=pano&viewpoint=<lat>,<lon>&heading=
-  <deg>&pitch=0&fov=90`), which opens full Google Maps in pano mode in a new
-  tab — no Google Cloud project, billing, or key needed (unlike the Maps
-  Embed API/Street View Static API, which do require a key). This can't draw
-  the app's own linework overlaid ON the panorama (that needs the paid Maps
-  JavaScript API's `StreetViewPanorama` + custom overlay) — it just gets you
-  to the right spot, facing the right way, to look with your own eyes.
-- **Reuses the existing calibrated coordinate transform:** `streetViewURL(E,N,
-  headingDeg)` converts survey N/E straight to lat/lon via `surveyToLL` — the
-  SAME Ramsey County Lambert Conformal Conic transform already used for the
-  MAP aerial background (see that section above). Same caveat as MAP: this is
-  only accurate for a job in Ramsey County's own coordinate system.
-- **Heading (which way you're facing) matters** for a curb/line point — facing
-  perpendicular to the curb tells you nothing. `headingAt(vs,k)` computes the
-  compass bearing through vertex `k` from its neighbors (`prev->next`, or the
-  one adjoining segment at either end of the line) using the same
-  `atan2(dE,dN)` azimuth convention already used everywhere else in this app
-  (e.g. the `BS` orientation solve, the inv-distance/bearing readout) — so the
-  panorama opens already facing along the line, not perpendicular to it.
-- **Two entry points:**
-  - The single-point inspector (`inspect()`) gets a **📷 Street View** button
-    for both shot points and NEZ/control points. `headingForPoint(i)` finds
-    the first figure the point is on (if any) and faces along it; an
-    isolated point with no figure defaults to heading 0 (facing north) —
-    verified in a real browser.
-  - Every vertex row in the figure/line editor (`inspectFig()`) gets a small
-    **📷** button next to the existing **⌖** zoom button — faces along that
-    row's own vertex, using the same `vs` array already built for the row
-    list (so it's always that specific line's own direction, not whichever
-    figure happens to be first for a point shared across several lines).
-- Verified in a real headless browser against both real job files: the
-  computed lat/lon for a real point (9641, N158865.06'/E558343.56') lands at
-  44.9523°N/-93.1580°W — correctly in Ramsey County/St. Paul, MN; heading
-  math checked against synthetic due-east and due-north lines (90° and 0°
-  exactly); every vertex-row **📷** button across the first 30 figures of
-  BOTH real files (211 buttons on Hamline, 215 on Dale) opened without a
-  single console error, and the captured `window.open` URL for both a
-  single-point and a figure-vertex click round-tripped through the real
-  `surveyToLL`/`headingAt` pipeline correctly.
-- **Build 52 — walk the whole line, not just one point at a time:** the
-  owner wanted a way to look at the ENTIRE line in Street View, not just
-  jump to one point and stop. Added **◀ / 📷 Walk line in Street View / ▶**
-  to the top of the figure/line editor: **Walk** starts at the line's first
-  vertex; **◀**/**▶** step to the previous/next vertex in the line's own
-  draw order (`vs`, the same array the vertex-row list already uses), each
-  step showing a live `pt <id> · <k>/<n>` readout and clamping at both
-  ends (the buttons `disabled` at index 0/last, not wrapping around).
-  - **`window.open` needed a named target, and `noopener` had to go:**
-    every Walk/Next/Prev step calls the same `openStreetView`, now opening
-    (or re-navigating) a single named window `'fbk_streetview'` instead of
-    `'_blank'` — so clicking through a whole line reuses ONE browser tab
-    instead of littering the taskbar with 25 new tabs. This required
-    dropping the original `'noopener'` window-feature: per the HTML spec,
-    `noopener` forces a brand-new top-level browsing context on EVERY call
-    and skips the named-window lookup entirely — confirmed directly in a
-    real headless browser (a minimal 3-call `window.open(url,'testwin')`
-    test): WITH `noopener`, 3 calls opened 3 separate tabs; WITHOUT it, the
-    same 3 calls opened exactly 1 tab, re-navigated twice. `noopener`'s own
-    purpose (stopping a page we navigate TO from reaching back into the tab
-    that opened it, via `window.opener`) isn't a real concern here — the
-    destination is always a `google.com/maps` URL this app itself builds
-    from local point data, never anything user-supplied or externally
-    controlled.
-  - Verified end-to-end in a real headless browser: intercepted the actual
-    outbound requests (network to `google.com` isn't reachable from this
-    sandbox, so requests were caught and stubbed rather than left to fail)
-    across a Walk → Next → Next → Prev sequence on a real figure — exactly
-    4 requests fired, to the correct 4 vertices in order, and the Prev step
-    landed back on the byte-identical URL (same lat/lon/heading) as the
-    earlier Next to that same vertex, confirming the walk index and its
-    Street View URL stay in sync both directions. Also confirmed only
-    **1** browser tab/popup opened for that whole sequence (was 5 separate
-    tabs before dropping `noopener`). Then swept the first 30 figures of
-    BOTH real job files (60 figures total): Walk followed by stepping Next
-    past the last vertex and Prev past the first correctly left each
-    button `disabled` at its respective end every time, with zero console
-    errors.
+- A **📷 Street View** button gets you a real-world, ground-level view of the
+  linework, to eyeball it against reality — the point-in-the-field equivalent
+  of the app's existing "compare against a Civil3D `LIST` dump" workflow, but
+  for looking at the actual curb/curve instead of a CAD drawing. Two entry
+  points, unchanged since build 51: the single-point inspector (`inspect()`)
+  gets a **📷 Street View** button (`svOpenForPoint(i)`); every vertex row in
+  the figure/line editor (`inspectFig()`) gets a small **📷** button next to
+  the existing **⌖** zoom button.
+- **Builds 51-52 (superseded by 53, kept here for history):** without a
+  Google Maps API key, this opened Google's own Maps *website* in a new/
+  reused browser tab at the point's lat/lon (a plain deep-link URL, no key
+  needed) — build 52 added Walk/Prev/Next controls to step through a whole
+  line's vertices, re-navigating one shared tab instead of spawning a new
+  one per click (see the git history for the `noopener`-drop fix that made
+  tab-reuse actually work, and the ratio/heading verification from build 51
+  — both still apply to the coordinate/heading math below, unchanged).
+- **Build 53 — the owner supplied a real Google Maps JavaScript API key, so
+  Street View is now a live, embedded, interactive panorama right in the
+  app**, not a tab-opening link — a proper `google.maps.StreetViewPanorama`
+  in a modal (`#svScrim`/`#svPanoDiv`), with **every point of the line
+  overlaid as a numbered marker directly on the panorama** (per Google's own
+  "Overlays within Street View" docs: a `Marker`'s `.map` can be set to a
+  `StreetViewPanorama` instead of a plain `Map`, and it renders anchored at
+  street level in the pano). This is a strict upgrade, not an alternate
+  mode — the old tab-opening `openStreetView` is gone (the embedded panorama
+  needs the same `surveyToLL` coordinate transform anyway and is simply
+  better once a key exists), but `streetViewURL` itself lives on as an
+  automatic fallback: if the panorama never loads (bad/quota'd key, no
+  network), `openSvModal` swaps the modal's content for a plain
+  `streetViewURL` link the user can open in a new tab instead of a dead,
+  permanently-loading modal.
+  - **No keyless path exists for this API** (unlike the deep-link URL
+    builds 51/52 used) — `google.maps.StreetViewPanorama` only loads via
+    `<script src="https://maps.googleapis.com/maps/api/js?key=...">`, a
+    real Google Cloud Maps JavaScript API key with billing enabled. The key
+    is embedded directly in `index.html`'s closing `<script async
+    src=".../js?key=AIzaSy...">` tag — this is normal/expected for this API
+    (Maps JS keys are meant to be restricted by **HTTP referrer**, not kept
+    secret; they're visible in every page's source by design). If you
+    (the owner) ever rotate this key, that's the one line to update.
+  - **Core pieces:** `ensureGMaps(cb)` polls (every 150ms, up to ~22s) until
+    `google.maps.StreetViewPanorama` exists before doing anything with it —
+    handles the async script tag's load race with the user clicking a
+    Street View button before it's ready. `svLatLng(p)` wraps `surveyToLL`
+    in a `google.maps.LatLng`. `svShowMarkers(vs)` clears any previous
+    markers and drops one numbered marker per vertex of the CURRENT line
+    onto the panorama. `svGoto(idx)` moves the live panorama's position +
+    heading (`setPosition`/`setPov`, reusing the same `headingAt` compass
+    math from build 51) and updates the `pt <id> · <k>/<n>` label and the
+    modal's own Prev/Next `disabled` state at both ends. `openSvModal(vs,
+    idx)` is the one entry point both `svOpenForPoint` (single-point
+    inspector, a 1-vertex "line") and the figure inspector's **📷 Walk line
+    in Street View** button / per-vertex **📷** buttons call — always
+    passing the relevant line's own vertex list, so Prev/Next in the modal
+    step through that same line's real vertex order.
+  - **A real bug found and fixed along the way:** clicking the modal's
+    Prev/Next before the async Maps script had actually finished loading
+    threw `Cannot read properties of null (reading 'setPosition')` —
+    `svPano` (the panorama object) only gets created inside `ensureGMaps`'s
+    callback, so a click landing before that resolved called `svGoto` on a
+    still-`null` panorama. Fixed two ways: `svGoto` now no-ops entirely if
+    `svPano` isn't ready yet (`if(!svPano||!svCtx)return;`), and
+    `openSvModal` explicitly disables both nav buttons the moment the modal
+    opens (before `ensureGMaps` even starts polling), only re-enabling them
+    once `svGoto` actually runs for the first time — so the loading state is
+    also visually obvious (`"Loading Street View…"` placeholder text stays
+    in `#svPanoDiv` until the panorama constructor replaces it), not just
+    silently unresponsive.
+  - **A real, disclosed verification gap:** this sandbox's own network
+    policy blocks outbound connections to Google's domains entirely —
+    confirmed directly via the agent-proxy's own status endpoint, which
+    logged repeated `403 policy denial` (on `www.google.com`,
+    `android.clients.google.com`, `redirector.gvt1.com`) and
+    `tunnel closed (code 1006)` failures specifically against
+    `maps.googleapis.com` and `accounts.google.com` while testing this
+    build — a plain `curl` to the bare `maps.api.js` URL had returned 200
+    (misleadingly, since that's a different, simpler connection than what
+    Chromium's full page-load actually triggers). Per this sandbox's own
+    "don't retry policy denials" rule, live end-to-end verification of the
+    ACTUAL panorama imagery + marker rendering was not possible from here.
+    Everything that WAS reachable from this sandbox was verified: the
+    inline script still parses; the modal opens and closes cleanly from
+    both entry points with no stray DOM/state left over; Prev/Next/Close
+    never throw, including the premature-click race above; and a full
+    sweep clicking **every** Street View entry point (the figure-level Walk
+    button plus every per-vertex 📷 button) across the first 30 figures of
+    BOTH real job files — 241 clicks on Hamline, 215 on Dale — produced
+    zero console errors. **The owner still needs to confirm, in a real
+    browser with actual internet access, that the panorama image and
+    numbered point markers actually render and that Prev/Next visibly move
+    the view** — that part of this build is unverified by me.
+  - The one part of this THAT WAS fully end-to-end verifiable despite the
+    blocked network is the fallback path itself, since `ensureGMaps` giving
+    up after ~22s is exactly what this sandbox's Google block triggers on
+    every attempt: waited it out for real and confirmed `openSvModal` swaps
+    in the exact right `streetViewURL` fallback link (same lat/lon/heading
+    the old build-51/52 tab-opener would have used) with zero errors. This
+    surfaced a real, separate layout bug: the fallback message and link
+    landed on the SAME visual line, `<br>` ignored — `#svPanoDiv` is a flex
+    container (`display:flex`, for centering the "Loading…" placeholder),
+    and a `<br>` between two DIRECT flex-item children doesn't force a line
+    break the way it does in normal block flow. Fixed by wrapping the
+    fallback content in its own nested block `<div>` (a single flex item,
+    behaving as ordinary block content internally) instead of two bare
+    text/`<br>`/`<a>` nodes as direct flex children — confirmed fixed with
+    a real screenshot, message and link now stack on separate lines.
+  - **A second caveat for local testing specifically:** if the API key is
+    restricted to specific HTTP referrers (the standard/recommended setup)
+    and you test by double-clicking `index.html` locally, it will likely
+    fail to load — a `file://` page sends no `Referer` header at all, so it
+    can't match any referrer restriction. Local testing needs either a
+    temporary unrestricted (or `file://`-inclusive, if Google's console
+    supports that) key, or serving the page from an actual domain the key's
+    restriction allows.
 
 ## Project layout
 
