@@ -68,8 +68,9 @@ first and follow it on every task in this repo.
     | 52 | 🍍 PINEAPPLE | owner asked for more than a single Street View jump — wants to **walk the whole line** in Street View, one point at a time. Added **◀ / 📷 Walk line in Street View / ▶** controls to the figure/line editor: Walk starts at vertex 1, Next/Prev step through the line's own vertex order (clamped at both ends, buttons disable there), each step re-navigating the SAME browser tab (not spawning a new one per click) to that vertex's location, facing along the line. Required dropping `noopener` from `window.open` — it forces a brand-new tab on every call regardless of a matching window name, which defeated the whole "one tab, walk through it" idea; safe here since the URL is always one we build ourselves, never user-supplied. Verified in a real headless browser: exactly 1 browser tab/popup opened across 5 Walk/Next/Prev clicks (was 5 separate tabs before dropping `noopener`), the 4 navigated URLs matched the correct vertex sequence exactly (including a Prev landing back on the exact same URL as the earlier Next to that same vertex), and Prev/Next correctly disable at both ends of the line across the first 30 figures of both real job files (60 total) with zero console errors. |
     | 53 | 🥭 MANGO | owner supplied a real Google Maps JavaScript API key — Street View is now a **live, embedded, interactive panorama right in the app** (a modal with a `google.maps.StreetViewPanorama`), not a tab-opening deep link. Every point of the line is overlaid as a numbered marker directly on the panorama (Google's documented "overlays within Street View" — a `Marker`'s `.map` can be a `StreetViewPanorama` instead of a plain `Map`), and Prev/Next inside the SAME modal step the live panorama through the line's own vertex order, updating both position and heading. `streetViewURL`/the old tab-opening `openStreetView` are gone — this is a strictly better replacement, not an alternate mode, since it needs the same coordinate transform either way and a live in-app view beats a new tab every time. See the rewritten Street View section below for the full writeup, including a real bug this exposed (and fixed): clicking Prev/Next before the Maps script finishes loading used to throw (`svPano` was still `null`) — `svGoto` now no-ops until the panorama is ready, and the modal's nav buttons stay disabled with a "Loading Street View…" placeholder until then. **Caveat the owner should know:** this sandbox's own network policy blocks outbound connections to Google's domains entirely (confirmed via repeated `403 policy denial`/`tunnel closed` failures against `maps.googleapis.com`, `www.google.com`, `accounts.google.com`), so the live panorama itself — markers rendering correctly, position/heading actually updating on Next/Prev — could NOT be verified end-to-end from here. Everything reachable from this sandbox WAS verified: the script parses, the modal opens/closes cleanly, Prev/Next/Close never throw (including the premature-click case above), and a full sweep of the first 30 figures in BOTH real job files (60 figures, 241+215 Walk/vertex-row Street View button clicks) produced zero console errors. The owner should confirm the actual panorama+marker rendering once opened in a normal browser with real internet access — and if testing by double-clicking `index.html` locally (a `file://` URL), a referrer-restricted API key will likely refuse to load there (no `file://` origin sends a matching HTTP referrer), so local testing may need the key's restriction loosened temporarily or the page served from an actual domain that matches the restriction. |
     | 54 | 🍐 PEAR | owner tested build 53 in a real browser (the first live confirmation this sandbox's own Google-domain block couldn't provide) and reported two things: markers show up but don't line up well with the real curb, and the panorama's photo colors are inverted (a negative). The color issue turned out to be isolated to the Street View panel itself — nothing else in the app looked wrong — which points at Chrome's own "Force Dark Mode for Web Content" (or a Dark-Reader-style extension) heuristically inverting the panorama's WebGL/canvas imagery because it can't recognize it as a photo the way it recognizes normal `<img>` content, while leaving the rest of the page's ordinary HTML/CSS alone (exactly the asymmetry reported). Fixed by adding `color-scheme:light;forced-color-adjust:none` to `#svPanoDiv`, which explicitly tells the browser this element is intentionally light-themed content it shouldn't auto-invert — confirmed via computed style in a real headless browser that both properties land as set, with no console errors. **The marker-alignment issue is still open** — waiting on a screenshot from the owner before touching any coordinate/marker code, since "markers a little off" could mean either a real bug in our math or plain Street View camera-vs-curb parallax (the panorama's photo is taken from wherever Google's car actually drove, which is rarely the exact curb line a marker sits on — a well-known, unavoidable Street View limitation, not something fixable by us) and guessing which one it is without seeing it risks fixing a non-bug or missing a real one. |
+    | 55 | 🍉 WATERMELON | new **point marker symbols** on the 2D canvas, keyed off each point's own description code — a small outline shape drawn AROUND the existing colored dot (dot stays visible in the center) so a feature's type is readable at a glance without opening the inspector: a **☐ square** for any point carrying a real curb code (same `CURB_BOC`/`CURB_FL` token scan `applyKnockdown` already uses), a **△ triangle** for a figure code starting with the letter `C` (e.g. `CP`, `CHK`, `CIP`, `CNL` — catch basin/checkpoint-family codes), and a **🌲 tree emoji** for the two tree codes `TCTR`/`TDTR`. New `drawPtSymbol(p,x,y,r)` checks tree first (most specific — an exact code match), then curb code, then starts-with-C, so a point only ever gets one symbol; wired into `drawPt` behind the SAME zoom/hot visibility gate the point-ID label already uses (`p.kind==='ctrl'\|\|view.s>3\|\|hot`), so symbols declutter at a zoomed-out overview exactly like labels already do. Added matching entries to the on-canvas legend. Verified in a real headless browser against both real job files: zoomed screenshots of a real `TCTR` point, a real `CP` (control) point, and a real `RBCB EC L824` curb point each show the correct symbol with no visual overlap hiding the dot; a full sweep over every non-deleted point in both files (966 Hamline, 1723 Dale) classified each into exactly one bucket (tree/square/triangle/none) with sane counts (Hamline: 33 tree, 5 square, 59 triangle; Dale: 38 tree, 46 square, 53 triangle) and a full canvas redraw at `view.s=1` produced zero console errors on either file. |
   - Suggested next fruits to rotate through:
-    🍉 WATERMELON, 🥥 COCONUT.
+    🥥 COCONUT, 🍎 APPLE, 🍌 BANANA, 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1349,6 +1350,54 @@ first and follow it on every task in this repo.
     — a well-known, unavoidable characteristic of Street View, not
     something fixable in our code). Waiting on a screenshot before touching
     `svLatLng`/`svShowMarkers`/the `surveyToLL` transform.
+
+## Point marker symbols (`drawPtSymbol`, build 55)
+
+- The 2D canvas draws every point as a small colored dot (`drawPt`) — control
+  points gold, shots blue/green, selected gold-and-bigger, deleted a red X.
+  That tells you the point's *state* at a glance but nothing about its
+  *feature type* without opening the inspector. `drawPtSymbol(p,x,y,r)` adds
+  a small outline shape drawn AROUND that same dot (the dot stays visible in
+  the center — this is an addition, not a replacement) so common feature
+  families are readable straight off the canvas:
+  - **☐ Square** — any point carrying a real curb code in its description.
+    Reuses the exact same token scan `applyKnockdown` already uses to find a
+    curb code (`(p.desc||'').toUpperCase().split(/\s+/).some(t=>CURB_BOC[t]||
+    CURB_FL[t])`) — so "has a curb code" means the same thing here as it does
+    everywhere else in the app, no separate/duplicate definition to drift out
+    of sync. A point whose curb code has already been baked into H/V tokens
+    by Knockdown no longer matches (the literal code string is gone from the
+    description at that point) — consistent with how `applyKnockdown` itself
+    treats that case.
+  - **△ Triangle** — a figure code (the description's first whitespace token)
+    starting with the letter `C` — e.g. `CP` (control point), `CHK`
+    (checkpoint), `CIP`, `CNL` in the real job files on hand.
+  - **🌲 Tree emoji** — the two tree codes `TCTR`/`TDTR` specifically (an
+    exact match, not just "starts with T").
+  - Checked in that order (tree → square → triangle) since tree is the most
+    specific match (an exact code, not a prefix or token-membership test);
+    in practice a point only ever matches one of the three anyway, since
+    curb codes and the sample `C`-prefixed codes on file don't overlap.
+- Wired into `drawPt` behind the SAME visibility gate the point-ID label
+  already uses (`p.kind==='ctrl'||view.s>3||hot`) — symbols only show at a
+  reasonable zoom level (or for control points / the hot/selected point),
+  so a zoomed-out full-file overview doesn't turn into visual noise, exactly
+  matching how the existing ID labels already declutter themselves.
+- Legend (`#legend`, top-right of the canvas) gets three new rows matching
+  the on-canvas colors — a square-outline swatch, a CSS-border-triangle
+  swatch, and the tree emoji itself — so the symbols are self-explanatory
+  without needing to ask what they mean.
+- Verified in a real headless browser against both real job files: zoomed
+  screenshots of a real `TCTR` point (9089, Hamline), a real `CP` control
+  point (point 1, Hamline), and a real curb point (`"RBCB EC L824"`, point
+  9231, Hamline) each show exactly the right symbol, correctly centered, not
+  obscuring the dot underneath. A full sweep classifying every non-deleted
+  point in both files into exactly one bucket found sane, non-zero counts
+  for all three categories on both files (Hamline: 33 tree / 5 square / 59
+  triangle / 869 none out of 966; Dale: 38 tree / 46 square / 53 triangle /
+  1586 none out of 1723), and forcing a full canvas redraw at `view.s=1`
+  (well past the zoom threshold, so every symbol actually draws) produced
+  zero console errors on either file.
 
 ## Project layout
 

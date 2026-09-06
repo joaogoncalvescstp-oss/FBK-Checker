@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
   </div>
 
   <div class="main">
@@ -180,6 +180,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <div><i style="background:var(--gold)"></i>selected</div>
         <div><i style="background:var(--fail)"></i>deleted</div>
         <div><i style="background:#6ee0a6"></i>H/V offset</div>
+        <div><i style="background:transparent;border:1.4px solid #ffd24a;border-radius:2px"></i>curb code</div>
+        <div><i style="background:transparent;border-radius:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #ff8f5d"></i>code starts with C</div>
+        <div><i style="background:transparent;border-radius:0;width:auto;height:auto;font-size:11px;line-height:10px;vertical-align:-2px">🌲</i>TCTR / TDTR</div>
       </div>
       <div class="vex" id="vex">
         <span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
@@ -377,7 +380,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍐',name:'PEAR',build:54};
+const VERSION={fruit:'🍉',name:'WATERMELON',build:55};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1581,6 +1584,23 @@ function draw3D(){
       ctx.font='600 10px ui-monospace,monospace';ctx.fillText(p.kind==='ctrl'?p.desc.split(' ')[0]:p.id,x+7,y-6);}});
   drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();
 }
+/* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
+   center), keyed off the point's own description — square for any point
+   carrying a real curb code (same CURB_BOC/CURB_FL token scan applyKnockdown
+   uses), triangle for a figure code starting with C (e.g. a catch basin/
+   curb-box family code), tree emoji for the two tree codes TCTR/TDTR. Checked
+   in that order (tree first) since it's the most specific match; a code can
+   only ever match one of the three. */
+function drawPtSymbol(p,x,y,r){
+  const CODE=((p.desc||'').trim().split(/\s+/)[0]||'').toUpperCase();
+  if(CODE==='TCTR'||CODE==='TDTR'){
+    ctx.font=(Math.round(r*2.6))+'px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('🌲',x,y-1);ctx.textAlign='start';ctx.textBaseline='alphabetic';return;}
+  const hasCurb=(p.desc||'').toUpperCase().split(/\s+/).some(t=>CURB_BOC[t]||CURB_FL[t]);
+  if(hasCurb){const s=r+5;ctx.strokeStyle='#ffd24a';ctx.lineWidth=1.4;ctx.strokeRect(x-s,y-s,s*2,s*2);return;}
+  if(CODE[0]==='C'){const s=r+5;ctx.strokeStyle='#ff8f5d';ctx.lineWidth=1.4;
+    ctx.beginPath();ctx.moveTo(x,y-s*1.15);ctx.lineTo(x+s,y+s*0.85);ctx.lineTo(x-s,y+s*0.85);ctx.closePath();ctx.stroke();return;}
+}
 function drawPt(p,i,x,y){
   const r=p.kind==='ctrl'?5:3;
   if(p.deleted){ctx.beginPath();ctx.arc(x,y,r+2,0,7);ctx.strokeStyle='#ff5d52';ctx.lineWidth=1.4;
@@ -1590,7 +1610,7 @@ function drawPt(p,i,x,y){
   ctx.beginPath();ctx.arc(x,y,hot?r+3:r,0,7);
   ctx.fillStyle=hot?'#F1B434':(p.kind==='ctrl'?'#ffd24a':(p.edited?'#35c184':'#7fb3ff'));ctx.fill();
   if(hot){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
-  if(p.kind==='ctrl'||view.s>3||hot){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#9fb4d8';
+  if(p.kind==='ctrl'||view.s>3||hot){drawPtSymbol(p,x,y,hot?r+3:r);ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#9fb4d8';
     ctx.font='600 10px ui-monospace,monospace';ctx.fillText(p.kind==='ctrl'?p.desc.split(' ')[0]:p.id,x+7,y-6);}
 }
 function drawGizmo(){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,gx=w-46,gy=h-46,L=22;
