@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -361,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍎',name:'APPLE',build:44};
+const VERSION={fruit:'🍌',name:'BANANA',build:45};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -650,11 +650,14 @@ function parseDesc(desc){const map={};let cur=null,pend=null,inJog=false;
     else if(T==='PRC'){if(cur)map[cur].prc=true;}        // point of reverse curve — new independent radius starts here (turn direction reverses)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
     else if(T==='SO'){if(cur)map[cur].so=true;}          // stop offsets at this point
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],rectSeen:false};cur=T;}
+    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],rectSeen:false,closeL:false};cur=T;}
   });
-  for(const code in map){                                 // bare RECT with no value of its own → defaults to the LAST rt-turn leg's own distance (single-jog rectangle case)
+  for(const code in map){
     const m=map[code];
-    if(m.rectSeen&&m.rect==null){const lastRt=[...m.jogs].reverse().find(j=>j.t==='rt');if(lastRt)m.rect=lastRt.v;}}
+    if(m.rectSeen&&m.rect==null){
+      const lastRt=[...m.jogs].reverse().find(j=>j.t==='rt');
+      if(lastRt)m.rect=lastRt.v;                          // bare RECT with no value of its own → defaults to the LAST rt-turn leg's own distance (single-jog rectangle case)
+      else if(!m.jogs.length)m.closeL=true;}}             // bare RECT with NO rt/x at all → close the plain 3-point L (prior-prior/prior/this) into a box off their own real geometry, no distance needed
   return map;}
 function buildLinework(){CODES={};
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
@@ -668,7 +671,7 @@ function figures(){const figs=[];
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
       else if(!run&&f.cir){run={code,verts:[],closed:false,implicitCir:true};}   // CIR with no run open → implicit 3-point circle, no B needed
       if(!run)return;                                   // no B/CIR yet → not a line
-      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,jogs:f.jogs});
+      run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,jogs:f.jogs,closeL:f.closeL});
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}
       else if(run.implicitCir&&run.verts.length>=3){figs.push(run);run=null;}});   // auto-close after exactly 3 points
@@ -1348,7 +1351,7 @@ function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, th
   const T1={E:PI.E+u1.E*Tl,N:PI.N+u1.N*Tl},T2={E:PI.E+u2.E*Tl,N:PI.N+u2.N*Tl};
   return arcSamplesCenter(c,T1,T2,OC,B.Z,C.Z);}
 function strokeFigure(f,proj,color){
-  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,jogs:v.jogs};}).filter(Boolean);
+  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,jogs:v.jogs,closeL:v.closeL};}).filter(Boolean);
   if(vs.length<2)return;
   if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
     ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
@@ -1373,7 +1376,7 @@ function strokeFigure(f,proj,color){
     const priorE=lastE,priorN=lastN,priorZ=lastZ;         // RECT / RT / X insert computed vertices
     put(v.E,v.N,v.Z);
     lastE=v.E;lastN=v.N;lastZ=v.Z;
-    if(priorE!=null&&((v.jogs&&v.jogs.length)||v.rect!=null)){
+    if(priorE!=null&&((v.jogs&&v.jogs.length)||v.rect!=null||v.closeL)){
       const din=unit(v.E-priorE,v.N-priorN),pR={E:din.N,N:-din.E};   // travel dir of the segment actually just drawn, right-of-travel
       if(v.jogs&&v.jogs.length){                          // RT/X chain: each value is another leg — a perpendicular turn (bare number) or a straight extend (X), off whatever direction the PREVIOUS leg ended facing (vendor: "draws perpendicular segments for each value")
         let pos={E:v.E,N:v.N},dir=din;
@@ -1389,9 +1392,13 @@ function strokeFigure(f,proj,color){
                 corner={E:priorE+pR.E*d,N:priorN+pR.N*d};
           put(corner.E,corner.N,v.Z);put(priorE,priorN,priorZ);put(v.E,v.N,v.Z);
           lastE=v.E;lastN=v.N;lastZ=v.Z;}
-      }else{const o=v.rect;                                // standalone RECT (no RT before it): jog + close in one, off the plain base segment
+      }else if(v.rect!=null){const o=v.rect;                // standalone RECT<value> (no RT before it): jog + close in one, off the plain base segment
         put(v.E+pR.E*o,v.N+pR.N*o,v.Z);put(priorE+pR.E*o,priorN+pR.N*o,priorZ);
         put(priorE,priorN,priorZ);put(v.E,v.N,v.Z);
+        lastE=v.E;lastN=v.N;lastZ=v.Z;
+      }else if(v.closeL&&k>=2){                            // bare RECT with NO rt/x at all: close a plain 3-shot L (prior-prior → prior → this) into a box from their own real geometry — no distance needed, the 4th corner is p1+(v-prior)
+        const p1=vs[k-2],corner={E:p1.E+(v.E-priorE),N:p1.N+(v.N-priorN)};
+        put(corner.E,corner.N,v.Z);put(p1.E,p1.N,p1.Z);put(v.E,v.N,v.Z);
         lastE=v.E;lastN=v.N;lastZ=v.Z;}
     }
     k++;}

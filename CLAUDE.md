@@ -58,8 +58,9 @@ first and follow it on every task in this repo.
     | 42 | 🥥 COCONUT | fix **RT ... RECT**: `"CODE RT 6 RECT"` — a right-turn jog of 6, closed into a rectangle — parsed the jog fine but silently dropped the closing `RECT` (it has no number of its own here; the vendor spec says a bare `RECT` "completes" the preceding `RT` at its own distance), so it rendered as one dangling perpendicular tick instead of a closed box. `parseDesc` now tracks that a bare `RECT` was seen and, if it never got an explicit value of its own, defaults it to the same distance as `RT` — confirmed on the real job file's only `RT` occurrence (pt 5301, `"MISCL RT 6 RECT"`): before the fix `rect` stayed `null`; after, it resolves to `6` and renders as a proper closed rectangle between points 5300 and 5301 |
     | 43 | 🍋 LEMON | fix **RT** direction on a CHAIN of consecutive right-turn jogs: real usage repeats `"CODE RT <d>"` on many consecutive points (e.g. a wall shot in a straight run needing a constant correction) — each jog's 90° turn was computed from the direction between the two REAL vertices (`vs[k-1]`→`vs[k]`), skipping over the PRECEDING point's own jog detour entirely. Verified against a real Civil3D `LIST` dump of the actual figure that the correct turn direction is the segment *actually just drawn* (from the prior jog point back to this point, not vertex-to-vertex) — the old code was off by ~70° in azimuth on this real run, landing new jog points up to **11.5 ft** from their true CAD position; the fixed version matches the `LIST` dump to within 0.008 ft. `strokeFigure` now tracks the true last-drawn pen position (`lastE/lastN/lastZ`) through the whole loop — updated after every `put()`, including curve spans and OC tangent arcs — and RT/X/RECT compute their incoming direction from that, not from the previous vertex in the array |
     | 44 | 🍎 APPLE | fix **RECT** per the vendor Civil3D doc (`RT`/`X`/`RECT` reference page, pasted by the owner): the real syntax lets an arbitrary CHAIN of values follow one `RT` — e.g. `"BLD1 RT X10.1 5 -12.2 -5 -12.2"` extends the segment then jogs perpendicular 4 more times, each off the PREVIOUS leg's own direction — but `parseDesc` only ever captured the FIRST value after `RT`/`X` and silently dropped every value after it (confirmed: parsing that exact doc example returned only `rt=5`, discarding `-12.2/-5/-12.2` entirely). Replaced the single `rt`/`x` scalars with a `jogs` array so every value in the chain survives, in order, tagged `x` (straight extend) or `rt` (90° turn, sign = right/left) — `strokeFigure` walks the array leg by leg, each turn rotating 90° off whatever direction the PREVIOUS leg ended facing (same alternating-turn math build 43 already proved correct, just applied within one point's chain instead of across several points). Also fixed **`RECT` closing a chain**: it now computes the true "perpendicular/perpendicular line intersection back to the starting segment" the doc describes — projecting the chain's own endpoint onto the base segment's perpendicular axis through the prior point (`lineIntersect`-equivalent closed form) — instead of only working when `RECT` and `RT` happened to share the same single value. Verified this collapses to the EXACT byte-identical geometry as the old (build 42/43-verified) formula for every real case on file — the single-turn `"RT 6 RECT"` (pt 5300→5301) and the plain multi-point `"RT 9.52"` chain (Hamline BLD1) both reproduced their previously-ground-truth-verified coordinates exactly through the real `index.html` parse→figures→strokeFigure pipeline, not just a standalone reimplementation — before adding the new chain support. No real job file on hand actually uses a multi-value `RT` chain yet, so this is verified against the vendor doc's own worked example (all 5 legs now parsed vs. 1 before) and a synthetic multi-leg chain rendered end-to-end in a real headless browser with no console errors. |
+    | 45 | 🍌 BANANA | fix **RECT closing a plain 3-shot L with no `RT` at all**: the owner's real job has `"RCED B"` / `"RCED"` / `"RCED E RECT"` — three real corner shots (9878→9879→9880, ~89° angle between the two segments, near-equal side lengths) meant to close into a box around a nearby manhole/circle feature — with **no `RT` anywhere in the figure**. Build 44's fix only handled `RECT` closing an `RT`-built chain; here `rectSeen` was true but `rect` stayed `null` (no `rt` leg to default from) and `jogs` was empty, so the widened trigger condition (`v.jogs.length||v.rect!=null`) was FALSE and the whole `RECT` was silently a no-op — confirmed exactly matching the owner's screenshot: the app drew only the open `9878→9879→9880` line, no closing box, while their CAD showed a clean 4-sided rectangle around the circle. Added a third, simpler `RECT` case: a bare `RECT` with no explicit value AND no `rt`/`x` legs at all (`closeL`) closes the last TWO real segments (prior-prior → prior → this) into a box using their own already-shot geometry — no distance needed, since 3 corners of a rectangle fully determine the 4th (`corner4 = p1 + (p3 − p2)`, the standard parallelogram-closing vector sum). Verified against the real point data: the 4th corner computed to close 9878/9879/9880 reproduces a proper rectangle (each side vector matches its opposite side's negation to the mm), and a real headless-browser screenshot of this exact figure now shows the identical closed box (with the circle sitting inside it) as the owner's Civil3D screenshot. Re-verified builds 42-44's real cases (Dale 5300/5301 `"RT 6 RECT"`, Hamline `BLD1` `RT`-chain) are completely unaffected — this is a new, mutually-exclusive branch (`jogs.length` → chain-close; `rect!=null` → old standalone jog+close; `closeL` → new no-distance 3-point close), not a change to either existing path. |
   - Suggested next fruits to rotate through:
-    🍌 BANANA, 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
+    🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
     🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -481,7 +482,7 @@ first and follow it on every task in this repo.
   guessing when an unclosed run should implicitly end, a materially
   different and riskier change than this one.
 
-## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`/`strokeFigure`, build 42-44)
+## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`/`strokeFigure`, build 42-45)
 
 - Vendor (Trimble/Carlson-style) description-key codes for inserting computed
   vertices without shooting every corner:
@@ -649,6 +650,52 @@ first and follow it on every task in this repo.
     correct by testing it in isolation (a standalone 2-vertex figure built
     from those same real points' real coordinates, bypassing the unrelated
     merge) — see verification above.
+- **Build 45 fix — bare `RECT` closing a plain 3-shot L with NO `RT` at all:**
+  the owner sent a CAD screenshot (a clean closed rectangle box around a
+  circle) next to the app's own render of the SAME area (an open dead-ending
+  line, no box) as proof build 44 still wasn't right. The actual figure:
+  `"RCED B"` (9878) → `"RCED"` (9879) → `"RCED E RECT"` (9880) — **three real
+  corner shots, no `RT` anywhere in the whole figure**. Checked the real
+  coordinates: the angle between segment 9878→9879 and segment 9879→9880 is
+  88.7° and the two side lengths are nearly equal (4.417 ft / 4.434 ft) —
+  this is a genuine field survey pattern crews use for a small rectangular
+  feature (a curb box, a pad corner): shoot 3 of the 4 actual corners, then
+  `RECT` (with no number at all — there's no distance to give, the box's
+  size is already fully determined by the 3 real shots) closes the missing
+  4th corner and the loop. This is a DIFFERENT, and in practice probably far
+  more common, usage than build 42-44's "`RT <d> ... RECT`" case — no
+  distance value ever appears in the description at all.
+  - Build 44's fix only widened the trigger to `v.jogs.length||v.rect!=null`
+    — with zero `rt`/`x` legs and no explicit/inherited `rect` value (nothing
+    to default from — there's no `rt` leg anywhere to borrow a distance
+    from), that condition is `false` and the entire `RECT` was silently a
+    no-op, exactly reproducing the owner's screenshot (open line, no box).
+  - Fix: `parseDesc`'s post-pass now sets a new flag `closeL:true` when
+    `rectSeen` is true, `rect` is still `null`, AND `jogs` is completely
+    empty (no `rt` to borrow a distance from, no `x` either) — i.e. `RECT`
+    appeared totally bare with nothing before it to build a jog from.
+    `strokeFigure` closes this case by computing the missing 4th corner
+    directly from the plain geometry of the run's own last 3 real vertices
+    (`vs[k-2]`=p1, the tracked prior pen position=p2, current=p3): a
+    rectangle's (or any parallelogram's) 4th corner is always
+    `p1 + (p3 − p2)` — the standard "complete the parallelogram" vector sum,
+    needing no assumed distance or angle at all, just the 3 points already
+    shot. This is a THIRD, mutually exclusive `RECT` branch alongside the
+    existing two (`v.jogs.length` → close a chain per build 44;
+    `v.rect!=null` → old standalone jog+close per build 42): `closeL` only
+    ever fires when there's truly nothing else to go on.
+  - Verified: the real 9878/9879/9880 data produces a 4th corner
+    (558582.661, 158864.092) whose four side vectors are exact negations of
+    their opposite sides (a true closed parallelogram/rectangle, not an
+    approximation), and a real headless-browser screenshot of this exact
+    figure in the live app now shows the identical closed box — with the
+    nearby `MISCL` circle (9881/9882/9883, a separate figure) sitting inside
+    it — matching the owner's Civil3D screenshot shape-for-shape. Re-ran
+    both of build 44's regression cases (Dale `5300/5301` `"RT 6 RECT"`,
+    Hamline `BLD1` `RT`-chain) through the same real pipeline afterward:
+    byte-identical output, confirming `closeL` is additive and never fires
+    on either existing case (both still have non-empty `jogs`, so the new
+    branch is skipped for them).
 
 ## Point at circle center (`startCircleCtrPick`, build 38, ⊙ CTR toolbar button)
 
