@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -361,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:47};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:48};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1341,7 +1341,7 @@ function arcSamplesCenter(c,T1,T2,OC,z1,z2){
   for(let s=0;s<=STEPS;s++){const t=s/STEPS,a=a1+sweep*t;
     out.push({E:c.E+R*Math.cos(a),N:c.N+R*Math.sin(a),Z:z1+(z2-z1)*t});}
   return out;}
-function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, through OC
+function tangentArcGeom(B,d1,C,d2,OC){   // shared solve: center + tangent points of the arc tangent to both tangent lines, through OC (used by fitTangentArc for the base line, and offsetTangentArc for a parallel offset lane)
   const PI=lineIntersect(B,d1,C,d2);if(!PI)return null;
   const u1=unit(-d1.E,-d1.N),u2=unit(d2.E,d2.N);          // rays from PI toward B and toward C
   let bis=unit(u1.E+u2.E,u1.N+u2.N);
@@ -1356,7 +1356,16 @@ function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, th
   if(L===null)return null;
   const c={E:PI.E+bis.E*L,N:PI.N+bis.N*L},Tl=L*cosH;
   const T1={E:PI.E+u1.E*Tl,N:PI.N+u1.N*Tl},T2={E:PI.E+u2.E*Tl,N:PI.N+u2.N*Tl};
-  return arcSamplesCenter(c,T1,T2,OC,B.Z,C.Z);}
+  return {center:c,T1,T2,u1,u2};}
+function fitTangentArc(B,d1,C,d2,OC){   // arc tangent to both tangent lines, through OC
+  const g=tangentArcGeom(B,d1,C,d2,OC);if(!g)return null;
+  return arcSamplesCenter(g.center,g.T1,g.T2,OC,B.Z,C.Z);}
+function offsetTangentArc(A,B,C,D,OC,Boff,Coff){   // the offset lane's own tangent arc through an OC corner: a parallel offset of a tangent-arc fillet is CONCENTRIC with it (shifting a tangent line by a constant perpendicular distance keeps it tangent to a circle of the same center, radius R±that distance) — so reuse the BASE arc's own solved center, and just find where the OFFSET (already perpendicular-shifted) tangent lines touch a circle centered there
+  const d1=unit(B.E-A.E,B.N-A.N),d2=unit(D.E-C.E,D.N-C.N);
+  const g=tangentArcGeom(B,d1,C,d2,OC);if(!g)return null;
+  const foot=(P,Q,d)=>{const t=(P.E-Q.E)*d.E+(P.N-Q.N)*d.N;return{E:Q.E+d.E*t,N:Q.N+d.N*t};};   // nearest point on the line (through Q, direction d) to P — the tangent point of a circle centered at P
+  const T1p=foot(g.center,Boff,d1),T2p=foot(g.center,Coff,d2);
+  return arcSamplesCenter(g.center,T1p,T2p,OC,Boff.Z,Coff.Z);}
 function strokeFigure(f,proj,color){
   const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,jogs:v.jogs,closeL:v.closeL};}).filter(Boolean);
   if(vs.length<2)return;
@@ -1579,8 +1588,8 @@ function curvedOffsetPts(baseSub,opSub,hSub){   // an offset lane's run through 
         out.push({E:center.E+R*Math.cos(a2),N:center.N+R*Math.sin(a2),Z:P.Z+(Q.Z-P.Z)*t});}}}
   return out;}
 function drawOffsets(proj){ctx.save();
-  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);});
+  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[],ocAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);ocAt.push(!!v.oc);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
     let active=null;const per=all.map((p,k)=>{
       if(stepsAt[k])active=stepsAt[k];
@@ -1605,6 +1614,9 @@ function drawOffsets(proj){ctx.save();
             const hSub=[];for(let m=k-1;m<=j;m++)hSub.push(per[m][L].h);
             curvedOffsetPts(baseSub,opSub,hSub).forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});
             k=j+1;continue;}}
+        if(ocAt[k]&&k>=2&&k<=op.length-3&&op[k-1]&&op[k+1]){   // base line rounds an OC tangent-arc corner here → curve this lane through the SAME corner (concentric with the base arc), instead of the plain mitered/extended corner offsetAt would otherwise draw
+          const samp=offsetTangentArc(all[k-2],all[k-1],all[k+1],all[k+2],all[k],op[k-1],op[k+1]);
+          if(samp){samp.forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});k+=2;continue;}}
         const s=proj(op[k].E,op[k].N,op[k].Z);ctx.lineTo(s[0],s[1]);k++;
       }
       ctx.stroke();}});

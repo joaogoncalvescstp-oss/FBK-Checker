@@ -61,8 +61,9 @@ first and follow it on every task in this repo.
     | 45 | 🍌 BANANA | fix **RECT closing a plain 3-shot L with no `RT` at all**: the owner's real job has `"RCED B"` / `"RCED"` / `"RCED E RECT"` — three real corner shots (9878→9879→9880, ~89° angle between the two segments, near-equal side lengths) meant to close into a box around a nearby manhole/circle feature — with **no `RT` anywhere in the figure**. Build 44's fix only handled `RECT` closing an `RT`-built chain; here `rectSeen` was true but `rect` stayed `null` (no `rt` leg to default from) and `jogs` was empty, so the widened trigger condition (`v.jogs.length||v.rect!=null`) was FALSE and the whole `RECT` was silently a no-op — confirmed exactly matching the owner's screenshot: the app drew only the open `9878→9879→9880` line, no closing box, while their CAD showed a clean 4-sided rectangle around the circle. Added a third, simpler `RECT` case: a bare `RECT` with no explicit value AND no `rt`/`x` legs at all (`closeL`) closes the last TWO real segments (prior-prior → prior → this) into a box using their own already-shot geometry — no distance needed, since 3 corners of a rectangle fully determine the 4th (`corner4 = p1 + (p3 − p2)`, the standard parallelogram-closing vector sum). Verified against the real point data: the 4th corner computed to close 9878/9879/9880 reproduces a proper rectangle (each side vector matches its opposite side's negation to the mm), and a real headless-browser screenshot of this exact figure now shows the identical closed box (with the circle sitting inside it) as the owner's Civil3D screenshot. Re-verified builds 42-44's real cases (Dale 5300/5301 `"RT 6 RECT"`, Hamline `BLD1` `RT`-chain) are completely unaffected — this is a new, mutually-exclusive branch (`jogs.length` → chain-close; `rect!=null` → old standalone jog+close; `closeL` → new no-distance 3-point close), not a change to either existing path. |
     | 46 | 🍇 GRAPE | fix **build 45's own closing side drawing a spurious diagonal**: the owner confirmed the box now closes, but flagged an extra diagonal line cutting straight across it (from `p1` to the RECT vertex). Cause: after drawing the closing corner and `p1`, the code retraced with one more `put(v.E,v.N,v.Z)` to leave the pen "back on the real point" — the same pattern the other two `RECT` branches use, but there it's harmless because THEY retrace `prior→v`, a segment that was already drawn as the plain base segment; here `p1` is two vertices back (not `prior`), so `p1→v` is a straight chord that was never part of the original L-shaped path (`p1→prior→v`) — a brand-new, wrong diagonal. Fix: drop that last `put()` — the path now simply stops at `p1` after closing (`9878→9879→9880→corner→9878`), still updating `lastE/lastN/lastZ` to `v` for bookkeeping so anything after would still compute its own direction off the real point. Verified against the real 9878-9880 data (put-sequence now ends at the closing corner, no trailing chord) and in a real headless browser — the rendered box now matches the owner's CAD screenshot exactly, no diagonal. |
     | 47 | 🍊 ORANGE | fix **CIR clusters swallowed by an unclosed host run** (`figures()`): the owner's Hamline file showed a real manhole circle (RCED points 9572/9573/9574, near "UTS") not drawing at all — just a plain line through them. Cause was the SAME "run never closes" class of bug build 40 already flagged and deliberately left alone (the Dale `MISCL@369` case): `RCED` has a real, legitimate long curb-edge run (`9488 B`...`9583 E`) that happens to pass near SIX separate manhole-rim `CIR` clusters coded with the same `RCED` figure code — since that host run never hit an `E`/`CLS` before reaching each `CIR` point, `!run&&f.cir` was false (a run WAS open) so the whole implicit-3-point-circle path from build 40 never fired, and the `CIR` points just got appended as plain vertices into the host run instead — which then ALSO got `.circle=true` (since `r.circle=verts.some(v=>v.cir)`) and rendered a bogus circle through the run's first 3 vertices only, nowhere near the real manholes. `figures()` now tracks a SEPARATE `cirRun` alongside the host `run`: any `CIR` point (that isn't also an explicit `B`) pulls itself and its next 2 vertices OUT of the host run entirely into their own independent 3-point circle, closes that as its own figure, then the host run RESUMES exactly where it left off — so a `CIR` cluster is no longer just "close and restart" (which would still orphan whatever came after the last cluster with no new `B`), it's "skip these 3 points, keep going." Verified against both real jobs: Hamline's `RCED` splits from 1 wrong merged figure into 7 correct standalone circles (9095-97, 9103-05, 9180-82, 9275-78, 9417-19, 9542-44, 9572-74) PLUS the host curb-edge line intact end-to-end (`9488→9524→9527→9528→9582→9583`, skipping only the circle vertices) — confirmed visually in a real browser, the 9572-74 circle the owner reported now renders. Dale's long-documented `MISCL@369` anomaly (flagged since build 40, never fixed) is ALSO fixed as a natural consequence of the same root cause: it now splits into `[5300,5301]` (a plain 2-vertex line — which ALSO makes its `"RT 6 RECT"` box render correctly for the first time, since a clean 2-vertex figure is exactly what the build-42/45 RECT logic expects) plus two proper standalone circles `[5302,5303,5304]` and `[5580,5581,5582]`. Total figure count: Dale 159→161 (net +2, matching the 1-figure-becomes-3 split), every other one of the 150 non-`MISCL` figures byte-identical; Hamline unaffected elsewhere. The one pre-existing combo this deliberately leaves untouched: a vertex with `B` AND `CIR` together (e.g. Dale's `"MISCL B CIR RWLK6 BC"`) still opens a normal explicit-begin run exactly as before (begin takes priority over the new cir-pull-out branch), matching the only real example of that combo on file. |
+    | 48 | 🍓 STRAWBERRY | fix **curb offset lane lines going straight/faceted through an `OC` tangent-arc corner**: the owner's screenshot showed the base line (magenta, RBCB) curving smoothly through a rounded corner at point 9674 (`"RBCB OC"`, between 9673 and 9675), while the green H/V curb offset lane lines through that exact same corner went sharp/faceted instead of following the curve — the same class of "offset lane doesn't track the base line's curve" complaint build 27/36 already fixed for `BC..EC` spans, but `drawOffsets` never had ANY handling for `OC` at all; every `OC` corner fell straight through to the plain `offsetAt` mitered-corner math (build 28), which is correct for a real sharp corner but wrong for a smooth tangent-arc fillet. Fix: extracted `fitTangentArc`'s internal solve into a shared `tangentArcGeom(B,d1,C,d2,OC)` (returns the fitted arc's `center`/tangent points, used as-is by `fitTangentArc` for the base line — byte-identical output, confirmed, since it's the exact same computation just factored out) and added `offsetTangentArc(A,B,C,D,OC,Boff,Coff)`: since perpendicular-shifting a line tangent to a circle by a constant distance keeps it tangent to a CONCENTRIC circle (radius R±that distance) — proven algebraically and confirmed numerically (both tangent points of the offset arc land at the exact same radius from the base arc's own center, to 4 decimal places, equal to base R + the lane's h) — the offset lane's arc reuses the BASE arc's own solved center (not an independent re-fit) and just finds where the already-offset tangent lines (from the existing `offsetAt` points on either side) touch a circle centered there. `drawOffsets` now tracks an `ocAt` flag alongside `bcAt`/`ecAt` and, on hitting an `OC` vertex mid-lane, skips straight to the smooth arc (same skip-the-OC-vertex indexing as `strokeFigure`'s own base-line OC handling) instead of the plain miter. Verified on both real `OC` corners in the Hamline job (points 9254 and 9674) — the green lane lines now curve smoothly and concentrically with the base line at both, confirmed in real browser screenshots with no console errors; purely additive change (only fires when `ocAt[k]` is true with valid bounds), so every non-`OC` curb offset in the file is unaffected. |
   - Suggested next fruits to rotate through:
-    🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
+    🍒 CHERRY, 🥝 KIWI,
     🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -301,6 +302,54 @@ first and follow it on every task in this repo.
       code produced 4 straight chord points (one per original vertex); the
       fixed code produces 67 smooth curve samples, matching the base line's
       own spline fallback in spirit and point count.
+
+## OC tangent-arc corner — offset lane lines (`tangentArcGeom`/`offsetTangentArc`, build 48)
+
+- **`OC`/`POC`** rounds a corner between two straight tangent runs with a
+  smooth arc that's tangent to both and passes through the coded `OC` point
+  (`fitTangentArc`, unrelated to `BC..EC` — no design radius is fit here,
+  the arc is fully determined by the two tangent lines plus the one point).
+  This was always handled correctly for the base figure line, but
+  `drawOffsets` (the green H/V curb cross-section lane lines) never had any
+  `OC` handling at all — every `OC` corner fell through to the plain
+  `offsetAt` mitered/extended corner math (build 28), correct for a real
+  sharp corner but wrong for a smooth fillet, producing the same class of
+  "offset lane doesn't track the base line's curve" complaint build 27/36
+  already fixed for `BC..EC` spans.
+- The owner's screenshot showed exactly this at a real `RBCB` corner (point
+  9674, `"RBCB OC"`, between 9673 and 9675): the magenta base line curved
+  smoothly through the corner while the green offset lanes on either side
+  went sharp/faceted, with visible dashed miter-guide lines instead of a
+  curve.
+- Fix: extracted `fitTangentArc`'s internal solve into a shared
+  `tangentArcGeom(B,d1,C,d2,OC)` returning the fitted arc's `center` and
+  tangent points — `fitTangentArc` itself now just calls this and samples,
+  same exact computation, confirmed byte-identical output for the base
+  line. Then, since perpendicular-shifting a line tangent to a circle by a
+  constant distance keeps it tangent to a **concentric** circle (radius
+  R±that distance) — the same "parallel offset of a circle stays centered
+  the same place" principle build 29 already used for `BC..EC` offset
+  lanes — `offsetTangentArc(A,B,C,D,OC,Boff,Coff)` reuses the BASE arc's
+  own solved `center` (not an independent re-fit) and finds where the
+  already-offset tangent lines (`Boff`/`Coff`, the existing `offsetAt`
+  points on either side of the corner) touch a circle centered there.
+  Verified algebraically and numerically: both of the offset arc's tangent
+  points come out at the exact same radius from the base center (to 4
+  decimal places) — a real circle, not two mismatched arcs — equal to the
+  base radius plus the lane's own `h` offset distance.
+- `drawOffsets` tracks a new `ocAt` flag alongside `bcAt`/`ecAt`; hitting an
+  `OC` vertex mid-lane skips straight to the smooth offset arc (same
+  skip-the-OC-vertex indexing `strokeFigure`'s own base-line handling
+  already uses — the OC vertex itself is never drawn as a lane point, the
+  arc runs from the offset of the point before it to the offset of the
+  point after) instead of the plain miter.
+- Verified against both real `OC` corners in the Hamline job (points 9254
+  and 9674) in a real browser: the green lane lines now curve smoothly and
+  concentrically with the base line at both, no console errors. Purely
+  additive — only fires when `ocAt[k]` is true with valid bounds (mirroring
+  `strokeFigure`'s own `k>=2&&k<=len-3` guard) and both neighboring offset
+  points exist, so every non-`OC` curb offset in the file renders exactly
+  as before.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 
