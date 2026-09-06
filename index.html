@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
   </div>
 
   <div class="main">
@@ -361,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:39};
+const VERSION={fruit:'🍐',name:'PEAR',build:40};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -648,15 +648,17 @@ function buildLinework(){CODES={};
     const m=parseDesc(expandCurb(p.desc));for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});
   for(const code in CODES){
     CODES[code].sort((a,b)=>PTS[a.i].srcLine-PTS[b.i].srcLine);   // connect in file order
-    if(!CODES[code].some(e=>e.f.begin))delete CODES[code];}}      // no B anywhere → not a line
+    if(!CODES[code].some(e=>e.f.begin||e.f.cir))delete CODES[code];}}   // no B and no CIR anywhere → not a line
 function figures(){const figs=[];
   for(const code in CODES){let run=null;
     CODES[code].forEach(({i,f})=>{
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
-      if(!run)return;                                   // no B yet → not a line
+      else if(!run&&f.cir){run={code,verts:[],closed:false,implicitCir:true};}   // CIR with no run open → implicit 3-point circle, no B needed
+      if(!run)return;                                   // no B/CIR yet → not a line
       run.verts.push({i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,rt:f.rt,x:f.x});
       if(f.close){run.closed=true;figs.push(run);run=null;}
-      else if(f.end){figs.push(run);run=null;}});
+      else if(f.end){figs.push(run);run=null;}
+      else if(run.implicitCir&&run.verts.length>=3){figs.push(run);run=null;}});   // auto-close after exactly 3 points
     if(run)figs.push(run);}
   return figs.filter(r=>r.verts.length>=2).map(r=>{
     r.id=r.code+'@'+PTS[r.verts[0].i].srcLine;

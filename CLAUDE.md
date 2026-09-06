@@ -53,8 +53,9 @@ first and follow it on every task in this repo.
     | 37 | 🍒 CHERRY | added a **↻ Refresh** toolbar button — forces `buildLinework()`+`draw()` so the drawing (base line + curb offset lanes) is always rebuilt from current point data on demand, in case a line edit ever leaves the canvas looking stale. Smoke-tested in a real headless browser: loads, enables after a file loads, click redraws and shows a hud confirmation, no console errors |
     | 38 | 🥝 KIWI | new **⊙ CTR** tool: click 3 points (or a single existing CIR-coded line, using its own first 3 vertices) and it drops a new point at the circumcircle center — prompts for the elevation (average of the 3 points, or a custom value) and a code/description, then places the point's `NEZ` record immediately after the 3rd point in file order on export |
     | 39 | 🍑 PEACH | mobile UI pass: the top toolbar now scrolls horizontally instead of silently overflowing the page (confirmed with a real narrow-viewport browser test — buttons past ~390px were completely unclickable before); the tool column (left) is one scrollable flex column instead of a hardcoded-pixel-position zoom +/- pair that had started overlapping the MAP button; the Inspector side panel becomes a slide-in drawer (☰ toggle button, auto-opens on selecting a point/figure, ✕ close button, backdrop tap to close) below 840px instead of just vanishing with `display:none`; modals cap at `92vw`. Caught and fixed a real regression along the way: an invisible always-present drawer backdrop div was an unintended CSS Grid item in the 2-column `.main` layout, silently shoving the desktop side panel into its own row below the canvas — fixed by giving it (and the mobile-only close button) an explicit `display:none` base rule |
+    | 40 | 🍐 PEAR | fix **CIR** requiring a **B** to draw anything: a code with no `begin` anywhere was dropped entirely (`buildLinework`'s "no B anywhere → not a line" filter), and even when the code survived (a B existed elsewhere for it), `figures()` only ever started a run at an explicit B — so a lone 3-shot circle marker like `"MISCL CIR"`/`"MISCL"`/`"MISCL"` with no B, common for small incidental features (a manhole rim, a tree), was silently dropped or invisible. A `CIR`/`CIRCLE` token now implicitly begins its own 3-point run when no run is currently open, auto-closing once it has exactly 3 vertices — matching how a circle figure is actually consumed (`circle3(vs[0],vs[1],vs[2])` only ever uses the first 3 anyway). Verified against the real job file: recovers exactly 3 previously-invisible circles (`TRL` 6377-6379, `MISCL` 5605-5607, `MISCL` 5608-5610) with zero change to any of the other 156 existing figures |
   - Suggested next fruits to rotate through:
-    🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -425,6 +426,55 @@ first and follow it on every task in this repo.
   (phone: toolbar scroll + drawer both working) with real screenshots at each
   width, not just computed-style checks, specifically because of what this
   bug taught about the gap between the two.
+
+## CIR doesn't need a B (build 40, `buildLinework`/`figures`)
+
+- Every OTHER figure code needs an explicit `B` (begin) token somewhere to become
+  a line at all — this is intentional and documented in the toolbar hint ("Lines
+  need a B (begin) — codes with no B stay points"). **`CIR`/`CIRCLE` is the one
+  exception**: it's inherently a fixed 3-point construct (a circle through
+  exactly 3 shots), and in practice crews often shoot a small incidental circular
+  feature (a manhole rim, a tree trunk) as 3 plain points with no B/E at all —
+  just the shared code on all 3, and `CIR` on one of them.
+- Before this fix, that pattern was silently dropped in one of two ways: (1) if
+  the code had genuinely no `B` ANYWHERE in the whole file, `buildLinework`'s
+  `if(!CODES[code].some(e=>e.f.begin))delete CODES[code]` deleted the code
+  entirely before `figures()` ever ran (confirmed on the real job file: the
+  `TRL` code has a real B for one run elsewhere, so it wasn't deleted, but a
+  code with NO B anywhere would have been) — or (2) even when the code
+  survived, `figures()`'s run-builder only ever starts a run at `f.begin`
+  (`if(!run)return;` skips everything else), so a `CIR`-only cluster with no
+  active run just never became part of any figure. Confirmed both failure
+  modes on the real job file: `TRL`'s `6377 CIR / 6378 / 6379` cluster and
+  `MISCL`'s `5605 CIR / 5606 / 5607` and `5608 CIR / 5609 / 5610` clusters
+  were all completely invisible — never rendered, never exported as linework
+  (though still present as plain shots, since that part of parsing is
+  unaffected).
+- Fix: `buildLinework` now keeps a code if it has a `begin` **or** a `cir`
+  anywhere (`e.f.begin||e.f.cir`) — purely additive, never deletes a code the
+  old rule would have kept. In `figures()`, a `cir`-flagged point with no run
+  currently open implicitly starts a new run (flagged `implicitCir:true`),
+  which then **auto-closes once it collects exactly 3 vertices** — regardless
+  of any `E`/`CLS` token, since a circle's vertex count is always exactly 3
+  by construction (this mirrors `strokeFigure`'s own `f.circle&&vs.length>=3`
+  + `circle3(vs[0],vs[1],vs[2])`, which only ever look at the first 3 verts
+  of a circle figure anyway). This only ever fires when `run` is null —
+  a `CIR` token encountered while an explicit `B`-started run is still open
+  (the normal case, e.g. a curb corner marked `CIR` mid-line) behaves exactly
+  as before, just tagging that vertex for `f.circle` detection on the whole
+  run, same as always.
+- Verified against the real job file: `figures()` goes from 156 to 159 —
+  exactly the 3 previously-invisible circles above, each now rendering as
+  a proper 3-point circle (`f.circle===true`) — and every one of the other
+  156 figures is byte-for-byte identical (same code, same vertex list, same
+  order) to before the fix, confirmed via a full before/after diff, not just
+  a spot check. A pre-existing, unrelated quirk in the same data was
+  deliberately left alone: `MISCL`'s `5300 B...5304` run has no `E`/`CLS` of
+  its own, so it stays open and incorrectly swallows a later, unrelated
+  `5580 CIR/5581/5582` cluster into the same run — that's a "run never
+  closes" problem, not a "CIR needs B" problem, and fixing it would mean
+  guessing when an unclosed run should implicitly end, a materially
+  different and riskier change than this one.
 
 ## Point at circle center (`startCircleCtrPick`, build 38, ⊙ CTR toolbar button)
 
