@@ -62,8 +62,9 @@ first and follow it on every task in this repo.
     | 46 | 🍇 GRAPE | fix **build 45's own closing side drawing a spurious diagonal**: the owner confirmed the box now closes, but flagged an extra diagonal line cutting straight across it (from `p1` to the RECT vertex). Cause: after drawing the closing corner and `p1`, the code retraced with one more `put(v.E,v.N,v.Z)` to leave the pen "back on the real point" — the same pattern the other two `RECT` branches use, but there it's harmless because THEY retrace `prior→v`, a segment that was already drawn as the plain base segment; here `p1` is two vertices back (not `prior`), so `p1→v` is a straight chord that was never part of the original L-shaped path (`p1→prior→v`) — a brand-new, wrong diagonal. Fix: drop that last `put()` — the path now simply stops at `p1` after closing (`9878→9879→9880→corner→9878`), still updating `lastE/lastN/lastZ` to `v` for bookkeeping so anything after would still compute its own direction off the real point. Verified against the real 9878-9880 data (put-sequence now ends at the closing corner, no trailing chord) and in a real headless browser — the rendered box now matches the owner's CAD screenshot exactly, no diagonal. |
     | 47 | 🍊 ORANGE | fix **CIR clusters swallowed by an unclosed host run** (`figures()`): the owner's Hamline file showed a real manhole circle (RCED points 9572/9573/9574, near "UTS") not drawing at all — just a plain line through them. Cause was the SAME "run never closes" class of bug build 40 already flagged and deliberately left alone (the Dale `MISCL@369` case): `RCED` has a real, legitimate long curb-edge run (`9488 B`...`9583 E`) that happens to pass near SIX separate manhole-rim `CIR` clusters coded with the same `RCED` figure code — since that host run never hit an `E`/`CLS` before reaching each `CIR` point, `!run&&f.cir` was false (a run WAS open) so the whole implicit-3-point-circle path from build 40 never fired, and the `CIR` points just got appended as plain vertices into the host run instead — which then ALSO got `.circle=true` (since `r.circle=verts.some(v=>v.cir)`) and rendered a bogus circle through the run's first 3 vertices only, nowhere near the real manholes. `figures()` now tracks a SEPARATE `cirRun` alongside the host `run`: any `CIR` point (that isn't also an explicit `B`) pulls itself and its next 2 vertices OUT of the host run entirely into their own independent 3-point circle, closes that as its own figure, then the host run RESUMES exactly where it left off — so a `CIR` cluster is no longer just "close and restart" (which would still orphan whatever came after the last cluster with no new `B`), it's "skip these 3 points, keep going." Verified against both real jobs: Hamline's `RCED` splits from 1 wrong merged figure into 7 correct standalone circles (9095-97, 9103-05, 9180-82, 9275-78, 9417-19, 9542-44, 9572-74) PLUS the host curb-edge line intact end-to-end (`9488→9524→9527→9528→9582→9583`, skipping only the circle vertices) — confirmed visually in a real browser, the 9572-74 circle the owner reported now renders. Dale's long-documented `MISCL@369` anomaly (flagged since build 40, never fixed) is ALSO fixed as a natural consequence of the same root cause: it now splits into `[5300,5301]` (a plain 2-vertex line — which ALSO makes its `"RT 6 RECT"` box render correctly for the first time, since a clean 2-vertex figure is exactly what the build-42/45 RECT logic expects) plus two proper standalone circles `[5302,5303,5304]` and `[5580,5581,5582]`. Total figure count: Dale 159→161 (net +2, matching the 1-figure-becomes-3 split), every other one of the 150 non-`MISCL` figures byte-identical; Hamline unaffected elsewhere. The one pre-existing combo this deliberately leaves untouched: a vertex with `B` AND `CIR` together (e.g. Dale's `"MISCL B CIR RWLK6 BC"`) still opens a normal explicit-begin run exactly as before (begin takes priority over the new cir-pull-out branch), matching the only real example of that combo on file. |
     | 48 | 🍓 STRAWBERRY | fix **curb offset lane lines going straight/faceted through an `OC` tangent-arc corner**: the owner's screenshot showed the base line (magenta, RBCB) curving smoothly through a rounded corner at point 9674 (`"RBCB OC"`, between 9673 and 9675), while the green H/V curb offset lane lines through that exact same corner went sharp/faceted instead of following the curve — the same class of "offset lane doesn't track the base line's curve" complaint build 27/36 already fixed for `BC..EC` spans, but `drawOffsets` never had ANY handling for `OC` at all; every `OC` corner fell straight through to the plain `offsetAt` mitered-corner math (build 28), which is correct for a real sharp corner but wrong for a smooth tangent-arc fillet. Fix: extracted `fitTangentArc`'s internal solve into a shared `tangentArcGeom(B,d1,C,d2,OC)` (returns the fitted arc's `center`/tangent points, used as-is by `fitTangentArc` for the base line — byte-identical output, confirmed, since it's the exact same computation just factored out) and added `offsetTangentArc(A,B,C,D,OC,Boff,Coff)`: since perpendicular-shifting a line tangent to a circle by a constant distance keeps it tangent to a CONCENTRIC circle (radius R±that distance) — proven algebraically and confirmed numerically (both tangent points of the offset arc land at the exact same radius from the base arc's own center, to 4 decimal places, equal to base R + the lane's h) — the offset lane's arc reuses the BASE arc's own solved center (not an independent re-fit) and just finds where the already-offset tangent lines (from the existing `offsetAt` points on either side) touch a circle centered there. `drawOffsets` now tracks an `ocAt` flag alongside `bcAt`/`ecAt` and, on hitting an `OC` vertex mid-lane, skips straight to the smooth arc (same skip-the-OC-vertex indexing as `strokeFigure`'s own base-line OC handling) instead of the plain miter. Verified on both real `OC` corners in the Hamline job (points 9254 and 9674) — the green lane lines now curve smoothly and concentrically with the base line at both, confirmed in real browser screenshots with no console errors; purely additive change (only fires when `ocAt[k]` is true with valid bounds), so every non-`OC` curb offset in the file is unaffected. |
+    | 49 | 🍒 CHERRY | fix **`BC..EC` forcing ONE shared design radius across a real (unmarked) compound curve**: the owner's screenshot showed a genuinely tangled/crossing mess where an `RBCB1` curb curve and an independently-coded `RWLK` walkway curve run right alongside each other — tracing it against a full Civil3D `LIST` dump (whose start point matched a real shot, point 9754, to the hundredth of a foot) showed `RBCB1`'s `BC..EC` span (9791→9809, 7 real shots) covers TWO genuinely different curvature regimes: a tight ~30 ft curve for the first 4 shots, then a much flatter run (CAD radii up to 514 ft) for the last 3 — while the separately-coded `RWLK` figure happens to end its OWN `BC..EC` exactly at the regime change (point 9800) and gets a correspondingly tighter, more accurate ~31 ft fit for the same physical corner. Forcing `RBCB1`'s single least-squares radius (51.4 ft, a compromise between the two regimes) across the WHOLE span put its curve visibly out of step with `RWLK`'s better-fit curve over the same ground — that's the crossing/tangled look. The project's existing tool for exactly this (`PCC`/`PRC`, build 29) requires an explicit marker in the field data, but the owner confirmed **`PCC`/`PRC` are curve-engineering terms, not codes crews ever actually type** — so no marker will ever exist to split on, and the fix has to be automatic. Tried an automatic "does this span's curvature look consistent?" detector two different ways (local 3-point circle radii; first-half-vs-second-half least-squares radii) and calibrated both against every `BC..EC` span in both real job files — neither can safely tell this genuinely-bad span apart from several already-verified-good ones without also flagging them, so no accept/reject threshold change was made (matches this project's standing rule against guessing at breaks the data doesn't mark, per build 40/47's own reasoning). Instead of deciding UP FRONT whether a whole span needs splitting, `arcSegmentsForSpan` now gives every individual segment its own **locally-fitted radius**: each consecutive shot pair gets a least-squares circle fit from a small window centered on it (that pair plus one shot on each side, clamped at the span's own ends) instead of always reusing the one whole-span design radius — a real compound curve's radius drifts along the run as the window slides, with no marker needed to say where, while a genuinely constant-radius run keeps agreeing with itself window to window (overlapping local fits all land close to the same radius, so nothing meaningfully changes there). The whole-span fit is still computed first and still gates accept-vs-fall-back-to-spline exactly as before (build 35's 12% threshold, untouched) and still supplies the side-of-chord tie-break reference for every segment — this only changes what radius a segment reaches for once the span has already passed that gate. Verified against the real Civil3D `LIST` ground truth for the reported span: worst deviation from CAD's own un-shot intermediate vertices dropped from 0.60 ft (old, one shared 51.4 ft radius) to 0.21 ft (new, per-segment radii of 30.9→29.6→31.3→45.1→80.8→84.3 ft — visibly tracking the real tight-to-flat progression), every other checked point improved too. Then re-rendered every `BC..EC` figure in BOTH real job files (58 total) old vs. new and Hausdorff-compared the sample clouds: the reported span changed by exactly the 0.60 ft the fix targets, 19 other spans shifted by small amounts (all ≤0.30 ft — spot-checked Dale's `RBCB2@1621`, a 4-point span whose overlapping 3-point windows shift smoothly 14.1→11.8→8.6 ft, a plausible real local drift, not a degenerate result) consistent with ordinary shot noise rather than a regression, and the remaining ~38 spans were unaffected; total figure counts (99 Hamline, 161 Dale) and the curb offset lane rendering (`curvedOffsetPts`, which reads each segment's already-solved `{center,R}` and so inherits the new locally-varying radii automatically) were unchanged in count and still render without error on both files. Confirmed visually in a real browser: `RBCB1` and `RWLK`'s independently-coded curves over the same physical corner now track each other closely instead of visibly splaying apart and crossing. |
   - Suggested next fruits to rotate through:
-    🍒 CHERRY, 🥝 KIWI,
+    🥝 KIWI,
     🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -77,7 +78,7 @@ first and follow it on every task in this repo.
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
 
-## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-29)
+## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-29, build 49)
 
 - A **BC..EC** span (`PC`/`PT` are aliases) renders as a **constant-radius
   arc that passes exactly through every shot** — not an arbitrary wiggly
@@ -302,6 +303,81 @@ first and follow it on every task in this repo.
       code produced 4 straight chord points (one per original vertex); the
       fixed code produces 67 smooth curve samples, matching the base line's
       own spline fallback in spirit and point count.
+    - **Build 49 fix — a real compound curve with NO marker gets forced into
+      ONE meaningless average radius:** the owner's screenshot showed a
+      genuinely tangled/crossing mess between an `RBCB1` curb curve and an
+      independently-coded `RWLK` walkway curve running alongside it. A full
+      Civil3D `LIST` dump (its start point matched real shot 9754 to the
+      hundredth of a foot, confirming it described this exact curve)
+      showed `RBCB1`'s `BC..EC` span (9791→9809, 7 shots) actually covers
+      TWO different curvature regimes — a tight ~30 ft curve through the
+      first 4 shots, then a much flatter run (Civil3D radii up to 514 ft)
+      through the last 3 — while `RWLK`'s OWN independently-coded
+      `BC..EC` happens to end exactly at that regime change (point 9800)
+      and gets a correspondingly tighter, more accurate ~31 ft fit for the
+      same physical corner. `circleFitLS`'s single least-squares radius
+      over `RBCB1`'s whole 7-point span came out to a compromise 51.4 ft
+      that matches neither regime — putting its curve visibly out of step
+      with `RWLK`'s better-localized curve over identical ground, which is
+      what produced the crossing/tangled appearance.
+    - This is exactly what `PCC`/`PRC` (build 29, above) exist to mark —
+      except the owner confirmed **`PCC`/`PRC` are curve-engineering
+      terms, not codes any crew ever actually types into a field book** —
+      so there is no marker in real data to split on, and any fix has to
+      be fully automatic. Two different automatic "does this span's
+      curvature look internally consistent?" checks were tried — comparing
+      each interior point's own local 3-point circumradius, and comparing
+      a first-half-vs-second-half least-squares fit — and both were
+      calibrated against every `BC..EC` span in both real job files (93
+      spans). Neither threshold could separate this genuinely-bad span
+      from several already-verified-good ones without also flagging them
+      (e.g. previously-good spans showed local-radius ratios up to 5.6,
+      well past this span's 2.87) — so no accept/reject threshold change
+      was made; guessing at a split point the data itself doesn't mark is
+      exactly the class of change build 40/47 already declined for a
+      different reason (an unclosed run's implicit end), and the same
+      caution applies here.
+    - Fix: rather than deciding UP FRONT whether the WHOLE span needs
+      splitting, `arcSegmentsForSpan` now gives every individual segment
+      its own **locally-fitted radius** — each consecutive shot pair's
+      circle now comes from a least-squares fit over a small window
+      centered on it (that pair plus one shot on each side, clamped at the
+      span's own ends: up to 4 points) instead of always reusing the one
+      whole-span design radius. A real compound curve's true radius drifts
+      continuously along the run as this window slides past it, with no
+      marker needed to say where the "break" is; a genuinely
+      constant-radius run keeps agreeing with itself window to window
+      (every overlapping local fit lands close to the same radius, so
+      nothing meaningfully changes for those). The whole-span `circleFitLS`
+      call is still made first and still gates accept-vs-fall-back-to-
+      spline exactly as before (build 35's 12% residual threshold,
+      completely untouched) and still supplies the side-of-chord tie-break
+      reference (`ref`) for every segment's `circleThroughChordR` call —
+      this change only affects what RADIUS a segment reaches for once the
+      span has already passed that unchanged gate.
+    - Verified against the real Civil3D `LIST` ground truth for the exact
+      reported span: the worst deviation of our curve from CAD's own
+      un-shot intermediate vertices dropped from **0.60 ft** (old, one
+      shared 51.4 ft radius) to **0.21 ft** (new, per-segment radii of
+      30.9→29.6→31.3→45.1→80.8→84.3 ft — visibly tracking the real
+      tight-to-flat progression along the run), and every other checked
+      point improved too. Then re-rendered every `BC..EC` figure in BOTH
+      real job files (58 curve figures total) old vs. new and
+      Hausdorff-compared the sample clouds: the reported span changed by
+      exactly the targeted 0.60 ft, 19 other spans shifted by small
+      amounts (all ≤0.30 ft — spot-checked Dale's `RBCB2@1621`, a 4-point
+      span whose overlapping 3-point windows shift smoothly 14.1→11.8→8.6
+      ft, a plausible real local drift rather than a degenerate result),
+      consistent with ordinary shot noise rather than a regression, and
+      the remaining ~38 spans were unaffected. Total figure counts stayed
+      exactly the same (99 Hamline, 161 Dale — no span gained or lost),
+      and the curb offset lane rendering (`curvedOffsetPts`, which reads
+      each segment's already-solved `{center,R}` and so inherits the new
+      locally-varying radii for free, with no code change of its own)
+      still renders every offset lane in both files without error. And
+      confirmed visually in a real browser: `RBCB1` and `RWLK`'s two
+      independently-coded curves over the same physical corner now track
+      each other closely instead of visibly splaying apart and crossing.
 
 ## OC tangent-arc corner — offset lane lines (`tangentArcGeom`/`offsetTangentArc`, build 48)
 
