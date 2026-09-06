@@ -52,8 +52,9 @@ first and follow it on every task in this repo.
     | 36 | 🍓 STRAWBERRY | owner confirmed build 35 fixed the base curve, but the green curb offset **lane lines** through that same non-circular span weren't following it — they went straight/faceted instead of curving. `curvedOffsetPts` derives each lane segment from the BASE line's `arcSegmentsForSpan`, which now (correctly, since build 35) returns `null` for a non-circular span, but its `null` fallback was a straight vertex-to-vertex chord, not a curve. It now falls back to running `sampleCurve` directly on the lane's own offset points (same spline the base line falls back to) instead of chording it straight |
     | 37 | 🍒 CHERRY | added a **↻ Refresh** toolbar button — forces `buildLinework()`+`draw()` so the drawing (base line + curb offset lanes) is always rebuilt from current point data on demand, in case a line edit ever leaves the canvas looking stale. Smoke-tested in a real headless browser: loads, enables after a file loads, click redraws and shows a hud confirmation, no console errors |
     | 38 | 🥝 KIWI | new **⊙ CTR** tool: click 3 points (or a single existing CIR-coded line, using its own first 3 vertices) and it drops a new point at the circumcircle center — prompts for the elevation (average of the 3 points, or a custom value) and a code/description, then places the point's `NEZ` record immediately after the 3rd point in file order on export |
+    | 39 | 🍑 PEACH | mobile UI pass: the top toolbar now scrolls horizontally instead of silently overflowing the page (confirmed with a real narrow-viewport browser test — buttons past ~390px were completely unclickable before); the tool column (left) is one scrollable flex column instead of a hardcoded-pixel-position zoom +/- pair that had started overlapping the MAP button; the Inspector side panel becomes a slide-in drawer (☰ toggle button, auto-opens on selecting a point/figure, ✕ close button, backdrop tap to close) below 840px instead of just vanishing with `display:none`; modals cap at `92vw`. Caught and fixed a real regression along the way: an invisible always-present drawer backdrop div was an unintended CSS Grid item in the 2-column `.main` layout, silently shoving the desktop side panel into its own row below the canvas — fixed by giving it (and the mobile-only close button) an explicit `display:none` base rule |
   - Suggested next fruits to rotate through:
-    🍑 PEACH, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
+    🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -356,6 +357,74 @@ first and follow it on every task in this repo.
   back out as a `Point,Northing,Easting,Elevation,Description` file (3-dp coords,
   header row, descriptions CSV-quoted when they contain commas/quotes). Round-trips
   with `importCSV`.
+
+## Mobile UI pass (build 39)
+
+- **Toolbar (`.bar`) horizontal scroll:** it's a single-row flex bar with no wrap.
+  On a narrow phone viewport the row was wider than the screen with no way to
+  reach the overflow — confirmed with a real headless-browser test at 390px
+  width: `.bar`'s own bounding box was wider than the viewport (no scrollbar,
+  no clipping) and buttons past ~373px were unclickable (Playwright's
+  coordinate-based click landed on `.bar` itself, not the button, since that
+  screen position wasn't really visible content). Fixed with
+  `.bar{overflow-x:auto;...}` plus `.bar>*{flex-shrink:0}` (every direct child,
+  including `.brand`, keeps its natural size instead of getting squished/
+  wrapped into unreadable fragments) — the whole row now swipes/scrolls
+  instead of overflowing invisibly. Verified every button (first and last)
+  is reachable via `scrollIntoView`/swipe and actually clickable afterward.
+- **Left tool column, and a real pre-existing bug it exposed:** `.tools` (the
+  vertical SEL/MOVE/PAN/… icon column) is now `top:12px;bottom:12px` with its
+  own `overflow-y:auto` instead of a fixed height, so it scrolls internally on
+  a short viewport instead of tools running off-screen. The zoom **+/−**
+  buttons used to be a SEPARATE absolutely-positioned block hardcoded to
+  `top:430px` — with 10 tool buttons now (after build 38 added **CTR**), the
+  tools column had grown tall enough that this fixed offset landed the zoom
+  buttons ON TOP of the **MAP** button, hiding it (confirmed in a screenshot —
+  MAP had visually vanished). Moved `zIn`/`zOut` to be plain trailing children
+  of the SAME `.tools` flex column (with a small `margin-top` for grouping)
+  instead of a second absolutely-positioned block, so this whole class of bug
+  (a hardcoded pixel offset silently overlapping content as the tool list
+  grows) can't recur — the column just gets one item taller/scrollable.
+- **Inspector side panel — mobile drawer instead of vanishing:** below 840px
+  the panel used to just `display:none` — since almost every editing action
+  (viewing a point's fields, the figure/line editor, Review/edit FBK code)
+  lives in that panel, this made the app effectively read-only-ish on a phone
+  with zero visible feedback when you tapped a point. It's now a slide-in
+  drawer (`#sidePanel`, `position:fixed;right:0` sliding in via `transform`)
+  toggled by a new **☰ Inspector** toolbar button (`sideToggleBtn`, itself only
+  shown below 840px), a **✕** close button in the panel header
+  (`sideCloseBtn`), and a tap-to-close backdrop (`#sideScrim`). `openSideMobile()`
+  — called from `inspect()`, `inspectFig()`, and `inspectMulti()`, guarded so
+  it only fires on an actual selection (not the "click a point" placeholder
+  state) — auto-opens the drawer the moment you select a point/figure/box-set
+  on a narrow screen, so the existing selection flows didn't need to change
+  at all; only the container around them gained show/hide behavior.
+- **Modal width:** `.modal` was a fixed `300px` — changed to `width:min(300px,92vw)`
+  (plus `max-height:90vh;overflow:auto`) so a dialog can't run wider than a
+  narrow phone screen or taller than its viewport.
+- **A real regression caught and fixed before pushing:** the new `#sideScrim`
+  backdrop div sits, in the HTML, as a direct child of `.main` (the 2-column
+  CSS Grid: `.stage` + `.side`) alongside `.stage`/`.side` — with no `display`
+  rule of its own outside the mobile media query, it defaulted to
+  `display:block` and was silently counted as a THIRD grid item. Grid
+  auto-placement filled row 1 with `.stage` (col 1) and the invisible scrim
+  (col 2), leaving no room for `.side` in that row, so it wrapped to row 2 —
+  which visually shoved the entire desktop Inspector panel into a full-width
+  band BELOW the canvas instead of docked on the right, even though every
+  `getComputedStyle`/JS-level check (`display:flex`, `position:static`, no
+  `.open` class) looked completely correct. Only comparing actual
+  `getBoundingClientRect()` output against a real screenshot exposed it — a
+  reminder that computed-style checks alone don't prove a layout is actually
+  correct; a `display:none` element is invisible in a screenshot but still
+  very much present to a Grid/Flexbox parent unless it's explicitly told not
+  to be. Fixed with a base (non-media-query) `.sideScrim{display:none}` rule
+  (and the same for `.sideClose`, the drawer's close button, which had the
+  identical bug — visible by default on desktop with no base rule). Verified
+  at 1400px (desktop: 2-column grid intact, no stray close button), 768px
+  (tablet: drawer behavior, since it's under the 840px breakpoint), and 390px
+  (phone: toolbar scroll + drawer both working) with real screenshots at each
+  width, not just computed-style checks, specifically because of what this
+  bug taught about the gap between the two.
 
 ## Point at circle center (`startCircleCtrPick`, build 38, ⊙ CTR toolbar button)
 

@@ -16,12 +16,13 @@
 html,body{height:100%}
 body{background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,sans-serif;overflow:hidden}
 .app{display:grid;grid-template-rows:auto 1fr;height:100%}
-.bar{display:flex;align-items:center;gap:12px;padding:9px 14px;background:linear-gradient(180deg,var(--navy),var(--navy2));border-bottom:3px solid var(--gold)}
-.brand{display:flex;flex-direction:column;line-height:1.05}
+.bar{display:flex;align-items:center;gap:12px;padding:9px 14px;background:linear-gradient(180deg,var(--navy),var(--navy2));border-bottom:3px solid var(--gold);overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.brand{display:flex;flex-direction:column;line-height:1.05;flex-shrink:0;white-space:nowrap}
 .brand .k{font:600 9px/1 var(--mono);letter-spacing:.28em;color:var(--gold);text-transform:uppercase}
 .brand .t{font-weight:700;font-size:15px}
-.bar .grow{flex:1}
-.btn{background:#13213f;color:var(--ink);border:1px solid var(--rule);padding:7px 12px;border-radius:6px;font:600 12px var(--mono);cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.bar .grow{flex:1 0 auto;min-width:12px}
+.bar>*{flex-shrink:0}
+.btn{background:#13213f;color:var(--ink);border:1px solid var(--rule);padding:7px 12px;border-radius:6px;font:600 12px var(--mono);cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 .btn:hover{border-color:var(--gold-dim);background:#182a4f}
 .btn.gold{background:var(--gold);color:#1b1300;border-color:var(--gold)}
 .btn.gold:hover{background:#ffc94d}
@@ -37,12 +38,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 #agmap .esri-view-surface{outline:none}
 .tools,.zbtns,.legend,.vex,.hud,.zwbox{z-index:2}
 .hud{position:absolute;left:12px;bottom:12px;font:600 11px var(--mono);color:var(--mut);background:rgba(7,11,22,.7);border:1px solid var(--rule);padding:6px 10px;border-radius:6px;pointer-events:none}
-.tools{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:6px}
-.tool{width:40px;height:40px;border-radius:8px;border:1px solid var(--rule);background:rgba(15,22,38,.85);color:var(--mut);cursor:pointer;font:700 14px var(--mono);display:grid;place-items:center}
+.tools{position:absolute;left:12px;top:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.tool{width:40px;height:40px;border-radius:8px;border:1px solid var(--rule);background:rgba(15,22,38,.85);color:var(--mut);cursor:pointer;font:700 14px var(--mono);display:grid;place-items:center;flex-shrink:0}
 .tool:hover{color:var(--ink);border-color:var(--gold-dim)}
 .tool.on{background:var(--gold);color:#1b1300;border-color:var(--gold)}
 .tool .sub{font:600 7px/1 var(--mono);letter-spacing:.05em;margin-top:1px}
-.zbtns{position:absolute;left:12px;top:430px;display:flex;flex-direction:column;gap:6px}
 .legend{position:absolute;right:12px;top:12px;background:rgba(7,11,22,.72);border:1px solid var(--rule);border-radius:8px;padding:9px 11px;font:600 11px var(--mono);color:var(--mut);display:grid;gap:5px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:-1px}
 .vex{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:none;align-items:center;gap:10px;background:rgba(7,11,22,.82);border:1px solid var(--rule);border-radius:8px;padding:7px 13px;font:600 11px var(--mono);color:var(--mut)}
@@ -99,7 +99,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 /* modal */
 .scrim{position:fixed;inset:0;background:rgba(4,8,16,.6);display:none;place-items:center;z-index:20}
 .scrim.show{display:grid}
-.modal{background:var(--panel);border:1px solid var(--rule);border-top:3px solid var(--gold);border-radius:10px;width:300px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal{background:var(--panel);border:1px solid var(--rule);border-top:3px solid var(--gold);border-radius:10px;width:min(300px,92vw);max-height:90vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .modal h4{font:700 11px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin-bottom:12px}
 .modal.big{width:min(720px,94vw)}
 .codewrap{position:relative;height:min(56vh,360px);border:1px solid var(--rule);border-radius:6px;overflow:hidden;background:#0a1426}
@@ -116,7 +116,21 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .modal .hint{font:11px var(--mono);color:var(--mut);margin-top:8px;min-height:14px}
 .modal .row{display:flex;gap:8px;margin-top:14px}
 .modal .row .btn{flex:1;justify-content:center}
-@media(max-width:840px){.main{grid-template-columns:1fr}.side{display:none}}
+.sideToggle{display:none}
+.sideScrim{display:none}
+.sideClose{display:none}
+@media(max-width:840px){
+  .main{grid-template-columns:1fr}
+  .side{position:fixed;top:0;right:0;bottom:0;width:min(340px,88vw);z-index:12;
+    transform:translateX(100%);transition:transform .22s ease;box-shadow:-8px 0 24px rgba(0,0,0,.4)}
+  .side.open{transform:translateX(0)}
+  .side h3{display:flex;align-items:center;gap:8px}
+  .sideClose{display:inline-flex;margin-left:auto;background:transparent;border:1px solid var(--rule);color:var(--mut);
+    border-radius:6px;padding:3px 9px;font:700 12px var(--mono);cursor:pointer}
+  .sideToggle{display:inline-flex}
+  .sideScrim{position:fixed;inset:0;background:rgba(4,8,16,.5);z-index:11;display:none}
+  .sideScrim.show{display:block}
+}
 </style>
 </head>
 <body>
@@ -137,7 +151,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -156,9 +171,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <button class="tool" id="tCircleCtr" title="Place a point at the center of a 3-point circle — click 3 points, or click an existing CIR-coded line to use its own 3 points"><span>⊙</span><span class="sub">CTR</span></button>
         <button class="tool" id="tArr" title="Toggle direction arrows (A)"><span>➤</span><span class="sub">DIR</span></button>
         <button class="tool" id="tMap" title="Toggle GIS map background (M)" style="margin-top:12px"><span>🗺</span><span class="sub">MAP</span></button>
-      </div>
-      <div class="zbtns">
-        <button class="tool" id="zIn" title="Zoom in">＋</button>
+        <button class="tool" id="zIn" title="Zoom in" style="margin-top:12px">＋</button>
         <button class="tool" id="zOut" title="Zoom out">－</button>
       </div>
       <div class="legend" id="legend">
@@ -174,9 +187,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       </div>
       <div class="hud" id="hud">load a .fbk to begin</div>
     </div>
+    <div class="sideScrim" id="sideScrim"></div>
 
-    <div class="side">
-      <h3>Inspector</h3>
+    <div class="side" id="sidePanel">
+      <h3>Inspector<button class="sideClose" id="sideCloseBtn" title="Close">✕</button></h3>
       <div class="scroll" id="insp">
         <div class="empty">Load an FBK, then click a point.<br><br>
           <b>SEL</b> edits the descriptor code that drives linework, or deletes a shot. <b>Drag a box</b> on empty canvas to select many points (Shift-drag adds; Delete removes).<br>
@@ -347,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:38};
+const VERSION={fruit:'🍑',name:'PEACH',build:39};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1587,6 +1601,7 @@ function pick(sx,sy){let best=-1,bd=12;PTS.forEach((p,i)=>{if(p.deleted)return;
 /* ---------- inspector ---------- */
 function inspect(){const box=$('insp');
   if(sel<0){box.innerHTML='<div class="empty">Click a point to inspect it.</div>';return;}
+  openSideMobile();
   const p=PTS[sel];
   const esc=s=>(s||'').replace(/"/g,'&quot;');
   if(p.kind==='ctrl'){const fs=figuresOfPoint(sel);
@@ -1639,6 +1654,7 @@ function inspect(){const box=$('insp');
 /* Inspector for a box (marquee) selection of multiple points. */
 function inspectMulti(){const box=$('insp');const ids=[...selSet].filter(i=>PTS[i]);
   if(!ids.length){sel=-1;selFig=null;inspect();return;}
+  openSideMobile();
   const delN=ids.filter(i=>PTS[i].deleted).length,liveN=ids.length-delN;
   const rows=ids.slice(0,80).map(i=>{const p=PTS[i];const code=(p.desc||'').split(/\s+/)[0]||'';
     return `<div class="vrow"><div class="vhd"><span class="vpt">pt ${p.id}${p.deleted?' <span class="arc" style="background:#3a1c1c;color:#ff8a80">DEL</span>':''}</span><span class="vln">${code}</span></div></div>`;}).join('');
@@ -1668,6 +1684,7 @@ function multiDelete(del){const ids=[...selSet].filter(i=>PTS[i]&&PTS[i].deleted
   buildLinework();draw();inspectMulti();flagDirty();
   hud(`${del?'deleted':'restored'} ${ids.length} point(s)`);}
 function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="empty">Figure not found.</div>';return;}
+  openSideMobile();
   const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added})).filter(o=>o.p&&!o.p.deleted);
   const moved=!!figOrder[f.id];
   const adding=addPt&&addPt.figId===f.id;
@@ -2241,6 +2258,11 @@ $('zIn').onclick=()=>zoomBy(1.25);
 $('zOut').onclick=()=>zoomBy(1/1.25);
 $('fitBtn').onclick=fit;
 $('refreshBtn').onclick=()=>{buildLinework();draw();hud('redrawn — linework and offsets rebuilt from current data');};
+function openSideMobile(){if(window.innerWidth<=840){$('sidePanel').classList.add('open');$('sideScrim').classList.add('show');}}
+function closeSideMobile(){$('sidePanel').classList.remove('open');$('sideScrim').classList.remove('show');}
+$('sideToggleBtn').onclick=()=>{$('sidePanel').classList.toggle('open');$('sideScrim').classList.toggle('show');};
+$('sideCloseBtn').onclick=closeSideMobile;
+$('sideScrim').onclick=closeSideMobile;
 $('dlBtn').onclick=exportFBK;
 $('dlRawBtn').onclick=()=>exportFBK(false);
 $('dlCsvBtn').onclick=exportCSV;
