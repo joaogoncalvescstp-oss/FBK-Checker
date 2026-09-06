@@ -60,8 +60,9 @@ first and follow it on every task in this repo.
     | 44 | 🍎 APPLE | fix **RECT** per the vendor Civil3D doc (`RT`/`X`/`RECT` reference page, pasted by the owner): the real syntax lets an arbitrary CHAIN of values follow one `RT` — e.g. `"BLD1 RT X10.1 5 -12.2 -5 -12.2"` extends the segment then jogs perpendicular 4 more times, each off the PREVIOUS leg's own direction — but `parseDesc` only ever captured the FIRST value after `RT`/`X` and silently dropped every value after it (confirmed: parsing that exact doc example returned only `rt=5`, discarding `-12.2/-5/-12.2` entirely). Replaced the single `rt`/`x` scalars with a `jogs` array so every value in the chain survives, in order, tagged `x` (straight extend) or `rt` (90° turn, sign = right/left) — `strokeFigure` walks the array leg by leg, each turn rotating 90° off whatever direction the PREVIOUS leg ended facing (same alternating-turn math build 43 already proved correct, just applied within one point's chain instead of across several points). Also fixed **`RECT` closing a chain**: it now computes the true "perpendicular/perpendicular line intersection back to the starting segment" the doc describes — projecting the chain's own endpoint onto the base segment's perpendicular axis through the prior point (`lineIntersect`-equivalent closed form) — instead of only working when `RECT` and `RT` happened to share the same single value. Verified this collapses to the EXACT byte-identical geometry as the old (build 42/43-verified) formula for every real case on file — the single-turn `"RT 6 RECT"` (pt 5300→5301) and the plain multi-point `"RT 9.52"` chain (Hamline BLD1) both reproduced their previously-ground-truth-verified coordinates exactly through the real `index.html` parse→figures→strokeFigure pipeline, not just a standalone reimplementation — before adding the new chain support. No real job file on hand actually uses a multi-value `RT` chain yet, so this is verified against the vendor doc's own worked example (all 5 legs now parsed vs. 1 before) and a synthetic multi-leg chain rendered end-to-end in a real headless browser with no console errors. |
     | 45 | 🍌 BANANA | fix **RECT closing a plain 3-shot L with no `RT` at all**: the owner's real job has `"RCED B"` / `"RCED"` / `"RCED E RECT"` — three real corner shots (9878→9879→9880, ~89° angle between the two segments, near-equal side lengths) meant to close into a box around a nearby manhole/circle feature — with **no `RT` anywhere in the figure**. Build 44's fix only handled `RECT` closing an `RT`-built chain; here `rectSeen` was true but `rect` stayed `null` (no `rt` leg to default from) and `jogs` was empty, so the widened trigger condition (`v.jogs.length||v.rect!=null`) was FALSE and the whole `RECT` was silently a no-op — confirmed exactly matching the owner's screenshot: the app drew only the open `9878→9879→9880` line, no closing box, while their CAD showed a clean 4-sided rectangle around the circle. Added a third, simpler `RECT` case: a bare `RECT` with no explicit value AND no `rt`/`x` legs at all (`closeL`) closes the last TWO real segments (prior-prior → prior → this) into a box using their own already-shot geometry — no distance needed, since 3 corners of a rectangle fully determine the 4th (`corner4 = p1 + (p3 − p2)`, the standard parallelogram-closing vector sum). Verified against the real point data: the 4th corner computed to close 9878/9879/9880 reproduces a proper rectangle (each side vector matches its opposite side's negation to the mm), and a real headless-browser screenshot of this exact figure now shows the identical closed box (with the circle sitting inside it) as the owner's Civil3D screenshot. Re-verified builds 42-44's real cases (Dale 5300/5301 `"RT 6 RECT"`, Hamline `BLD1` `RT`-chain) are completely unaffected — this is a new, mutually-exclusive branch (`jogs.length` → chain-close; `rect!=null` → old standalone jog+close; `closeL` → new no-distance 3-point close), not a change to either existing path. |
     | 46 | 🍇 GRAPE | fix **build 45's own closing side drawing a spurious diagonal**: the owner confirmed the box now closes, but flagged an extra diagonal line cutting straight across it (from `p1` to the RECT vertex). Cause: after drawing the closing corner and `p1`, the code retraced with one more `put(v.E,v.N,v.Z)` to leave the pen "back on the real point" — the same pattern the other two `RECT` branches use, but there it's harmless because THEY retrace `prior→v`, a segment that was already drawn as the plain base segment; here `p1` is two vertices back (not `prior`), so `p1→v` is a straight chord that was never part of the original L-shaped path (`p1→prior→v`) — a brand-new, wrong diagonal. Fix: drop that last `put()` — the path now simply stops at `p1` after closing (`9878→9879→9880→corner→9878`), still updating `lastE/lastN/lastZ` to `v` for bookkeeping so anything after would still compute its own direction off the real point. Verified against the real 9878-9880 data (put-sequence now ends at the closing corner, no trailing chord) and in a real headless browser — the rendered box now matches the owner's CAD screenshot exactly, no diagonal. |
+    | 47 | 🍊 ORANGE | fix **CIR clusters swallowed by an unclosed host run** (`figures()`): the owner's Hamline file showed a real manhole circle (RCED points 9572/9573/9574, near "UTS") not drawing at all — just a plain line through them. Cause was the SAME "run never closes" class of bug build 40 already flagged and deliberately left alone (the Dale `MISCL@369` case): `RCED` has a real, legitimate long curb-edge run (`9488 B`...`9583 E`) that happens to pass near SIX separate manhole-rim `CIR` clusters coded with the same `RCED` figure code — since that host run never hit an `E`/`CLS` before reaching each `CIR` point, `!run&&f.cir` was false (a run WAS open) so the whole implicit-3-point-circle path from build 40 never fired, and the `CIR` points just got appended as plain vertices into the host run instead — which then ALSO got `.circle=true` (since `r.circle=verts.some(v=>v.cir)`) and rendered a bogus circle through the run's first 3 vertices only, nowhere near the real manholes. `figures()` now tracks a SEPARATE `cirRun` alongside the host `run`: any `CIR` point (that isn't also an explicit `B`) pulls itself and its next 2 vertices OUT of the host run entirely into their own independent 3-point circle, closes that as its own figure, then the host run RESUMES exactly where it left off — so a `CIR` cluster is no longer just "close and restart" (which would still orphan whatever came after the last cluster with no new `B`), it's "skip these 3 points, keep going." Verified against both real jobs: Hamline's `RCED` splits from 1 wrong merged figure into 7 correct standalone circles (9095-97, 9103-05, 9180-82, 9275-78, 9417-19, 9542-44, 9572-74) PLUS the host curb-edge line intact end-to-end (`9488→9524→9527→9528→9582→9583`, skipping only the circle vertices) — confirmed visually in a real browser, the 9572-74 circle the owner reported now renders. Dale's long-documented `MISCL@369` anomaly (flagged since build 40, never fixed) is ALSO fixed as a natural consequence of the same root cause: it now splits into `[5300,5301]` (a plain 2-vertex line — which ALSO makes its `"RT 6 RECT"` box render correctly for the first time, since a clean 2-vertex figure is exactly what the build-42/45 RECT logic expects) plus two proper standalone circles `[5302,5303,5304]` and `[5580,5581,5582]`. Total figure count: Dale 159→161 (net +2, matching the 1-figure-becomes-3 split), every other one of the 150 non-`MISCL` figures byte-identical; Hamline unaffected elsewhere. The one pre-existing combo this deliberately leaves untouched: a vertex with `B` AND `CIR` together (e.g. Dale's `"MISCL B CIR RWLK6 BC"`) still opens a normal explicit-begin run exactly as before (begin takes priority over the new cir-pull-out branch), matching the only real example of that combo on file. |
   - Suggested next fruits to rotate through:
-    🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
+    🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
     🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -434,7 +435,7 @@ first and follow it on every task in this repo.
   width, not just computed-style checks, specifically because of what this
   bug taught about the gap between the two.
 
-## CIR doesn't need a B (build 40, `buildLinework`/`figures`)
+## CIR doesn't need a B (build 40, `buildLinework`/`figures`, build 47)
 
 - Every OTHER figure code needs an explicit `B` (begin) token somewhere to become
   a line at all — this is intentional and documented in the toolbar hint ("Lines
@@ -482,6 +483,59 @@ first and follow it on every task in this repo.
   closes" problem, not a "CIR needs B" problem, and fixing it would mean
   guessing when an unclosed run should implicitly end, a materially
   different and riskier change than this one.
+- **Build 47 fix — the "unclosed run swallows a later CIR cluster" problem
+  build 40 deliberately left alone turned out to be a real, live bug, not
+  just theoretical:** the owner's Hamline job showed a real manhole circle
+  (`RCED` points 9572/9573/9574, right next to a labeled `UTS` point) not
+  drawing at all — just a plain line running through where the circle
+  should be. `RCED` in this file has a genuine long curb-edge line
+  (`9488 B` ... `9583 E`, 6 real vertices) that happens to pass near **six
+  separate** small manhole-rim `CIR` clusters coded with the SAME `RCED`
+  figure code (`9095-97`, `9103-05`, `9180-82`, `9275-78`, `9417-19`, plus
+  the reported `9542-44` and `9572-74`) — since that host run is still open
+  (no `E`/`CLS` hit yet) by the time it reaches each `CIR` point, build 40's
+  `!run&&f.cir` guard is false, so the implicit-3-point-circle path never
+  fires; the `CIR` points just get appended as plain vertices into the host
+  run, which then ALSO picks up `.circle=true` (`r.circle=...||
+  verts.some(v=>v.cir)`) and renders one bogus circle through the host
+  run's first 3 vertices only (nowhere near the actual manholes) instead of
+  drawing the host line at all.
+  - Fix: `figures()` now tracks a SEPARATE `cirRun` alongside the host
+    `run`. Any `CIR`-flagged point that ISN'T also an explicit `B` on the
+    same vertex pulls itself and the next 2 vertices OUT of the host run
+    entirely (the host run is left untouched, effectively paused) into
+    their own independent 3-point circle; once that circle collects exactly
+    3 vertices it's pushed as its own figure, and the host run resumes
+    exactly where it left off. This is different from just "close the host
+    run and start a new one at the CIR point" (which would still lose
+    whatever came after the last cluster if no fresh `B` ever appears
+    before the real `E`) — the host run's identity and open/closed state
+    are never touched by a `CIR` interruption at all.
+  - The one combo deliberately left as-is: a vertex with `B` **and** `CIR`
+    together (e.g. the real `"MISCL B CIR RWLK6 BC"` in the Dale job) still
+    opens a normal explicit-begin run exactly as before — the new
+    cir-pull-out branch only fires when `f.cir&&!f.begin`, so `f.begin`
+    always wins on a shared vertex, matching the only real example of that
+    exact combo on file.
+  - Verified against both real jobs: Hamline's `RCED` now produces 9 correct
+    figures instead of 1 wrong merged one — 7 standalone circles (the 6
+    pre-existing ones plus the reported `9572-74`) all rendering as proper
+    3-point circles, PLUS the host curb-edge line intact end-to-end
+    (`9488→9524→9527→9528→9582→9583`, correctly skipping only the
+    circle-cluster vertices) — confirmed in a real headless-browser
+    screenshot that the 9572-74 circle now actually renders next to `UTS`.
+    Dale's long-standing documented `MISCL@369` anomaly (called out in build
+    40's own notes above, never fixed until now) is fixed as a natural
+    consequence of the identical root cause: it now splits into
+    `[5300,5301]` (a clean 2-vertex line, which as a side effect also makes
+    its `"RT 6 RECT"` box finally render — see the RT/X/RECT section below)
+    plus two correct standalone circles `[5302,5303,5304]` and
+    `[5580,5581,5582]`. Total figure count: Dale goes from 159 to 161 (net
+    +2, matching one wrong figure splitting into three correct ones), and
+    every one of the other 150 non-`MISCL` figures is byte-for-byte
+    identical to before — confirmed via a full figure-by-figure diff, not a
+    spot check. Hamline's other 90+ figures (every code besides `RCED`) are
+    likewise untouched.
 
 ## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`/`strokeFigure`, build 42-46)
 
@@ -651,6 +705,13 @@ first and follow it on every task in this repo.
     correct by testing it in isolation (a standalone 2-vertex figure built
     from those same real points' real coordinates, bypassing the unrelated
     merge) — see verification above.
+    **Update, build 47:** this is now actually fixed, as a side effect of
+    the "CIR doesn't need a B" section's build-47 fix (`figures()` pulling a
+    `CIR` cluster fully out of whatever host run it interrupts, instead of
+    the host run swallowing it) — `MISCL@369` now correctly splits into its
+    own clean 2-vertex `[5300,5301]` line (so this `"RT 6 RECT"` box finally
+    renders as intended) plus two separate proper circles. See the CIR
+    section above for the full writeup; not re-verified twice here.
 - **Build 45 fix — bare `RECT` closing a plain 3-shot L with NO `RT` at all:**
   the owner sent a CAD screenshot (a clean closed rectangle box around a
   circle) next to the app's own render of the SAME area (an open dead-ending
