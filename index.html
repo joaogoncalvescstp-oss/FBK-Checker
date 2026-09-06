@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
   </div>
 
   <div class="main">
@@ -361,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:51};
+const VERSION={fruit:'🍍',name:'PINEAPPLE',build:52};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1116,7 +1116,7 @@ function headingForPoint(i){       // best-effort heading when opening Street Vi
   const vs=fs[0].verts.map(v=>({p:PTS[v.i],i:v.i})).filter(o=>o.p&&!o.p.deleted);
   const k=vs.findIndex(o=>o.i===i);if(k<0)return 0;
   return headingAt(vs,k);}
-function openStreetView(p,headingDeg){window.open(streetViewURL(p.E,p.N,headingDeg),'_blank','noopener');}
+function openStreetView(p,headingDeg){window.open(streetViewURL(p.E,p.N,headingDeg),'fbk_streetview');}   // deliberately NO 'noopener' — it forces a brand-new tab on every call (bypasses browsing-context name matching entirely), which would defeat the whole point of naming this window: reusing the SAME tab across repeated calls, incl. the walk-the-line Prev/Next below, so it re-navigates one tab instead of spawning a new one each time. The URL is always one we build ourselves (google.com/maps), never user-supplied, so the usual reverse-tabnabbing risk noopener guards against doesn't apply here.
 
 // the survey-coordinate rectangle currently visible on screen
 function viewportBounds(){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
@@ -1802,6 +1802,12 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     <div class="field"><label>Figure</label>
       <div class="fighead"><span class="figname" style="color:${codeColor(f.code)}">${f.code}</span>
         <span class="figmeta">${vs.length} vtx · ${f.closed?'closed':'open'}${moved?' · reordered':''}${figNEZ[f.id]?' · NEZ':''}</span></div></div>
+    ${vs.length?`<div class="chgrp">
+      <button class="btn" id="svPrevBtn" title="Previous point">◀</button>
+      <button class="btn gold" id="svWalkBtn" style="flex:1">📷 Walk line in Street View</button>
+      <button class="btn" id="svNextBtn" title="Next point">▶</button>
+    </div>
+    <div class="note" id="svWalkLbl" style="text-align:center;padding:4px 0 9px"></div>`:''}
     <div class="chgrp">
       <button class="btn" id="revBtn">⇄ Reverse</button>
       <button class="btn" id="resetBtn" ${moved?'':'disabled'}>↺ Reset order</button>
@@ -1825,6 +1831,18 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     if(b.dataset.act==='sv'){const i=+b.dataset.i,k=vs.findIndex(o=>o.i===i);openStreetView(PTS[i],headingAt(vs,k));return;}
     if(b.dataset.act==='rm'){removeExtra(f.id,+b.dataset.i);return;}
     const k=+b.dataset.k;if(b.dataset.act==='up')reorderFig(f.id,k,k-1);else reorderFig(f.id,k,k+1);});
+  if(vs.length){                     // "walk the line" in Street View: Prev/Next re-navigate the SAME Street View tab (see openStreetView) down the line's own vertex order, one point at a time, each facing along the line
+    let walkIdx=0;
+    const lbl=$('svWalkLbl');
+    const showWalk=()=>{lbl.textContent=`pt ${vs[walkIdx].p.id} · ${walkIdx+1}/${vs.length}`;
+      $('svPrevBtn').disabled=walkIdx===0;$('svNextBtn').disabled=walkIdx===vs.length-1;};
+    const gotoWalk=i=>{walkIdx=Math.max(0,Math.min(vs.length-1,i));showWalk();
+      openStreetView(vs[walkIdx].p,headingAt(vs,walkIdx));};
+    showWalk();
+    $('svWalkBtn').onclick=()=>gotoWalk(0);
+    $('svPrevBtn').onclick=()=>gotoWalk(walkIdx-1);
+    $('svNextBtn').onclick=()=>gotoWalk(walkIdx+1);
+  }
   // drag a vertex row to drop it anywhere in the draw order
   let dragK=-1;
   const clearDrop=()=>box.querySelectorAll('.vrow').forEach(r=>r.classList.remove('dragging','dropbefore','dropafter'));
