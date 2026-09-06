@@ -56,8 +56,10 @@ first and follow it on every task in this repo.
     | 40 | 🍐 PEAR | fix **CIR** requiring a **B** to draw anything: a code with no `begin` anywhere was dropped entirely (`buildLinework`'s "no B anywhere → not a line" filter), and even when the code survived (a B existed elsewhere for it), `figures()` only ever started a run at an explicit B — so a lone 3-shot circle marker like `"MISCL CIR"`/`"MISCL"`/`"MISCL"` with no B, common for small incidental features (a manhole rim, a tree), was silently dropped or invisible. A `CIR`/`CIRCLE` token now implicitly begins its own 3-point run when no run is currently open, auto-closing once it has exactly 3 vertices — matching how a circle figure is actually consumed (`circle3(vs[0],vs[1],vs[2])` only ever uses the first 3 anyway). Verified against the real job file: recovers exactly 3 previously-invisible circles (`TRL` 6377-6379, `MISCL` 5605-5607, `MISCL` 5608-5610) with zero change to any of the other 156 existing figures |
     | 41 | 🍉 WATERMELON | line code review (`inspectFig`'s vertex row list) gets a **⌖ zoom-to-point** button per row — click it and the canvas pans/zooms in on that exact vertex with the same gold flash-ring animation as **⌖ Go to point**, without leaving the line editor (unlike Go to point, it doesn't switch to the single-point inspector). Extracted the pan/zoom/flash logic Go to point already had into a shared `zoomToPoint(i)` so both now share one implementation |
     | 42 | 🥥 COCONUT | fix **RT ... RECT**: `"CODE RT 6 RECT"` — a right-turn jog of 6, closed into a rectangle — parsed the jog fine but silently dropped the closing `RECT` (it has no number of its own here; the vendor spec says a bare `RECT` "completes" the preceding `RT` at its own distance), so it rendered as one dangling perpendicular tick instead of a closed box. `parseDesc` now tracks that a bare `RECT` was seen and, if it never got an explicit value of its own, defaults it to the same distance as `RT` — confirmed on the real job file's only `RT` occurrence (pt 5301, `"MISCL RT 6 RECT"`): before the fix `rect` stayed `null`; after, it resolves to `6` and renders as a proper closed rectangle between points 5300 and 5301 |
+    | 43 | 🍋 LEMON | fix **RT** direction on a CHAIN of consecutive right-turn jogs: real usage repeats `"CODE RT <d>"` on many consecutive points (e.g. a wall shot in a straight run needing a constant correction) — each jog's 90° turn was computed from the direction between the two REAL vertices (`vs[k-1]`→`vs[k]`), skipping over the PRECEDING point's own jog detour entirely. Verified against a real Civil3D `LIST` dump of the actual figure that the correct turn direction is the segment *actually just drawn* (from the prior jog point back to this point, not vertex-to-vertex) — the old code was off by ~70° in azimuth on this real run, landing new jog points up to **11.5 ft** from their true CAD position; the fixed version matches the `LIST` dump to within 0.008 ft. `strokeFigure` now tracks the true last-drawn pen position (`lastE/lastN/lastZ`) through the whole loop — updated after every `put()`, including curve spans and OC tangent arcs — and RT/X/RECT compute their incoming direction from that, not from the previous vertex in the array |
   - Suggested next fruits to rotate through:
-    🍋 LEMON.
+    🍎 APPLE, 🍌 BANANA, 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY, 🥝 KIWI,
+    🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍐 PEAR, 🍉 WATERMELON, 🥥 COCONUT.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -478,7 +480,7 @@ first and follow it on every task in this repo.
   guessing when an unclosed run should implicitly end, a materially
   different and riskier change than this one.
 
-## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`, build 42)
+## RT / X / RECT — right-turn, extend, rectangle (`parseDesc`/`strokeFigure`, build 42-43)
 
 - Vendor (Trimble/Carlson-style) description-key codes for inserting computed
   vertices without shooting every corner:
@@ -523,6 +525,44 @@ first and follow it on every task in this repo.
   Verified against the real job file: point 5301 now resolves `rect=6`
   (matching `rt=6`) and renders as a full closed rectangle between points
   5300 and 5301, confirmed visually in a real browser at high zoom.
+- **Build 43 fix — wrong turn direction on a CHAIN of consecutive `RT`s:**
+  build 42's real example had exactly one `RT` on one point. A second real
+  job (Hamline) showed the FAR more common usage: `"CODE RT <d>"` repeated
+  on many consecutive real shots in a straight-ish run (e.g. a wall the crew
+  couldn't shoot directly, corrected by a constant perpendicular offset on
+  every point). The owner's screenshot of our render showed a lopsided
+  zigzag; their CAD showed a clean repeating sawtooth. `strokeFigure`
+  computed each jog's "incoming direction" as `vs[k]-vs[k-1]` — the vector
+  between the two REAL vertices — which is only correct for the FIRST `RT`
+  in a chain. For every `RT` after the first, the actual incoming segment
+  is from the PRECEDING point's own jog endpoint (a synthetic point) back to
+  this point — not from the real prior vertex, which the jog already carried
+  the pen away from. The owner then supplied a Civil3D `LIST` dump of the
+  real, correct BLD1 polyline (every segment's course/length), which let this
+  be checked exactly: segment 6 in that dump (the "return" leg into point
+  9633, course S18°42'49"W) plus 90° equals segment 7's course (the NEXT jog
+  out of 9633, N71°17'11"W) to 5 decimal places — confirming the jog
+  direction must derive from the return leg just drawn, not from a fresh
+  vertex-to-vertex vector. Recomputing the old (vertex-to-vertex) direction
+  for that same jog gives an azimuth ~70° off, which is exactly what produced
+  the lopsided zigzag in the screenshot.
+  - Fix: `strokeFigure` now tracks `lastE/lastN/lastZ` — the TRUE last-drawn
+    pen position — updated after every `put()` call in the loop (a plain
+    vertex, a `BC..EC` curve span's endpoint, an `OC` tangent arc's endpoint,
+    and every `RT`/`X`/`RECT` synthetic point), and RT/X/RECT's "incoming
+    direction" is computed from `lastE/lastN` to the current vertex, not from
+    `vs[k-1]`. The two coincide for an isolated single `RT` (build 42's
+    verified case — re-checked, byte-identical output after this change) and
+    only diverge when a PRECEDING vertex had its own unclosed jog, which is
+    exactly the chain case this fixes.
+  - Verified two ways against the real Hamline job: (1) replayed the exact
+    real point sequence (9627..9640, 7 consecutive `"BLD1 RT 9.52"` shots)
+    through both the old and fixed logic and compared every resulting vertex
+    against the owner's real Civil3D `LIST` dump — the fixed version matches
+    every segment endpoint to within **0.008 ft**; the old logic was off by
+    up to **11.5 ft**. (2) Re-verified the build-42 single-`RT`+`RECT` case
+    (point 5301, different job) produces the identical closed rectangle as
+    before — this change doesn't touch that path's numbers at all.
 
 ## Point at circle center (`startCircleCtrPick`, build 38, ⊙ CTR toolbar button)
 

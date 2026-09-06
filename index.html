@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
   </div>
 
   <div class="main">
@@ -361,7 +361,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥥',name:'COCONUT',build:42};
+const VERSION={fruit:'🍋',name:'LEMON',build:43};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1347,7 +1347,7 @@ function strokeFigure(f,proj,color){
     ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();return;}}
   ctx.beginPath();let started=false;
   const put=(E,N,Z)=>{const s=proj(E,N,Z);started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);};
-  let k=0;
+  let k=0,lastE=null,lastN=null,lastZ=null;             // actual last-drawn pen position — RT/X/RECT's "incoming direction" must be the segment really just drawn, which after a prior RT jog is FROM that jog point, not from the previous real vertex
   while(k<vs.length){const v=vs[k];
     if(v.bc){let j=k+1;while(j<vs.length&&!vs[j].ec)j++;
       if(j<vs.length){const span=vs.slice(k,j+1);put(span[0].E,span[0].N,span[0].Z);
@@ -1356,22 +1356,25 @@ function strokeFigure(f,proj,color){
           if(samp)samp.forEach(s=>put(s.E,s.N,s.Z));
           else sub.slice(1).forEach(p=>put(p.E,p.N,p.Z));
         });
-        k=j+1;continue;}}
+        k=j+1;lastE=vs[k-1].E;lastN=vs[k-1].N;lastZ=vs[k-1].Z;continue;}}
     if(v.oc&&k>=2&&k<=vs.length-3){                       // tangent arc through the OC point
       const A=vs[k-2],B=vs[k-1],C=vs[k+1],D=vs[k+2];
       const samp=fitTangentArc(B,unit(B.E-A.E,B.N-A.N),C,unit(D.E-C.E,D.N-C.N),v);
-      if(samp){samp.forEach(s=>put(s.E,s.N,s.Z));k++;continue;}}
+      if(samp){samp.forEach(s=>put(s.E,s.N,s.Z));lastE=C.E;lastN=C.N;lastZ=C.Z;k++;continue;}}
+    const priorE=lastE,priorN=lastN,priorZ=lastZ;         // RECT / RT / X insert computed vertices
     put(v.E,v.N,v.Z);
-    const prev=k>0?vs[k-1]:null;                          // RECT / RT / X insert computed vertices
-    if(prev&&(v.rect!=null||v.rt!=null||v.x!=null)){
-      const din=unit(v.E-prev.E,v.N-prev.N),pR={E:din.N,N:-din.E};   // travel dir, right-of-travel
+    lastE=v.E;lastN=v.N;lastZ=v.Z;
+    if(priorE!=null&&(v.rect!=null||v.rt!=null||v.x!=null)){
+      const din=unit(v.E-priorE,v.N-priorN),pR={E:din.N,N:-din.E};   // travel dir of the segment actually just drawn, right-of-travel
       if(v.rect!=null){const o=v.rect;                    // rectangle off the incoming segment
-        put(v.E+pR.E*o,v.N+pR.N*o,v.Z);put(prev.E+pR.E*o,prev.N+pR.N*o,prev.Z);
-        put(prev.E,prev.N,prev.Z);put(v.E,v.N,v.Z);
+        put(v.E+pR.E*o,v.N+pR.N*o,v.Z);put(priorE+pR.E*o,priorN+pR.N*o,priorZ);
+        put(priorE,priorN,priorZ);put(v.E,v.N,v.Z);
+        lastE=v.E;lastN=v.N;lastZ=v.Z;
       }else{let cx=v.E,cy=v.N,dir=din;
         if(v.rt!=null){cx=v.E+pR.E*v.rt;cy=v.N+pR.N*v.rt;put(cx,cy,v.Z);   // right turn (perp offset)
-          dir=unit(pR.E*(v.rt<0?-1:1),pR.N*(v.rt<0?-1:1));}                // new travel = turn dir
-        if(v.x!=null){cx+=dir.E*v.x;cy+=dir.N*v.x;put(cx,cy,v.Z);}}        // extend ahead (or short)
+          dir=unit(pR.E*(v.rt<0?-1:1),pR.N*(v.rt<0?-1:1));                 // new travel = turn dir
+          lastE=cx;lastN=cy;lastZ=v.Z;}
+        if(v.x!=null){cx+=dir.E*v.x;cy+=dir.N*v.x;put(cx,cy,v.Z);lastE=cx;lastN=cy;lastZ=v.Z;}}  // extend ahead (or short)
     }
     k++;}
   if(f.closed){const s=proj(vs[0].E,vs[0].N,vs[0].Z);ctx.lineTo(s[0],s[1]);}
