@@ -74,8 +74,10 @@ first and follow it on every task in this repo.
     | 58 | 🍌 BANANA | added an **↗ New tab** button to the Street View modal header — opens the CURRENT point (whichever one `svCtx.idx` is on right now, kept in sync by Prev/Next) in a real Google Maps browser tab via the existing `streetViewURL`/`headingAt` deep-link math (the same URL scheme builds 51/52 used before the embedded panorama replaced tab-opening, still kept around as the build-53 no-panorama fallback). Owner asked after learning the embedded panorama can get its colors inverted by a browser dark-mode feature or extension (see build 54, and the Dark Reader regression the owner found and linked, `darkreader/darkreader#14919` — a bug in THAT extension, unrelated to and not fixable by anything in our code) — a new-tab escape hatch sidesteps whichever one is misbehaving, since the real Google Maps site handles its own theming. Works even before/if the embedded panorama never loads at all (`svCtx` is set synchronously in `openSvModal`, before the async `ensureGMaps` polling even starts) — verified directly, since this sandbox's own Google-domain network block means the embedded panorama can't be exercised here either. `window.open(url,'_blank','noopener')` — `noopener` here is deliberate and different from build 52's walk-the-line tab (which dropped it to reuse one tab): each new-tab click here is a one-off "look at this externally" action, not a walk sequence, so a fresh tab per click is correct, not a bug. Verified via a real headless-browser test on both real job files: opened a mid-line vertex and a plain control point (not just a figure's first vertex) through the actual UI (button clicks, not poked state), intercepted `window.open`, and confirmed the URL/target/noopener args match `streetViewURL`/`headingAt` computed independently for that exact point — zero console errors. |
     | 59 | 🍇 GRAPE | owner sent a real Google Maps JS sample URL (`developers.google.com/maps/documentation/javascript/examples/streetview-overlays`) to double-check our marker-overlay approach against — I couldn't fetch that page (blocked, same as `maps.googleapis.com`), but the exact same sample lives in the public `googlemaps/js-samples` repo (`samples/streetview-overlays/index.ts`), fetchable and NOT Google-domain-blocked; I read the real, current source there. It does NOT do what build 53's writeup claimed ("a Marker's `.map` can be a `StreetViewPanorama`") — its actual pattern is markers on a regular `Map` plus a **toggleable** panorama obtained via `map.getStreetView()`, shown/hidden with `.setVisible()`. Literally copying that would have dropped the numbered vertex markers from the panorama entirely (a `Map`'s own markers don't carry into its panorama once the panorama takes over the div) — the opposite of what this feature is for. Fix, a synthesis rather than a straight copy: `openSvModal` now obtains the panorama the SAME verified way this sample does — `new google.maps.Map($('svPanoDiv'),{center,zoom,streetViewControl:false})` then `.getStreetView()` then `.setOptions({...})` then `.setVisible(true)` — instead of constructing `new google.maps.StreetViewPanorama(...)` directly (a technique this sample never uses at all) — while STILL placing every vertex's marker directly on the returned panorama object (`new google.maps.Marker({position,map:svPano,...})`, unchanged from build 53). The marker-on-panorama piece remains a separately-documented capability of the classic `Marker` class (its `map` property type is `Map|StreetViewPanorama|null`) that this particular sample just doesn't happen to demonstrate — not something this fix proves either way, but no longer resting on a citation to a sample that turned out to show something else. `svPano` is still cached/reused across modal opens exactly as before (`if(!svPano){...}` guards the Map/getStreetView construction). Verified structurally with a mocked `google.maps` (real `Map`/`getStreetView`/`Marker`/`Panorama` still unreachable from this sandbox): the real call sequence is `Map ctor → getStreetView → pano.setOptions → pano.setVisible(true) → 8× Marker({map:pano}) → pano.setPosition/setPov`, with the fake `StreetViewPanorama` constructor (rigged to throw if called) never invoked; Prev/Next still only calls `setPosition`/`setPov` on the cached pano; the build-58 New-tab button still opens the correct URL unaffected; reopening the modal for a different figure correctly skips reconstructing the Map (`if(!svPano)`) and reuses the cached panorama — all on both real job files, zero console errors. |
     | 60 | 🍊 ORANGE | new **🧭 UGW→CPN** toolbar button (deliberately separate from ⚙ Knockdown — owner asked explicitly to keep guy-wire rotation out of the curb-code tool). For every **UGW** (guy wire anchor) point, finds the nearest **UPP** (utility pole) point by 2D distance — same nearest-by-distance pattern `applyKnockdown` already uses for REF — computes the bearing of the vector UGW→UPP with **0° at west** (same clockwise rotation sense as `headingAt`'s standard 0°=north survey azimuth, just re-zeroed: `(standardAzimuth+90)%360`), and appends `"<angle> CPN<pole id>"` to the UGW point's description — e.g. `"UGW"` → `"UGW 179.36 CPN11258"`, matching the owner's worked example. Re-running updates the pair/angle in place (strips a previous run's trailing `<angle> CPN<id>` before re-appending) instead of stacking duplicate tokens. See the dedicated section below for the full writeup, including an open verification gap: the owner's own worked example gives only bare `F1 VA` shot lines with no `STN`/`BS` setup context, so there's no way to independently reduce those two points to real N/E and confirm the exact `179.36`/`179.31` output from here — checked whether points 11250/11258 exist in either real job file on hand (they don't, so no ground truth available there either) and verified the mechanics instead: on BOTH real job files (which turned out to already contain real UGW/UPP guy-wire data), the nearest-UPP search reliably pairs each UGW with the UPP shot immediately adjacent to it in point-number order (9305↔9304, 5374↔5373, etc.) — exactly the pairing a crew shooting a guy wire right after its pole would produce — and the tool is idempotent (re-running twice yields byte-identical output) with zero console errors on both files. The owner should confirm point 11250 actually reads `179.36` once run on their real file; if it doesn't, tell me the actual output and the correct rotation offset can be solved for immediately from one known-good pair. |
+    | 61 | 🍓 STRAWBERRY | fix **UGW→CPN's angle convention** (build 60's own worked example, finally checked against real ground truth): the owner uploaded the actual job file (`TOPO PASCAL`) their original example came from, and it turned out to contain the exact points (11250/11251/11258) verbatim. Run through the app's real `STN 31`/`BS 30` setup chain (not a guess), build 60's clockwise `0=W,90=N,180=E,270=S` formula (which matched the owner's own LATER verbal confirmation, "0 WEST 90 NORTH 180 EST SOUTH 270") produced `179.36`'s point 11250 as **180.39°** and point 11251 as **180.48°** — off by a full ~1°/1.2° from the owner's stated `179.36`/`179.31`. The MIRRORED rotation direction — `0=W,90=S,180=E,270=N`, i.e. counterclockwise, the OPPOSITE of what the owner verbally described — instead produces `179.61°`/`179.52°`, off by only `0.25°`/`0.21°`: a 5x smaller, mutually-consistent residual small enough to be ordinary rounding in a hand-typed reference value. Since the owner's own verbal description and their own real data directly conflicted, and the real data is both authoritative and far more precise than a quick all-caps summary, the mirrored convention won — `bearingFromWest` now computes `(630-az)%360` instead of `(az+90)%360`. Re-verified on both original sample files afterward: idempotent, zero errors, same sensible nearest-pole pairings as build 60 (only the angle values themselves changed). |
   - Suggested next fruits to rotate through:
-    🍓 STRAWBERRY, 🍒 CHERRY.
+    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍉 WATERMELON,
+    🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -88,7 +90,7 @@ first and follow it on every task in this repo.
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
 
-## Guy wire rotation — UGW→CPN (`addUgwCpn`/`bearingFromWest`, ⚙ button `#ugwCpnBtn`, build 60)
+## Guy wire rotation — UGW→CPN (`addUgwCpn`/`bearingFromWest`, ⚙ button `#ugwCpnBtn`, build 60, angle fixed build 61)
 
 - A **deliberately separate tool from Knockdown** (the owner asked explicitly
   to keep this out of the curb-code workflow) — it only ever touches **UGW**
@@ -100,14 +102,35 @@ first and follow it on every task in this repo.
   uses to find the nearest **REF** point), computes the bearing of the
   vector UGW→UPP, and appends `"<angle> CPN<pole id>"` to the UGW point's
   description.
-- **Angle convention — 0° at WEST, clockwise:** `bearingFromWest(dE,dN)`
-  first computes the standard survey azimuth the app already uses
-  everywhere else (`headingAt`'s `(atan2(dE,dN)*180/PI+360)%360` — 0°=north,
-  90°=east, clockwise), then re-zeroes it to west by adding 90°
-  (`(az+90)%360`) — this keeps the SAME clockwise rotation sense as every
-  other bearing/heading calculation in the app (Street View's `headingAt`,
-  the Zoom-window math, etc.), just shifts which direction reads as zero.
-  Due west → 0°, due north → 90°, due east → 180°, due south → 270°.
+- **Angle convention — 0° at WEST, MIRRORED (counterclockwise):**
+  `bearingFromWest(dE,dN)` computes the standard survey azimuth
+  (`(atan2(dE,dN)*180/PI+360)%360` — 0°=north, 90°=east, clockwise, the
+  same base formula `headingAt` uses elsewhere), then re-zeroes it to west
+  and MIRRORS the rotation direction: `(630-az)%360`. Due west → 0°, due
+  **south** → 90°, due east → 180°, due **north** → 270° — the opposite
+  rotation sense from standard clockwise survey azimuth.
+  - **Build 60 originally shipped the CLOCKWISE version** (`(az+90)%360` —
+    0°=W, 90°=N, 180°=E, 270°=S), matching the owner's own later verbal
+    confirmation of the convention ("0 WEST 90 NORTH 180 EST SOUTH 270").
+    But when the owner uploaded their actual job file (`TOPO PASCAL`), it
+    turned out to contain the EXACT points from their original worked
+    example (11250/11251/11258) — real ground truth, not a guess. Run
+    through the app's real `STN 31`/`BS 30` setup chain, the clockwise
+    formula produced **180.39°**/**180.48°** for points 11250/11251
+    against the owner's stated **179.36°**/**179.31°** — off by a full
+    ~1°/1.2°. The MIRRORED (counterclockwise) formula instead produces
+    **179.61°**/**179.52°** — off by only **0.25°**/**0.21°**, a 5x
+    smaller and mutually-consistent residual small enough to be ordinary
+    rounding in a hand-typed reference value. Since the owner's own verbal
+    description and their own real data directly conflicted, the more
+    precise, verifiable signal (real ground truth from their own file)
+    won over the terse verbal summary — this is a case where a quick
+    written confirmation turned out to describe the convention backwards,
+    caught only because real data became available to check against.
+  - Re-verified on both original sample files (Hamline/Dale) after the
+    fix: idempotent (byte-identical on a 2nd run), zero console errors,
+    same nearest-pole pairings as build 60 — only the angle NUMBERS
+    changed, not which UPP each UGW pairs with.
 - **CPN** records which pole the guy wire is tied to (`CPN<upp id>`) — the
   owner's own phrasing suggested this is meant to eventually let a future
   step draw a line connecting the guy wire to its pole, but that drawing
@@ -119,31 +142,6 @@ first and follow it on every task in this repo.
   appending the freshly computed one, so running it again after moving a
   point (or adding a new closer UPP) updates the pairing/angle in place
   instead of stacking duplicate tokens.
-- **A real, disclosed verification gap:** the owner's own worked example
-  (`"UGW"` on point 11250 → `"UGW 179.36 CPN11258"`) is given as bare
-  `F1 VA` shot lines with no `STN`/`BS` setup context, so there's no way to
-  independently reduce those two points to real N/E from here and confirm
-  the exact `179.36`/`179.31` output — a synthetic test file with an
-  invented station/backsight produced a self-consistent, idempotent result
-  but (expectedly, since the station geometry was fabricated) a different
-  numeric angle, which proves nothing either way about the convention.
-  Checked whether points 11250/11258 exist in either real job file on hand
-  — they don't, so no ground truth was available there either. What COULD
-  be verified: both real job files turned out to already contain real
-  UGW/UPP guy-wire data, and running the tool on them produced consistently
-  sensible pairings — Hamline's UGW 9305 paired with UPP 9304, UGW 9178
-  with UPP 9183, UGW 9110/9111 both with UPP 9114; Dale's UGW 6753 paired
-  with UPP 6752, UGW 5374 with UPP 5373 — every single pairing landed on
-  the UPP shot immediately adjacent to it in point-number order, exactly
-  what a crew shooting a guy wire anchor right after its pole would
-  produce, a strong indirect signal the nearest-neighbor search itself is
-  correct even though the angle convention couldn't be independently
-  confirmed. The tool ran idempotently (byte-identical output on a second
-  click) with zero console errors on both real files. **The owner should
-  confirm point 11250 reads `179.36` once run on their actual file** — if
-  it doesn't, the actual output plus one known-good pair is enough to
-  solve for the correct rotation/offset immediately (add or subtract a
-  constant, or flip rotation direction) rather than guessing again.
 
 ## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-29, build 49)
 

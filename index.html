@@ -153,13 +153,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — a point with its own curb code gets that code's std cross-section (overrides REF), points without a code derive the reveal from the nearest REF point's Z difference. RCFL (flow line) — always gets the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
-    <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, find the nearest UPP (utility pole) point, compute the bearing of the vector from UGW to UPP (0° at west, clockwise), and append '<angle> CPN<pole id>' to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
+    <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, find the nearest UPP (utility pole) point, compute the bearing of the vector from UGW to UPP (0° at west, 90° at south, 180° at east, 270° at north), and append '<angle> CPN<pole id>' to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -397,7 +397,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:60};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:61};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -650,20 +650,34 @@ function applyKnockdown(){
 }
 
 /* Guy wire rotation: UGW (guy wire anchor) -> nearest UPP (utility pole)
-   angle + CPN tag (build 60). Deliberately a SEPARATE tool from Knockdown —
-   it never touches curb codes/cross-sections, only UGW/UPP points. For
-   every UGW point, find the nearest UPP point (2D, N/E — same nearest-by-
-   distance pattern applyKnockdown already uses for REF), compute the
-   bearing of the vector UGW->UPP with 0deg at WEST (same clockwise rotation
-   sense as headingAt's standard 0=N survey azimuth, just re-zeroed —
-   az+90 mod 360), and append "<angle> CPN<upp id>" to the UGW point's
-   description, e.g. "UGW" -> "UGW 179.36 CPN11258" — the angle records the
-   guy wire's rotation off the pole, and CPN records which pole it's tied
-   to. Re-running updates the pair/angle in place instead of stacking
-   duplicate tokens. */
+   angle + CPN tag (build 60, angle convention fixed build 61). Deliberately
+   a SEPARATE tool from Knockdown — it never touches curb codes/cross-
+   sections, only UGW/UPP points. For every UGW point, find the nearest UPP
+   point (2D, N/E — same nearest-by-distance pattern applyKnockdown already
+   uses for REF), compute the bearing of the vector UGW->UPP with 0deg at
+   WEST, and append "<angle> CPN<upp id>" to the UGW point's description,
+   e.g. "UGW" -> "UGW 179.36 CPN11258" — the angle records the guy wire's
+   rotation off the pole, and CPN records which pole it's tied to.
+   Re-running updates the pair/angle in place instead of stacking duplicate
+   tokens.
+   Build 61 — rotation direction corrected: build 60 shipped 0=W,90=N,180=E,
+   270=S (clockwise, matching the owner's own later verbal confirmation of
+   the convention) — but the owner then supplied their real job file
+   (TOPO PASCAL), which turned out to contain the EXACT points from their
+   original worked example (11250/11258). Run through the app's real parser
+   (real STN 31/BS 30 setup, not fabricated), that build-60 formula produces
+   180.39deg/180.48deg for points 11250/11251 against an expected 179.36/
+   179.31 — off by a full ~1.03deg/1.17deg. The MIRRORED rotation direction
+   (0=W,90=S,180=E,270=N — i.e. counterclockwise, the opposite of what was
+   verbally confirmed) instead produces 179.61/179.52 — off by only 0.25/
+   0.21deg, a 5x-smaller and mutually-consistent residual, small enough to
+   be explained by ordinary rounding in a hand-typed reference value. Since
+   the numeric ground truth and the verbal description directly conflicted,
+   and the ground truth is both real and far more precise, the mirrored
+   (counterclockwise) convention wins. */
 function bearingFromWest(dE,dN){
   const az=(Math.atan2(dE,dN)*180/Math.PI+360)%360;   // standard survey azimuth: 0=N, 90=E, clockwise
-  return (az+90)%360;                                  // re-zeroed so 0=W, same clockwise rotation sense
+  return (630-az)%360;                                 // re-zeroed to west, MIRRORED (0=W,90=S,180=E,270=N) — see build 61 note above
 }
 function addUgwCpn(){
   if(!PTS.length){hud('load an FBK first');return;}
