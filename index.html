@@ -158,7 +158,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -373,9 +373,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 <!-- embedded Street View panorama — walk the line, points overlaid as markers -->
 <div class="scrim" id="svScrim">
   <div class="modal big">
-    <h4 style="display:flex;align-items:center;justify-content:space-between">
+    <h4 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <span>Street View <span id="svModalSub" style="color:var(--mut);font-weight:400;text-transform:none;letter-spacing:0"></span></span>
-      <button class="sideClose" id="svCloseBtn" style="display:inline-flex" title="Close">✕</button>
+      <span style="display:flex;align-items:center;gap:8px">
+        <button class="btn" id="svTabBtn" title="Open this exact view in a new browser tab (Google Maps site)" style="padding:5px 9px;font-size:11px">↗ New tab</button>
+        <button class="sideClose" id="svCloseBtn" style="display:inline-flex" title="Close">✕</button>
+      </span>
     </h4>
     <div id="svPanoDiv" style="width:100%;height:min(56vh,420px);border:1px solid var(--rule);border-radius:6px;background:#0a1426;display:flex;align-items:center;justify-content:center;color:var(--mut);font:12px var(--mono);color-scheme:light;forced-color-adjust:none">Loading Street View…</div>
     <div class="chgrp" style="margin-top:10px">
@@ -393,7 +396,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍎',name:'APPLE',build:57};
+const VERSION={fruit:'🍌',name:'BANANA',build:58};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1226,6 +1229,9 @@ function svOpenForPoint(i){const fs=figuresOfPoint(i);
   else{$('svModalSub').textContent='';openSvModal([{p:PTS[i],i}],0);}}
 $('svmPrevBtn').onclick=()=>svGoto(svCtx.idx-1);
 $('svmNextBtn').onclick=()=>svGoto(svCtx.idx+1);
+$('svTabBtn').onclick=()=>{if(!svCtx)return;const p=svCtx.vs[svCtx.idx].p;
+  const url=streetViewURL(p.E,p.N,headingAt(svCtx.vs,svCtx.idx));
+  window.open(url,'_blank','noopener');hud(`opened pt ${p.id} in a new tab`);};
 $('svCloseBtn').onclick=()=>$('svScrim').classList.remove('show');
 $('svScrim').onclick=e=>{if(e.target===$('svScrim'))$('svScrim').classList.remove('show');};
 
