@@ -159,7 +159,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
   </div>
 
   <div class="main">
@@ -397,7 +397,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:67};
+const VERSION={fruit:'🥥',name:'COCONUT',build:68};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1057,11 +1057,11 @@ function collectOffsetSegments(){const segs=[];
   figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    let active=null;const per=all.map((p,k)=>{if(stepsAt[k])active=stepsAt[k];const result=k<startK?null:active;if(stopAt[k])active=null;return result;});
+    const{per,cont}=offsetPerCont(all,stepsAt,stopAt,startK);
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     for(let L=0;L<lanes;L++){const op=[],contPrev=[];
       per.forEach((s,k)=>{if(!(s&&L<s.length)){op.push(null);contPrev.push(false);return;}
-        const{hasPrev,hasNext}=spanAdj(per,k);op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));contPrev.push(hasPrev);});
+        const{hasPrev,hasNext}=spanAdj(cont,k);op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));contPrev.push(hasPrev);});
       let prev=null;
       op.forEach((o,k)=>{if(!o){prev=null;return;}
         if(prev&&contPrev[k]){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);   // SO stop / a fresh restart breaks the chain even when physically adjacent
@@ -1867,8 +1867,19 @@ function offsetAt(all,k,h,v,contPrev,contNext){          // offset point at vert
     const p=perp(all[k],all[k+1]);E=all[k].E+p.E*h;N=all[k].N+p.N*h;
   }else{E=all[k].E;N=all[k].N;}        // degenerate: a single-vertex figure, no direction to offset along
   return {E,N,Z:all[k].Z+v};}
-function spanAdj(per,k){                // is vertex k's offset truly continuous into its neighbor, or does a template restart/SO-stop sit between them?
-  return {hasPrev:k>0&&!!per[k-1]&&per[k-1]===per[k],hasNext:k<per.length-1&&!!per[k+1]&&per[k+1]===per[k]};}
+function offsetPerCont(all,stepsAt,stopAt,startK){   // per-vertex active template + real continuity, shared by drawOffsets/collectOffsetSegments.
+  // cont[k] = is the offset truly continuous from k-1 into k — i.e. NOT an SO stop — not just "does k also happen to carry its own H/V/curb-code restatement".
+  // A curb-code shorthand (R612, R006, ...) re-expands to a FRESH steps array every time it's re-stated, even redundantly on consecutive points of the
+  // same curve with no SO anywhere near — treating that as a break (build 67's own object-identity check did) silently kills real curve offsets.
+  // Only an actual SO on the PRIOR point breaks continuity; a same-or-different-valued restart with no SO in between is still one continuous run.
+  let active=null;const per=[],cont=[];
+  for(let k=0;k<all.length;k++){
+    if(stepsAt[k])active=stepsAt[k];
+    per[k]=k<startK?null:active;
+    cont[k]=k>0&&per[k-1]!=null&&!stopAt[k-1];
+    if(stopAt[k])active=null;}
+  return {per,cont};}
+function spanAdj(cont,k){return {hasPrev:!!cont[k],hasNext:k+1<cont.length&&!!cont[k+1]};}
 function curvedOffsetPts(baseSub,opSub,hSub){   // an offset lane's run through a BC..EC (sub-)span: same PCC/PRC compound/reverse-curve splits as the base line, and each segment's radius is the BASE segment's own fitted radius, adjusted by this lane's offset distance (not an independent re-fit)
   const idx=breakIndices(baseSub),out=[];
   for(let s=0;s<idx.length-1;s++){
@@ -1896,21 +1907,17 @@ function drawOffsets(proj){ctx.save();
   figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[],ocAt=[];
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);ocAt.push(!!v.oc);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    let active=null;const per=all.map((p,k)=>{
-      if(stepsAt[k])active=stepsAt[k];
-      const result=k<startK?null:active;
-      if(stopAt[k])active=null;                          // SO stops offset AFTER this point
-      return result;});
+    const{per,cont}=offsetPerCont(all,stepsAt,stopAt,startK);
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     ctx.strokeStyle='rgba(110,224,166,.4)';ctx.lineWidth=1;ctx.setLineDash([2,3]);   // cross-section ribs
     per.forEach((s,k)=>{if(!s)return;let p0=proj(all[k].E,all[k].N,all[k].Z);
-      const{hasPrev,hasNext}=spanAdj(per,k);
+      const{hasPrev,hasNext}=spanAdj(cont,k);
       ctx.beginPath();ctx.moveTo(p0[0],p0[1]);
       s.forEach(st=>{const o=offsetAt(all,k,st.h,st.v,hasPrev,hasNext),sp=proj(o.E,o.N,o.Z);ctx.lineTo(sp[0],sp[1]);});ctx.stroke();});
     ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.9)';ctx.lineWidth=1.4;     // lane lines
     for(let L=0;L<lanes;L++){const op=[],contPrev=[];
       per.forEach((s,k)=>{if(!(s&&L<s.length)){op.push(null);contPrev.push(false);return;}
-        const{hasPrev,hasNext}=spanAdj(per,k);op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));contPrev.push(hasPrev);});
+        const{hasPrev,hasNext}=spanAdj(cont,k);op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));contPrev.push(hasPrev);});
       ctx.beginPath();let started=false,k=0;
       while(k<op.length){
         if(!op[k]){started=false;k++;continue;}
