@@ -159,7 +159,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -397,7 +397,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:62};
+const VERSION={fruit:'🥝',name:'KIWI',build:63};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -728,6 +728,7 @@ function parseDesc(desc){const map={};let cur=null,pend=null,inJog=false;
       if(num(T)){
         if(pend==='H'||pend==='V')addStep(map[cur].steps,pend,+T);
         else if(pend==='rect')map[cur].rect=+T;
+        else if(pend==='cpn'||pend==='rpn')map[cur][pend]=T;         // spaced "CPN 5341" / "RPN 14" — value is a POINT NUMBER, kept as a string (matches p.id)
         else{map[cur].jogs.push({t:pend,v:+T});if(pend==='rt')inJog=true;}   // rt/x leg, in order
         pend=null;return;}
       pend=null;}                                        // not a number → abandon, process normally
@@ -752,7 +753,10 @@ function parseDesc(desc){const map={};let cur=null,pend=null,inJog=false;
     else if(T==='PRC'){if(cur)map[cur].prc=true;}        // point of reverse curve — new independent radius starts here (turn direction reverses)
     else if(T==='CIR'||T==='CIRCLE'){if(cur)map[cur].cir=true;}   // circle through 3 pts
     else if(T==='SO'){if(cur)map[cur].so=true;}          // stop offsets at this point
-    else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],rectSeen:false,closeL:false};cur=T;}
+    else{const cprx=T.match(/^(CPN|RPN)(\d+)?$/);        // CPN<n>/RPN<n> — connect-to-point / recall-point-number (see CLAUDE.md)
+      if(cprx&&cur){const key=cprx[1]==='CPN'?'cpn':'rpn';
+        if(cprx[2])map[cur][key]=cprx[2];else pend=key;  // glued "CPN9124" vs spaced "CPN 9124"
+      }else if(/^[A-Z]/.test(T)){if(!map[T])map[T]={begin:false,end:false,close:false,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,cpn:null,rpn:null,steps:[],rect:null,jogs:[],rectSeen:false,closeL:false};cur=T;}}
   });
   for(const code in map){
     const m=map[code];
@@ -766,11 +770,11 @@ function buildLinework(){CODES={};
     const m=parseDesc(expandCurb(p.desc));for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});
   for(const code in CODES){
     CODES[code].sort((a,b)=>PTS[a.i].srcLine-PTS[b.i].srcLine);   // connect in file order
-    if(!CODES[code].some(e=>e.f.begin||e.f.cir))delete CODES[code];}}   // no B and no CIR anywhere → not a line
+    if(!CODES[code].some(e=>e.f.begin||e.f.cir||e.f.cpn))delete CODES[code];}}   // no B, CIR, or CPN anywhere → not a line
 function figures(){const figs=[];
   for(const code in CODES){let run=null,cirRun=null;
     CODES[code].forEach(({i,f})=>{
-      const vert={i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,jogs:f.jogs,closeL:f.closeL};
+      const vert={i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,jogs:f.jogs,closeL:f.closeL,cpn:f.cpn,rpn:f.rpn};
       if(cirRun){                                        // mid-collection of an independent CIR cluster — these vertices are pulled OUT of any host line entirely, not appended to it
         cirRun.verts.push(vert);
         if(cirRun.verts.length>=3){figs.push(cirRun);cirRun=null;}
@@ -780,12 +784,13 @@ function figures(){const figs=[];
         cirRun.verts.push(vert);
         return;}
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
-      if(!run)return;                                   // no B yet → not a line
+      else if(f.cpn&&!run)run={code,verts:[],closed:false,implicitCpn:true};   // CPN with no active run implicitly begins one (vendor doc: "CPN can be used when beginning a feature") — mirrors the CIR implicit-begin precedent; confirmed against real data (Dale pt 5500 "RWLK3 CPN 5341", no B anywhere nearby)
+      if(!run)return;                                   // no B/CPN yet → not a line
       run.verts.push(vert);
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
-  return figs.filter(r=>r.verts.length>=2).map(r=>{
+  return figs.map(r=>{                                    // length filter moved to the END — a run with only 1 real vertex plus a CPN/RPN link (e.g. an implicit-CPN-begin) must reach 2 only after the link is spliced in below
     r.id=r.code+'@'+PTS[r.verts[0].i].srcLine;
     const ord=figOrder[r.id];
     if(ord){const byi=new Map(r.verts.map(v=>[v.i,v]));const nv=[];
@@ -797,8 +802,20 @@ function figures(){const figs=[];
       const nv={i:x.i,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],added:true};
       const ai=r.verts.findIndex(v=>v.i===x.after);
       if(ai<0)r.verts.push(nv);else r.verts.splice(ai+1,0,nv);});
+    // CPN/RPN connect-to-point links (parsed straight from the description, not user-editable
+    // state like figExtra above) — CPN<n> splices point n's own real coordinates in BEFORE the
+    // vertex that coded it, RPN<n> splices them in AFTER, so the drawn line reaches all the way
+    // to that previously-shot point without needing to re-shoot a coincident point. See CLAUDE.md.
+    const links=[];
+    r.verts.forEach(v=>{if(v.cpn)links.push({at:v.i,target:v.cpn,pos:'before'});if(v.rpn)links.push({at:v.i,target:v.rpn,pos:'after'});});
+    links.forEach(({at,target,pos})=>{
+      const ti=PTS.findIndex(p=>p.id===target&&!p.deleted);
+      if(ti<0||r.verts.some(v=>v.i===ti))return;          // point not found, or already part of this line
+      const ai=r.verts.findIndex(v=>v.i===at);
+      if(ai<0)return;
+      r.verts.splice(pos==='before'?ai:ai+1,0,{i:ti,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],link:pos==='before'?'cpn':'rpn'});});
     r.circle=r.code==='CIR'||r.verts.some(v=>v.cir);
-    return r;});}
+    return r;}).filter(r=>r.verts.length>=2);}
 function getFig(id){return figures().find(f=>f.id===id);}
 function figuresOfPoint(i){return figures().filter(f=>f.verts.some(v=>v.i===i));}
 function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
@@ -1978,14 +1995,15 @@ function multiDelete(del){const ids=[...selSet].filter(i=>PTS[i]&&PTS[i].deleted
   hud(`${del?'deleted':'restored'} ${ids.length} point(s)`);}
 function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="empty">Figure not found.</div>';return;}
   openSideMobile();
-  const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added})).filter(o=>o.p&&!o.p.deleted);
+  const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added,link:v.link})).filter(o=>o.p&&!o.p.deleted);
   const moved=!!figOrder[f.id];
   const adding=addPt&&addPt.figId===f.id;
   let rows='';
   vs.forEach((o,k)=>{
     const shared=figuresOfPoint(o.i).filter(g=>g.id!==f.id).map(g=>g.code);
     const arc=o.bc?' <span class="arc">BC</span>':o.ec?' <span class="arc">EC</span>':'';
-    const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`:'';
+    const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`
+      :o.link?` <span class="arc" style="background:#1c3a2a;color:#7affa0" title="pulled in via ${o.link.toUpperCase()} on the linked point — already exported on its own line">${o.link.toUpperCase()}</span>`:'';
     const anc=adding&&addPt.anchor===o.i?' <span class="arc" style="background:#1c2a3a;color:#7fb3ff">ANCHOR</span>':'';
     const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(o.p.desc,f.code)}"`:pointFbkLine(o.p)).trim();
     rows+=`<div class="vrow draggable" draggable="true" data-k="${k}">
@@ -2275,7 +2293,7 @@ function exportFBK(expandCodes=true){
   //     depends on which setup each point was shot from.
   const nezForced=new Set();
   for(const id in figNEZ){if(!figNEZ[id])continue;const f=getFig(id);if(!f)continue;
-    const verts=f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);if(verts.length<2)continue;
+    const verts=f.verts.filter(v=>!v.link).map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);if(verts.length<2)continue;
     nezForced.add(id);
     const block=[];let anchor=Infinity;
     verts.forEach(p=>{
@@ -2290,9 +2308,9 @@ function exportFBK(expandCodes=true){
     (nezBefore[at]=nezBefore[at]||[]).push(...block);
     nezed.push(f.code+'·NEZ'+verts.length);
   }
-  // 2. reorders (natural vertices only — added points handled in 2b)
+  // 2. reorders (natural vertices only — added points handled in 2b, CPN/RPN links never)
   for(const id in figOrder){if(nezForced.has(id))continue;const f=getFig(id);if(!f)continue;
-    const verts=f.verts.filter(v=>!v.added).map(v=>PTS[v.i]).filter(p=>!p.deleted);if(verts.length<2)continue;
+    const verts=f.verts.filter(v=>!v.added&&!v.link).map(v=>PTS[v.i]).filter(p=>!p.deleted);if(verts.length<2)continue;
     const slots=verts.map(p=>p.srcLine).slice().sort((a,b)=>a-b);
     let crosses=false;for(let L=slots[0]+1;L<slots[slots.length-1];L++){const s=(RAW[L]||'').trim();
       if(s.startsWith('STN')||s.startsWith('Used last station')){crosses=true;break;}}
