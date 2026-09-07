@@ -159,7 +159,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
   </div>
 
   <div class="main">
@@ -397,7 +397,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:64};
+const VERSION={fruit:'🍍',name:'PINEAPPLE',build:65};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -411,7 +411,7 @@ function deg2dms(v){let neg=v<0;v=Math.abs(v)%360;let d=Math.floor(v);let mf=(v-
   return (neg?'-':'')+(d+m/100+s/10000).toFixed(5);}
 
 /* ---------- state ---------- */
-let RAW=[], PTS=[], CODES={};
+let RAW=[], PTS=[], CODES={}, CONNECT=[];
 let view={x:0,y:0,s:1};                                  // 2D world->screen
 let orbit={az:0.6,el:1.0,s:1,ox:0,oy:0,ve:3,cx:0,cy:0,cz:0}; // 3D
 let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
@@ -765,16 +765,28 @@ function parseDesc(desc){const map={};let cur=null,pend=null,inJog=false;
       if(lastRt)m.rect=lastRt.v;                          // bare RECT with no value of its own → defaults to the LAST rt-turn leg's own distance (single-jog rectangle case)
       else if(!m.jogs.length)m.closeL=true;}}             // bare RECT with NO rt/x at all → close the plain 3-point L (prior-prior/prior/this) into a box off their own real geometry, no distance needed
   return map;}
-function buildLinework(){CODES={};
+function buildLinework(){CODES={};CONNECT=[];
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
-    const m=parseDesc(expandCurb(p.desc));for(const code in m)(CODES[code]=CODES[code]||[]).push({i,f:m[code]});});
+    const m=parseDesc(expandCurb(p.desc));
+    for(const code in m){const f=m[code];
+      (CODES[code]=CODES[code]||[]).push({i,f});
+      // CPN<n>/RPN<n> connect-to-point — a tie from THIS one point to point n, tracked entirely
+      // separately from CODES/figures. It is NOT a line-forming token: a code with no B anywhere
+      // stays plain unconnected points (drawPt draws them as nodes, same as always) even if one
+      // of them carries CPN — CPN never implicitly begins/continues a multi-point run (that was
+      // tried and reverted; see CLAUDE.md build 65 — it wrongly swept every later same-code point
+      // into one line). Every point gets checked, independent of whether its code ever forms a
+      // figure at all.
+      const target=f.cpn||f.rpn;
+      if(target){const ti=PTS.findIndex(q=>q.id===target&&!q.deleted);
+        if(ti>=0&&ti!==i)CONNECT.push({at:i,to:ti,kind:f.cpn?'cpn':'rpn',code});}}});
   for(const code in CODES){
     CODES[code].sort((a,b)=>PTS[a.i].srcLine-PTS[b.i].srcLine);   // connect in file order
-    if(!CODES[code].some(e=>e.f.begin||e.f.cir||e.f.cpn))delete CODES[code];}}   // no B, CIR, or CPN anywhere → not a line
+    if(!CODES[code].some(e=>e.f.begin||e.f.cir))delete CODES[code];}}   // no B and no CIR anywhere → not a line
 function figures(){const figs=[];
   for(const code in CODES){let run=null,cirRun=null;
     CODES[code].forEach(({i,f})=>{
-      const vert={i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,jogs:f.jogs,closeL:f.closeL,cpn:f.cpn,rpn:f.rpn};
+      const vert={i,bc:f.bc,ec:f.ec,oc:f.oc,pcc:f.pcc,prc:f.prc,cir:f.cir,so:f.so,steps:f.steps,rect:f.rect,jogs:f.jogs,closeL:f.closeL};
       if(cirRun){                                        // mid-collection of an independent CIR cluster — these vertices are pulled OUT of any host line entirely, not appended to it
         cirRun.verts.push(vert);
         if(cirRun.verts.length>=3){figs.push(cirRun);cirRun=null;}
@@ -784,13 +796,12 @@ function figures(){const figs=[];
         cirRun.verts.push(vert);
         return;}
       if(f.begin){if(run)figs.push(run);run={code,verts:[],closed:false};}
-      else if(f.cpn&&!run)run={code,verts:[],closed:false,implicitCpn:true};   // CPN with no active run implicitly begins one (vendor doc: "CPN can be used when beginning a feature") — mirrors the CIR implicit-begin precedent; confirmed against real data (Dale pt 5500 "RWLK3 CPN 5341", no B anywhere nearby)
-      if(!run)return;                                   // no B/CPN yet → not a line
+      if(!run)return;                                   // no B yet → not a line
       run.verts.push(vert);
       if(f.close){run.closed=true;figs.push(run);run=null;}
       else if(f.end){figs.push(run);run=null;}});
     if(run)figs.push(run);}
-  return figs.map(r=>{                                    // length filter moved to the END — a run with only 1 real vertex plus a CPN/RPN link (e.g. an implicit-CPN-begin) must reach 2 only after the link is spliced in below
+  return figs.filter(r=>r.verts.length>=2).map(r=>{
     r.id=r.code+'@'+PTS[r.verts[0].i].srcLine;
     const ord=figOrder[r.id];
     if(ord){const byi=new Map(r.verts.map(v=>[v.i,v]));const nv=[];
@@ -802,22 +813,13 @@ function figures(){const figs=[];
       const nv={i:x.i,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],added:true};
       const ai=r.verts.findIndex(v=>v.i===x.after);
       if(ai<0)r.verts.push(nv);else r.verts.splice(ai+1,0,nv);});
-    // CPN/RPN connect-to-point (parsed straight from the description, not user-editable state
-    // like figExtra above) — a SEPARATE tie/spur line from the point that coded CPN<n>/RPN<n>
-    // straight to point n's own real coordinates, kept OUT of r.verts entirely so it never
-    // becomes part of the main line's own sequential path (a splice there drew the base line —
-    // and every consumer of r.verts, e.g. drawOffsets' curb cross-section lanes — detouring
-    // THROUGH the linked point instead of just tying to it: two segments in, one out, not the
-    // single direct connector the code means). strokeFigure draws each one as its own separate
-    // stroked line. See CLAUDE.md.
-    r.links=[];
-    r.verts.forEach(v=>{
-      const target=v.cpn||v.rpn;if(!target)return;
-      const ti=PTS.findIndex(p=>p.id===target&&!p.deleted);
-      if(ti<0||ti===v.i)return;                           // point not found, or a self-reference
-      r.links.push({at:v.i,to:ti,kind:v.cpn?'cpn':'rpn'});});
+    // CPN/RPN ties belonging to this figure — a pure derived view (for the line editor panel
+    // only, see inspectFig) of the global CONNECT list, filtered to whichever ties originate
+    // from a vertex that's actually part of THIS figure's own real path. Drawing itself happens
+    // once, globally, in drawConnectLinks — not here, so a tie never gets drawn twice.
+    r.links=CONNECT.filter(c=>r.verts.some(v=>v.i===c.at));
     r.circle=r.code==='CIR'||r.verts.some(v=>v.cir);
-    return r;}).filter(r=>r.verts.length>=2||r.links.length);}
+    return r;});}
 function getFig(id){return figures().find(f=>f.id===id);}
 function figuresOfPoint(i){return figures().filter(f=>f.verts.some(v=>v.i===i));}
 function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
@@ -1607,11 +1609,12 @@ function offsetTangentArc(A,B,C,D,OC,Boff,Coff){   // the offset lane's own tang
 function strokeFigure(f,proj,color){
   const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,jogs:v.jogs,closeL:v.closeL};}).filter(Boolean);
   if(vs.length>=2)strokeFigureMain(f,vs,proj,color);
-  // CPN/RPN connect-to-point — ONE separate straight tie line per link, from the point that
-  // coded CPN<n>/RPN<n> directly to point n's own real position, drawn independently of (and
-  // after) the main path above so it never becomes part of that continuous line — see the
-  // figures() comment for why. Draws even when the main path itself is too short (e.g. a lone
-  // CPN-implicit-begun point with nothing else, per CLAUDE.md's build-63 Dale pt 5500 case).
+  // CPN/RPN connect-to-point ties whose origin vertex is part of THIS figure — one separate
+  // straight tie line per link, from the point that coded CPN<n>/RPN<n> directly to point n's
+  // own real position, drawn independently of (and after) the main path above so it never
+  // becomes part of that continuous line. Ties whose origin point ISN'T part of any figure at
+  // all (a plain node with no B anywhere) are drawn separately by drawConnectLinks — see there
+  // and CLAUDE.md for why CPN never implicitly forms a line of its own.
   if(f.links&&f.links.length){
     ctx.strokeStyle=color||codeColor(f.code);
     f.links.forEach(({at,to})=>{const A=PTS[at],B=PTS[to];
@@ -1670,6 +1673,22 @@ function strokeFigureMain(f,vs,proj,color){
     k++;}
   if(f.closed){const s=proj(vs[0].E,vs[0].N,vs[0].Z);ctx.lineTo(s[0],s[1]);}
   ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();}
+/* CPN/RPN ties whose origin point isn't part of ANY figure — a code with no B anywhere stays
+   plain unconnected nodes (drawPt draws them same as always) even when one of them carries
+   CPN/RPN; that single point still gets its own one-off tie line to the referenced point,
+   drawn here since there's no figure/strokeFigure call to draw it otherwise. Ties whose origin
+   IS part of a real figure are already drawn by that figure's own strokeFigure call above (via
+   f.links) — skipped here so nothing draws twice. See CLAUDE.md build 65. */
+function drawConnectLinks(figs,proj){
+  if(!CONNECT.length)return;
+  const figured=new Set();figs.forEach(f=>f.verts.forEach(v=>figured.add(v.i)));
+  CONNECT.forEach(c=>{
+    if(figured.has(c.at))return;
+    const A=PTS[c.at],B=PTS[c.to];
+    if(!A||A.deleted||!B||B.deleted)return;
+    const s1=proj(A.E,A.N,A.Z),s2=proj(B.E,B.N,B.Z);
+    ctx.strokeStyle=codeColor(c.code);
+    ctx.beginPath();ctx.moveTo(s1[0],s1[1]);ctx.lineTo(s2[0],s2[1]);ctx.stroke();});}
 
 /* ---------- bounds / fit ---------- */
 function bounds(shotsOnly){const live=PTS.filter(p=>!p.deleted&&isFinite(p.N)&&isFinite(p.E)&&isFinite(p.Z)&&(!shotsOnly||p.kind==='shot'));
@@ -1722,7 +1741,8 @@ function draw2D(){
   for(let E=Math.ceil(tl[0]/step)*step;E<br[0];E+=step){const[x]=W2S(E,0);ctx.moveTo(x,0);ctx.lineTo(x,h);}
   for(let N=Math.ceil(br[1]/step)*step;N<tl[1];N+=step){const[,y]=W2S(0,N);ctx.moveTo(0,y);ctx.lineTo(w,y);}
   ctx.strokeStyle='#16203a';ctx.stroke();
-  ctx.lineWidth=1.6;figures().forEach(f=>strokeFigure(f,(E,N)=>W2S(E,N)));
+  ctx.lineWidth=1.6;const figs2=figures();figs2.forEach(f=>strokeFigure(f,(E,N)=>W2S(E,N)));
+  drawConnectLinks(figs2,(E,N)=>W2S(E,N));
   drawOffsets((E,N)=>W2S(E,N));
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
@@ -1740,7 +1760,8 @@ function draw3D(){
     ctx.moveTo(a[0],a[1]);ctx.lineTo(c[0],c[1]);}
   ctx.stroke();
   // figures in 3D
-  ctx.lineWidth=1.5;figures().forEach(f=>strokeFigure(f,(E,N,Z)=>P3(E,N,Z)));
+  ctx.lineWidth=1.5;const figs3=figures();figs3.forEach(f=>strokeFigure(f,(E,N,Z)=>P3(E,N,Z)));
+  drawConnectLinks(figs3,(E,N,Z)=>P3(E,N,Z));
   drawOffsets((E,N,Z)=>P3(E,N,Z));
   if(showArrows)drawArrows((E,N,Z)=>P3(E,N,Z));
   drawCircles((E,N,Z)=>P3(E,N,Z));
@@ -1918,6 +1939,22 @@ function elevColor(z,b){const t=(z-b.minZ)/((b.maxZ-b.minZ)||1);return `hsl(${(2
 function pick(sx,sy){let best=-1,bd=12;PTS.forEach((p,i)=>{if(p.deleted)return;
   const[x,y]=is3D?P3(p.E,p.N,p.Z):W2S(p.E,p.N);const d=Math.hypot(x-sx,y-sy);if(d<bd){bd=d;best=i;}});return best;}
 
+/* CPN/RPN ties originating from a single point, for the single-point inspector — a point whose
+   code never forms a figure (no B anywhere) still shows up here with its own one-off tie, since
+   inspectFig's per-figure "Connect-to-point" section (see there) never gets a chance to show it. */
+function connectTieHtml(i){
+  const ties=CONNECT.filter(c=>c.at===i);
+  if(!ties.length)return'';
+  return `<div class="field" style="margin-top:7px"><label>Connect-to-point (CPN/RPN)</label>
+    ${ties.map(t=>{const B=PTS[t.to];if(!B)return'';
+      return `<div class="vrow">
+        <div class="vhd">
+          <span class="vpt">${t.kind.toUpperCase()} → pt ${B.id} <span class="arc" style="background:#1c3a2a;color:#7affa0">TIE</span></span>
+          <span class="vbtns"><button class="vb" data-act="zoomtie" data-i="${t.to}" title="Zoom to the linked point">⌖</button></span>
+        </div>
+        <div class="fbk">${pointFbkLine(B).trim().replace(/</g,'&lt;')}</div>
+      </div>`;}).join('')}
+    </div>`;}
 /* ---------- inspector ---------- */
 function inspect(){const box=$('insp');
   if(sel<0){box.innerHTML='<div class="empty">Click a point to inspect it.</div>';return;}
@@ -1935,12 +1972,14 @@ function inspect(){const box=$('insp');
     </div>
     <div class="kv"><span class="k">source</span><span class="v">${inserted?'inserted (NEZ on export)':'NEZ line '+(p.srcLine+1)}</span></div>
     ${fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:''}
+    ${connectTieHtml(sel)}
     <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
     ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete'}</button></div>
     <div class="note" style="padding:8px 0 0">Edits republish this NEZ record on export (coords, code &amp; point #).</div>`}`;
     box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
+    box.querySelectorAll('[data-act="zoomtie"]').forEach(b=>b.onclick=()=>{zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);});
     $('svBtn').onclick=()=>svOpenForPoint(sel);
     if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
       ['fDesc','eId','eN','eE','eZ'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
@@ -1963,6 +2002,7 @@ function inspect(){const box=$('insp');
     <div class="kv"><span class="k">From STN</span><span class="v">${p.stn} (HI ${p.hi.toFixed(3)}) · ${p.face}</span></div>
     <div class="kv"><span class="k">src line</span><span class="v">${p.srcLine+1}</span></div>
     ${(()=>{const fs=figuresOfPoint(sel);return fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:'';})()}
+    ${connectTieHtml(sel)}
     <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
     ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit codes or coordinates.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
@@ -1970,6 +2010,7 @@ function inspect(){const box=$('insp');
     <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Edit <b>Rod HT</b> to correct a mis-recorded rod/prism height — HA/SD/ZA stay the same observation, only Z is recomputed; export brackets the corrected shot with <b>PRISM</b> lines so later shots on the same setup keep the original height. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.</div>
     ${mode==='move'?'<div class="warnbox">Move active — dragging rewrites HA &amp; SD on line '+(p.srcLine+1)+'.</div>':''}`}`;
   box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
+  box.querySelectorAll('[data-act="zoomtie"]').forEach(b=>b.onclick=()=>{zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);});
   $('svBtn').onclick=()=>svOpenForPoint(sel);
   if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
     ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA','eRod'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
