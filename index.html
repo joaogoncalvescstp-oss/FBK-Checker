@@ -152,7 +152,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
   </div>
 
   <div class="main">
@@ -328,7 +328,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <input type="number" id="simplCogoZ" placeholder="Enter elevation" step="0.001" autocomplete="off">
     </div>
     <button class="btn" id="simplCogoPick" style="width:100%;justify-content:center" title="Click on the drawing to set N/E/Z. CAD object snap: endpoint, apparent intersection of two lines, midpoint, nearest.">📍 Pick on canvas (snap)</button>
-    <div class="hint" style="margin:6px 0 2px">osnap: ▢ endpoint · ✕ intersection · △ midpoint · ⋈ nearest · Esc cancels</div>
+    <div class="hint" style="margin:6px 0 2px">osnap: ▢ endpoint · ○ intersection · △ midpoint · ⋈ nearest · Esc cancels</div>
     <div class="field">
       <label>Code/Description</label>
       <input type="text" id="simplCogoCode" placeholder="e.g., CP CONTROL POINT" autocomplete="off">
@@ -380,7 +380,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:55};
+const VERSION={fruit:'🥥',name:'COCONUT',build:56};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -980,9 +980,9 @@ function snapPoint(sx,sy){
 function drawSnapMarker(){
   if(!cogoPick||!cogoSnap)return;const s=cogoSnap,x=s.sx,y=s.sy,r=7;ctx.save();
   ctx.lineWidth=2;ctx.strokeStyle='#35c184';ctx.fillStyle='rgba(53,193,132,.18)';
-  if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}
-  else if(s.type==='intersection'){ctx.beginPath();ctx.moveTo(x-r,y-r);ctx.lineTo(x+r,y+r);ctx.moveTo(x+r,y-r);ctx.lineTo(x-r,y+r);ctx.stroke();}
-  else if(s.type==='midpoint'){ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y+r);ctx.lineTo(x-r,y+r);ctx.closePath();ctx.fill();ctx.stroke();}
+  if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}   // box = endpoint (any point/vertex)
+  else if(s.type==='intersection'){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();ctx.stroke();}   // circle = apparent intersection of two lines
+  else if(s.type==='midpoint'){ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y+r);ctx.lineTo(x-r,y+r);ctx.closePath();ctx.fill();ctx.stroke();}   // triangle = midpoint between two nodes on a line
   else{ctx.beginPath();ctx.moveTo(x-r,y-r);ctx.lineTo(x+r,y+r);ctx.lineTo(x+r,y-r);ctx.lineTo(x-r,y+r);ctx.closePath();ctx.stroke();}  // bowtie = nearest
   ctx.font='600 11px ui-monospace,monospace';const txt=s.label;const tw=ctx.measureText(txt).width;
   ctx.fillStyle='rgba(7,11,22,.85)';ctx.fillRect(x+12,y-9,tw+10,18);
