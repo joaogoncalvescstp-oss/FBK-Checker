@@ -79,9 +79,10 @@ first and follow it on every task in this repo.
     | 63 | 🥝 KIWI | new **CPN/RPN connect-to-point** line codes — the owner sent screenshots + the vendor's own doc: `CPN<n>` ("connect to point number") begins a feature by connecting its linework to a previously-shot point `n`, and `RPN<n>` ("recall point number") does the same at a feature's end — both let a crew avoid re-shooting a coincident point just to tie two lines together. This is a REAL, unrelated feature that happens to collide in name with the build-60/62 `addUgwCpn` guy-wire tool (which just appends a plain descriptive `CPN<id>` text token, never parsed as linework) — the owner explicitly said to leave that tool alone and build the real vendor code instead. Confirmed real usage in 2 of 3 job files on hand: Hamline's `RWLK1` uses `CPN9124` on an **E**-flagged point (9588) and `CPN9123` on a **B**-flagged point (9692); Dale's `RWLK3` uses a bare `CPN 5341` with **no B/E at all** (point 5500), and `RWLK4` uses `CPN 5342` on a plain mid-run point (5501 B → 5502 CPN). `RPN` never appears in any real file on hand — implemented symmetrically from the vendor doc text alone, disclosed as unverified against real data. **Superseded the same day by build 64's rendering fix — see below.** |
     | 64 | 🍑 PEACH | fix **CPN/RPN rendering a detour instead of one connector line**: build 63 spliced the linked point INTO the figure's own sequential vertex path, so the main line routed straight THROUGH it (e.g. `9581→9582→9124→9588` instead of the intended tie) — two segments in and out of the linked point, not the single direct connector the owner wanted ("only render one line, active point to call out point"). Reworked so CPN/RPN links are no longer part of `r.verts` at all — they're now a separate `r.links` array (`{at,to,kind}`), and `strokeFigure` draws each one as its own standalone 2-point line (from the point that coded `CPN`/`RPN` straight to the referenced point) AFTER finishing the main path untouched. The main line is now byte-identical to how it rendered before `CPN`/`RPN` existed at all (Hamline's `RWLK1@700` is back to plain `[9581,9582,9588]`); the tie is a clean separate segment. Also fixes the same detour bug for the green curb-offset cross-section lanes and any other consumer of a figure's vertex list, since none of them ever see the linked point mixed into the main sequence anymore. `figures()`'s length filter widened to `r.verts.length>=2||r.links.length` so a lone implicitly-CPN-begun point (Dale's pt 5500, a single real vertex plus its tie) still renders instead of being dropped. `inspectFig`'s line-editor panel now shows connect-to-point ties in their own small "Connect-to-point (CPN/RPN)" section (a `TIE` badge, the linked point's own real FBK line, and a zoom button) instead of as a fake extra vertex row. Verified against all 3 real job files: same figure counts as build 63 (70/99/162), the exact same figures gain links, zero console errors; export safety re-confirmed (point 9124 still exports exactly once, on its own original line); RPN re-verified with the same synthetic figure. **Superseded the same day by build 65 — see below.** |
     | 65 | 🍍 PINEAPPLE | fix **CPN wrongly connecting an ENTIRE code's points into one line**: the owner reported a real case — a figure code with **no `B` anywhere** (meant to stay individual unconnected points/nodes, per the app's own standing rule) where ONE of its points carries `CPN` to tie it to another line — and build 63/64's "CPN implicitly begins a run" logic (mirrored off the `CIR` precedent) swept **every subsequent same-coded point** into one continuous line, since nothing ever closes that implicitly-opened run without an explicit `E`/`CLS`. That was never the intent — `CPN`'s real job is a single point-to-point tie, not "start a whole line." Removed CPN's implicit-begin entirely: `buildLinework` now computes ties in a completely separate global `CONNECT` list (`{at,to,kind,code}`), populated per-point independent of whether that point's code ever forms a figure at all — a code with no `B` stays exactly what it always was (plain nodes, `drawPt` draws each one as a dot), even when one of its points carries `CPN`/`RPN`; that one point just gets its own tie line on top. `figures()` reverted to its pre-`CPN`-work shape (no `cpn`/`rpn` on vertices, no implicit-begin branch, plain `r.verts.length>=2` filter) plus one addition: `r.links` is now a **derived, read-only filter** of the global `CONNECT` list (whichever ties happen to originate from a vertex that's part of THIS figure's real path) — used only for the line-editor's display, never for opening/extending a run. A new `drawConnectLinks()` draws every `CONNECT` tie whose origin point ISN'T part of any figure (the ones `strokeFigure`'s own `f.links` loop can't reach, since there's no figure to call it from); the single-point inspector (`inspect()`) gained the same small "Connect-to-point (CPN/RPN)" section `inspectFig` already had, so a lone tied node still shows its connection somewhere. Verified: a synthetic reproduction of the owner's exact report (a 4-point no-`B` code, one point `CPN`-tied to a real line) now correctly produces **zero figures** for that code (all 4 stay plain nodes) with exactly one `CONNECT` entry for the tied point — confirmed via `figures()` returning nothing for that code and the tie still rendering through `drawConnectLinks`. Re-verified against all 3 real job files: Dale's figure count drops from 162 back to **161** (matching the original pre-`CPN`-work baseline) since point 5500 — which has no `B` nearby either, the exact same shape of case — no longer creates a phantom implicit figure; Hamline's 2 real ties (both on points that ARE part of a genuine `B`-started `RWLK1` run) are completely unaffected, still shown via their figure's own `r.links`. Export safety and the `RPN` synthetic test both re-confirmed unaffected. |
+    | 66 | 🥭 MANGO | fix **`SO` (stop offset) drawing a spurious spike instead of a clean end-cap**: the owner sent screenshots of a tangled mess of curb offset lines and, once they supplied the matching job file (`TOPO RAVOUX` — their first-attached file, `TOPO ARUNDEL`, was a mismatch: grepped for zero literal `SO` tokens and none of the screenshots' point IDs, so no code was touched until the correct file arrived), traced it to `offsetAt` — the function every curb-offset lane line, cross-section rib, and OSNAP offset-segment call goes through to compute one offset point, mitered/extended at a corner. `offsetAt` decided whether a vertex was a true "interior corner" (needing a 2-line miter) purely from **physical array adjacency** (`k>0`/`k<n-1` — does a neighboring vertex exist at all in the figure), with zero awareness of whether that neighbor's offset was actually part of the SAME continuous span. At an `SO` stop point, the LAST rendered offset point still physically has a "next" vertex in the array (SO stops the *offset*, not the base line — the real curb keeps going) — so `offsetAt` mitered the end-cap using that next segment anyway, even though no offset is drawn along it. Same bug at the *start* of any offset run (right after `startK`, or right after a fresh restart) — the first point mitered against the PRECEDING "dead" segment. Confirmed on Ravoux's real `RDRC` figure at point 1140 (`"RDRC EC SO RBCB1 B H-0.5 V0"`): segment 1139→1140 turns **98.7°** into segment 1140→1141 (a real corner in the base line, but 1141 carries no offset), and the old mitered corner landed **0.58 ft** off a proper end-cap — more than the 0.5 ft offset distance itself. `offsetAt` now takes explicit `contPrev`/`contNext` continuity flags (omit both for the old physical-only behavior, kept as the default so no caller silently changes meaning); a new `spanAdj(per,k)` helper derives real continuity for free from the `per[]` active-template array `drawOffsets`/`collectOffsetSegments` already build — `per[k-1]===per[k]` (same object reference) means no restart/stop happened in between, since `active` is only ever reassigned at a fresh `stepsAt` entry. Interior mitering now requires BOTH physical adjacency AND continuity; a one-sided boundary uses a plain single-segment perpendicular off whichever side IS continuous (falling back to whatever's physically there only for a fully isolated single-point template, to avoid ever crashing on a missing neighbor). Applied to all 3 call sites: `drawOffsets`'s dashed cross-section ribs, its solid lane lines, and `collectOffsetSegments` (OSNAP). Verified against all 5 real job files (Pascal/Hamline/Dale/Ravoux/Arundel): figure counts unchanged (70/99/161/36/43), zero console errors on load+draw+`collectOffsetSegments()`/`collectSegments()`. Direct before/after screenshots at all 4 of Ravoux's real `SO` points (1097, 1101, 1115, 1136) AND at the natural start of an offset run (1082) each show the exact spurious dashed diagonal spike gone, replaced by a clean perpendicular end-cap tracking the base curve — matching the clean end-cap ticks in the owner's CAD reference screenshots; numerically confirmed the new offset value at 1140 lands exactly on the plain single-segment perpendicular (0.0 ft deviation). |
   - Suggested next fruits to rotate through:
-    🥭 MANGO, 🍉 WATERMELON,
-    🥥 COCONUT, 🍋 LEMON.
+    🍉 WATERMELON, 🥥 COCONUT,
+    🍋 LEMON, 🍎 APPLE.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -701,6 +702,84 @@ first and follow it on every task in this repo.
   `strokeFigure`'s own `k>=2&&k<=len-3` guard) and both neighboring offset
   points exist, so every non-`OC` curb offset in the file renders exactly
   as before.
+
+## SO (stop offset) — offset span boundaries (`offsetAt`/`spanAdj`, build 66)
+
+- `SO` on a point stops the currently-active curb cross-section offset
+  **after that point** (`parseDesc`: `else if(T==='SO'){if(cur)map[cur].so
+  =true;}`) — it stops the auxiliary green offset lane/rib rendering only,
+  never the base line itself, which keeps going through whatever real
+  shots follow. A later point with its own fresh `H<v> V<v>` template
+  restarts the offset from there.
+- **The bug:** every offset point is placed by `offsetAt(all,k,h,v)`,
+  which decides whether vertex `k` is a true interior corner (needing a
+  2-line miter) purely from **physical array adjacency** — `k>0`/`k<n-1`,
+  i.e. "does SOME neighboring vertex exist in this figure at all" — with
+  no idea whether that neighbor's offset is part of the SAME continuous
+  span. At an `SO` stop point the base line's NEXT vertex still physically
+  exists (SO doesn't end the figure, just the offset), so the old code
+  mitered the end-cap using that next segment anyway, even though no
+  offset is drawn along it — and the base line is free to turn sharply
+  right at that point (a curb corner, a driveway transition — exactly
+  where a crew would naturally place `SO`), so the "miter" could aim
+  wildly off from a proper perpendicular cap. The mirror-image bug hit the
+  START of every offset run too: the very first offset point (right after
+  `startK`, or right after a fresh restart following an earlier `SO`)
+  mitered against the PRECEDING "dead" segment the same way.
+- **Ground truth:** the owner's first-attached file (`TOPO ARUNDEL`) didn't
+  match their screenshots at all — grepped it for the screenshots' point
+  IDs and for literal `SO` tokens and found neither, so no code was
+  touched until they supplied the correct file, `TOPO RAVOUX` (confirmed:
+  contains every point ID from all 4 screenshots, and the real `SO`
+  usage). Ravoux's `RDRC` figure has 5 real `SO` points (1097, 1101, 1115,
+  1136, 1140), each riding along a driveway curb with real `H-0.5 V0`
+  offset templates. At point 1140 (`"RDRC EC SO RBCB1 B H-0.5 V0"`), the
+  real segment 1139→1140 turns **98.7°** into the real segment 1140→1141
+  (a genuine corner in the shot data — 1141 just carries no offset,
+  nothing wrong with the survey) — the old mitered corner at 1140 landed
+  **0.58 ft** off a proper end-cap, more than the 0.5 ft offset distance
+  itself. Rendered, this showed up as a spurious dashed diagonal spike
+  jutting off the clean offset lane at every one of Ravoux's 5 real `SO`
+  points and at the curve's own natural offset-start point (1082) —
+  exactly the tangled mess in the owner's screenshots, next to their CAD
+  reference showing a clean perpendicular end-cap tick at the same spot.
+- **Fix:** `offsetAt(all,k,h,v,contPrev,contNext)` now takes two optional
+  continuity flags saying whether the offset is ACTUALLY continuous into
+  each neighbor (same active template, not stopped by `SO` in between) —
+  omitting both keeps the old physical-adjacency-only behavior (so any
+  future caller that doesn't track span continuity, e.g. a plain
+  non-stepped figure, is unaffected). A new `spanAdj(per,k)` derives real
+  continuity for free from the `per[]` "active template" array
+  `drawOffsets`/`collectOffsetSegments` already build:
+  `per[k-1]===per[k]` (object-reference equality) is true exactly when no
+  restart/stop happened between them, since `active` is only ever
+  reassigned at a fresh `stepsAt` entry — a restart always produces a
+  distinct array instance even when its H/V values happen to match the
+  previous template's (as they do throughout Ravoux's RDRC run), so this
+  check can't be fooled by "same numbers, different template." Interior
+  mitering now requires BOTH physical adjacency AND continuity on both
+  sides; a one-sided boundary (start/end of a span) uses a plain
+  single-segment perpendicular off whichever side IS continuous, falling
+  back to whatever's physically there only for a fully isolated
+  single-point offset (so `offsetAt` never crashes on a missing far
+  neighbor at a span boundary — an early version of this fix threw
+  exactly that on Hamline before the physical/continuity distinction was
+  split apart correctly). Applied to all 3 places `offsetAt` is called:
+  `drawOffsets`'s dashed cross-section ribs, its solid lane lines
+  (including the BC..EC-curve and OC-tangent-arc tie-in points, which
+  reuse the same per-k `op[]` array so they inherit the fix for free), and
+  `collectOffsetSegments` (the OSNAP snap-segment rebuild, build 32/57).
+- **Verified:** all 5 real job files (Pascal/Hamline/Dale/Ravoux/Arundel)
+  load and redraw with unchanged figure counts (70/99/161/36/43) and zero
+  console errors, including a direct call to `collectOffsetSegments()`/
+  `collectSegments()` on each (OSNAP isn't exercised by a plain redraw).
+  Numerically, the new offset at point 1140 lands exactly on the plain
+  single-segment perpendicular (0.0 ft deviation, vs. 0.58 ft old). Direct
+  before/after screenshots at all 4 of Ravoux's real `SO` points (1097,
+  1101, 1115, 1136) and at the curve's own natural offset-start point
+  (1082) each show the spurious dashed spike completely gone, replaced by
+  a clean perpendicular end-cap tracking the base curve — matching the
+  owner's CAD reference screenshots.
 
 ## Insert point by COGO (`insertCogoPoint()`) — keep FBK format valid
 
