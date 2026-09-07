@@ -106,6 +106,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .scrim{position:fixed;inset:0;background:rgba(4,8,16,.6);display:none;place-items:center;z-index:20}
 .scrim.show{display:grid}
 .modal{background:var(--panel);border:1px solid var(--rule);border-top:3px solid var(--gold);border-radius:10px;width:min(300px,92vw);max-height:90vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal.wide{width:min(560px,92vw)}
 .modal h4{font:700 11px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin-bottom:12px}
 .modal.big{width:min(720px,94vw)}
 .codewrap{position:relative;height:min(56vh,360px);border:1px solid var(--rule);border-radius:6px;overflow:hidden;background:#0a1426}
@@ -153,13 +154,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — a point with its own curb code gets that code's std cross-section (overrides REF), points without a code derive the reveal from the nearest REF point's Z difference. RCFL (flow line) — always gets the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
-    <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, find the nearest ULP/UPP/UGP (pole) point, compute the bearing of the vector from UGW to that pole (0° at west, 90° at south, 180° at east, 270° at north), and append '<angle> CPN<pole id>' to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
+    <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
   </div>
 
   <div class="main">
@@ -294,6 +295,23 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   </div>
 </div>
 
+<!-- UGW→CPN pairing review -->
+<div class="scrim" id="ugwReviewScrim">
+  <div class="modal wide">
+    <h4>UGW → Pole Pairing Review</h4>
+    <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
+      Nearest-pole automation may not resolve every case — edit the target
+      point number below, or click <b>📍</b> to pick the pole on canvas.
+      Clear a field to skip that UGW.
+    </div>
+    <div id="ugwReviewList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
+    <div class="row">
+      <button class="btn ghost" id="ugwReviewCancel">Cancel</button>
+      <button class="btn gold" id="ugwReviewApply">Apply</button>
+    </div>
+  </div>
+</div>
+
 <!-- insert point by COGO -->
 <div class="scrim" id="cogoScrim">
   <div class="modal">
@@ -397,7 +415,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥥',name:'COCONUT',build:68};
+const VERSION={fruit:'🍋',name:'LEMON',build:69};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -688,30 +706,93 @@ function bearingFromWest(dE,dN){
   const az=(Math.atan2(dE,dN)*180/Math.PI+360)%360;   // standard survey azimuth: 0=N, 90=E, clockwise
   return (630-az)%360;                                 // re-zeroed to west, MIRRORED (0=W,90=S,180=E,270=N) — see build 61 note above
 }
-function addUgwCpn(){
-  if(!PTS.length){hud('load an FBK first');return;}
-  const code=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
-  const ugws=PTS.filter(p=>!p.deleted&&code(p.desc)==='UGW');
-  const poles=PTS.filter(p=>!p.deleted&&UGW_POLE_CODES.includes(code(p.desc)));
-  if(!ugws.length){hud('no UGW points found');return;}
-  if(!poles.length){hud('no ULP/UPP/UGP points found — nothing to pair UGW with');return;}
-  const changes=[];
-  ugws.forEach(p=>{
-    let best=null,bd=Infinity;
+const ugwCode=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
+function ugwStripCpn(desc){return (desc||'').replace(/\s+-?\d+\.?\d*\s+CPN\S+\s*$/i,'').trim();}
+/* Build 69 — the plain nearest-pole automation (build 60-62) can pick the wrong pole (a
+   closer but unrelated pole across a street, a mis-coded point, etc.) with no way to
+   correct it short of hand-editing the raw description text. openUgwCpnReview() computes
+   the same automatic nearest-pole pick as before, but as an editable REVIEW list — the
+   owner can retarget any row by typing a different point number or picking it on canvas —
+   before anything is written to a single point. addUgwCpn() (the old always-automatic
+   apply) is gone; applyUgwReview() below is the only place edits actually get written,
+   and it always goes through this review step first. */
+let ugwReviewRows=null;                                    // [{i:PTS index of the UGW, targetId:string, auto:string|null}] while the review modal is open
+let ugwPick=null;                                          // row index currently being picked on canvas, or null
+function computeUgwPairs(){
+  const ugws=[];PTS.forEach((p,i)=>{if(!p.deleted&&ugwCode(p.desc)==='UGW')ugws.push(i);});
+  const poles=PTS.filter(p=>!p.deleted&&UGW_POLE_CODES.includes(ugwCode(p.desc)));
+  return ugws.map(i=>{const p=PTS[i];let best=null,bd=Infinity;
     poles.forEach(u=>{const d=Math.hypot(u.E-p.E,u.N-p.N);if(d<bd){bd=d;best=u;}});
-    if(!best)return;
-    const ang=bearingFromWest(best.E-p.E,best.N-p.N);
-    const stripped=p.desc.replace(/\s+-?\d+\.?\d*\s+CPN\d+\s*$/i,'').trim();   // drop a previous run's angle+CPN pair so re-running updates in place
-    changes.push({p,newDesc:`${stripped} ${ang.toFixed(2)} CPN${best.id}`,pole:best.id,ang});
+    return {i,targetId:best?best.id:'',auto:best?best.id:null};});
+}
+function openUgwCpnReview(){
+  if(!PTS.length){hud('load an FBK first');return;}
+  ugwReviewRows=computeUgwPairs();
+  if(!ugwReviewRows.length){hud('no UGW points found');return;}
+  $('ugwReviewScrim').classList.add('show');renderUgwReviewList();
+  hud(`${ugwReviewRows.length} UGW pt(s) — review/edit pole targets, then Apply`);
+}
+function ugwRowAngle(row){
+  const p=PTS[row.i],t=row.targetId?PTS.find(q=>q.id===row.targetId&&!q.deleted):null;
+  if(!row.targetId)return'skip';
+  if(!t)return'no such point';
+  if(t===p)return'can\'t target itself';
+  return bearingFromWest(t.E-p.E,t.N-p.N).toFixed(2)+'° (0=W)';
+}
+function renderUgwReviewList(){
+  const box=$('ugwReviewList');
+  box.innerHTML=ugwReviewRows.map((row,idx)=>{const p=PTS[row.i];
+    const autoNote=row.auto?`auto: ${row.auto}${row.targetId===row.auto?' ✓':''}`:'no pole found nearby';
+    return `<div class="vrow">
+      <div class="vhd">
+        <span class="vpt">UGW pt ${p.id}</span>
+        <span class="vbtns"><button class="vb" data-act="ugwpick" data-row="${idx}" title="Pick target point on canvas">📍</button></span>
+      </div>
+      <div class="fbk" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <label style="margin:0;font-size:11px;color:var(--mut)">Target pt</label>
+        <input type="text" class="ugwTargetInput" data-row="${idx}" value="${row.targetId}" placeholder="(skip)" style="width:90px;background:#13213f;color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:3px 6px;font:600 12px var(--mono)" autocomplete="off">
+        <span style="font-size:10px;color:var(--mut)">${autoNote}</span>
+        <span class="ugwAngle" data-row="${idx}" style="margin-left:auto;font:600 11px var(--mono);color:var(--gold)">${ugwRowAngle(row)}</span>
+      </div>
+    </div>`;}).join('');
+  box.querySelectorAll('.ugwTargetInput').forEach(inp=>inp.oninput=()=>{
+    const idx=+inp.dataset.row;ugwReviewRows[idx].targetId=inp.value.trim();
+    box.querySelector(`.ugwAngle[data-row="${idx}"]`).textContent=ugwRowAngle(ugwReviewRows[idx]);});
+  box.querySelectorAll('[data-act="ugwpick"]').forEach(b=>b.onclick=()=>startUgwPick(+b.dataset.row));
+}
+function startUgwPick(rowIdx){
+  if(is3D)setMode('sel');
+  ugwPick=rowIdx;$('ugwReviewScrim').classList.remove('show');
+  prevCursor=cv.style.cursor;cv.style.cursor='crosshair';
+  hud('click the target pole/point on canvas · Esc to cancel');draw();}
+function endUgwPick(id){
+  const idx=ugwPick;ugwPick=null;cv.style.cursor=prevCursor||'crosshair';
+  $('ugwReviewScrim').classList.add('show');
+  if(id!=null&&idx!=null)ugwReviewRows[idx].targetId=id;
+  renderUgwReviewList();draw();
+  hud(id!=null?`target set to pt ${id}`:'pick cancelled');}
+function closeUgwReview(){ugwReviewRows=null;ugwPick=null;$('ugwReviewScrim').classList.remove('show');draw();}
+function applyUgwReview(){
+  if(!ugwReviewRows){closeUgwReview();return;}
+  const changes=[];
+  ugwReviewRows.forEach(row=>{
+    const p=PTS[row.i];if(!row.targetId)return;              // blank target → skip this UGW, leave it untouched
+    const t=PTS.find(q=>q.id===row.targetId&&!q.deleted);
+    if(!t||t===p)return;                                      // unresolved/self target — silently skipped, same as a blank one
+    const ang=bearingFromWest(t.E-p.E,t.N-p.N);
+    const stripped=ugwStripCpn(p.desc);                       // drop a previous run's angle+CPN pair so re-running updates in place
+    changes.push({p,newDesc:`${stripped} ${ang.toFixed(2)} CPN${t.id}`,target:t.id,ang});
   });
-  if(!changes.length){hud('no ULP/UPP/UGP point found to pair with any UGW point');return;}
+  if(!changes.length){hud('nothing to apply — every row is skipped or unresolved');return;}
   saveState();
-  changes.forEach(({p,newDesc,pole,ang})=>{
-    logEdit('code',`UGW pt ${p.id}: paired with nearest pole ${pole}, angle ${ang.toFixed(2)} (0=W)`);
+  changes.forEach(({p,newDesc,target,ang})=>{
+    logEdit('code',`UGW pt ${p.id}: paired with pole ${target}, angle ${ang.toFixed(2)} (0=W)`);
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
   });
+  const applied=changes.length,total=ugwReviewRows.length;
+  closeUgwReview();
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
-  hud(`UGW→CPN angle added to ${changes.length} pt(s)`);
+  hud(`UGW→CPN applied to ${applied} of ${total} pt(s)`);
 }
 
 /* ---------- linework (field-to-finish) ----------
@@ -2517,6 +2598,9 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       vs:view.s,os:orbit.s,ox:orbit.ox,oy:orbit.oy};
     pinch.wE=(pinch.mx-view.x)/view.s;pinch.wN=-(pinch.my-view.y)/view.s;return;}
   if(pointers.size>2)return;
+  if(ugwPick!=null){const i=pick(sx,sy);
+    if(i>=0)endUgwPick(PTS[i].id);else hud('click a point for the target pole');
+    return;}
   if(cogoPick){const snap=snapPoint(sx,sy);
     if(snap&&snap.type==='intersection'){                  // ambiguous Z → set N/E, then prompt for elevation
       $('simplCogoN').value=snap.N.toFixed(3);$('simplCogoE').value=snap.E.toFixed(3);
@@ -2677,7 +2761,7 @@ $('dlBtn').onclick=exportFBK;
 $('dlRawBtn').onclick=()=>exportFBK(false);
 $('dlCsvBtn').onclick=exportCSV;
 $('kdBtn').onclick=applyKnockdown;
-$('ugwCpnBtn').onclick=addUgwCpn;
+$('ugwCpnBtn').onclick=openUgwCpnReview;
 $('simplCogoBtn').onclick=()=>{if(!$('simplCogoBtn').disabled)openSimplCogoDialog();};
 $('undoBtn').onclick=performUndo;
 $('redoBtn').onclick=performRedo;
@@ -2706,6 +2790,9 @@ $('circleCtrCancel').onclick=closeCircleCtrDialog;
 $('circleCtrApply').onclick=addCircleCtrPoint;
 $('circleCtrScrim').onclick=e=>{if(e.target===$('circleCtrScrim'))closeCircleCtrDialog();};
 $('circleCtrCode').addEventListener('keydown',e=>{if(e.key==='Enter')addCircleCtrPoint();});
+$('ugwReviewCancel').onclick=closeUgwReview;
+$('ugwReviewApply').onclick=applyUgwReview;
+$('ugwReviewScrim').onclick=e=>{if(e.target===$('ugwReviewScrim'))closeUgwReview();};
 $('cogoCancel').onclick=closeCogoDialog;
 $('cogoInsert').onclick=insertCogoPoint;
 $('cogoScrim').onclick=e=>{if(e.target===$('cogoScrim'))closeCogoDialog();};
@@ -2722,6 +2809,7 @@ $('zpickScrim').onclick=e=>{if(e.target===$('zpickScrim'))closeZPick();};
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);return;}
+  if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
   if(e.key==='Escape'&&circleCtrCtx){e.preventDefault();closeCircleCtrDialog();return;}
   if(e.key==='Escape'&&circleCtrPick){e.preventDefault();cancelCircleCtrPick();return;}
   const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
