@@ -47,6 +47,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px;vertical-align:-1px}
 .vex{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:none;align-items:center;gap:10px;background:rgba(7,11,22,.82);border:1px solid var(--rule);border-radius:8px;padding:7px 13px;font:600 11px var(--mono);color:var(--mut)}
 .vex.show{display:flex}
+.snapbox{position:absolute;right:12px;bottom:44px;display:none;flex-direction:column;gap:3px;background:rgba(7,11,22,.85);border:1px solid var(--rule);border-radius:8px;padding:8px 10px;font:600 11px var(--mono);color:var(--mut);z-index:5;pointer-events:none}
+.snapbox.show{display:flex}
+.snapbox .sbTitle{color:var(--gold-dim);letter-spacing:.09em;font-size:9px;margin-bottom:2px}
+.snapbox label{display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 5px;border-radius:5px;transition:background .12s,color .12s;pointer-events:auto}
+.snapbox label.active{background:rgba(53,193,132,.24);color:#9ff0c8}
+.snapbox input{width:13px;height:13px;cursor:pointer}
 .vex input{width:130px;accent-color:var(--gold)}
 .side{background:var(--panel);border-left:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
 .side h3{font:700 10px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--gold);padding:12px 14px 8px;border-bottom:1px solid var(--rule)}
@@ -152,7 +158,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥥 COCONUT</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
   </div>
 
   <div class="main">
@@ -183,6 +189,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <div><i style="background:transparent;border:1.4px solid #ffd24a;border-radius:2px"></i>curb code</div>
         <div><i style="background:transparent;border-radius:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #ff8f5d"></i>code starts with C</div>
         <div><i style="background:transparent;border-radius:0;width:auto;height:auto;font-size:11px;line-height:10px;vertical-align:-2px">🌲</i>TCTR / TDTR</div>
+      </div>
+      <div class="snapbox" id="snapBox">
+        <div class="sbTitle">OSNAP — active shown in green</div>
+        <label id="snapLbl_endpoint"><input type="checkbox" id="snapChk_endpoint" checked>▢ endpoint</label>
+        <label id="snapLbl_intersection"><input type="checkbox" id="snapChk_intersection" checked>○ intersection</label>
+        <label id="snapLbl_midpoint"><input type="checkbox" id="snapChk_midpoint" checked>△ midpoint</label>
+        <label id="snapLbl_nearest"><input type="checkbox" id="snapChk_nearest" checked>⋈ nearest</label>
       </div>
       <div class="vex" id="vex">
         <span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
@@ -380,7 +393,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥥',name:'COCONUT',build:56};
+const VERSION={fruit:'🍎',name:'APPLE',build:57};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -404,7 +417,8 @@ let figExtra={};                                          // figId -> [{i,after}
 let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
-let insertSnapOn=true;                                    // insert-on-line: snap to another line's crossing (and prompt for Z) when checked
+let insertSnap=null;                                      // current CAD snap result under the cursor while inserting a point on a line
+let snapEnabled={endpoint:true,intersection:true,midpoint:true,nearest:true};   // OSNAP toolbox: which snap types are live, shared by COGO canvas-pick AND insert-on-line
 let circleTool=null;                                      // circle drawing: {centerPt:idx} or null
 let circles=[];                                           // drawn circles: [{centerIdx, radiusFt}]
 let circleCtrPick=null;                                    // circle-center-point tool: {pts:[idx,idx,idx?]} while picking
@@ -730,31 +744,56 @@ function pickFig(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
     if(f.closed&&vs.length>1)seg(vs[vs.length-1],vs[0]);});
   return best;
 }
+/* Insert-on-line's own CAD osnap cascade — same priority order and same
+   snapEnabled toggles as snapPoint() (endpoint > intersection > midpoint >
+   nearest), but scoped to THIS figure's own segments, since a point inserted
+   this way must stay ON the clicked line. Every candidate carries a screen
+   sx/sy (for drawSnapMarker) and a world E/N/Z (for the hover hud). */
 function pickSegmentForInsert(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)=>W2S(E,N));
-  let best=null,bd=15;
   if(!insertPt)return null;
   const f=getFig(insertPt.figId);if(!f)return null;
   const vs=f.verts.map(v=>PTS[v.i]).filter(p=>!p.deleted);
-  const figSegs=[];                                       // this figure's own segments, for the intersection-snap pass below
-  const track=(A,B,i1,i2,p1,p2)=>{
+  const figSegs=[];                                       // this figure's own segments (world), for the intersection pass
+  const segPts=[];                                        // this figure's own segments (screen), for endpoint/midpoint/nearest
+  const addSeg=(A,B,i1,i2,p1,p2)=>{
     figSegs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:p1.E,aN:p1.N,aZ:p1.Z,bE:p2.E,bN:p2.N,bZ:p2.Z,i1,i2,p1,p2});
+    segPts.push({A,B,i1,i2,p1,p2});};
+  for(let k=0;k<vs.length-1;k++)addSeg(proj(vs[k].E,vs[k].N,vs[k].Z),proj(vs[k+1].E,vs[k+1].N,vs[k+1].Z),k,k+1,vs[k],vs[k+1]);
+  if(f.closed&&vs.length>1)addSeg(proj(vs[vs.length-1].E,vs[vs.length-1].N,vs[vs.length-1].Z),proj(vs[0].E,vs[0].N,vs[0].Z),vs.length-1,0,vs[vs.length-1],vs[0]);
+  if(!is3D){
+    if(snapEnabled.endpoint){                             // 1) snap exactly onto one of this line's own vertices
+      const TOL_PT=12;let bd=TOL_PT,best=null;
+      segPts.forEach(({A,B,i1,i2,p1,p2})=>{
+        const dA=Math.hypot(A[0]-sx,A[1]-sy);if(dA<bd){bd=dA;best={figId:f.id,i1,i2,p1,p2,t:0,type:'endpoint',sx:A[0],sy:A[1],E:p1.E,N:p1.N,Z:p1.Z,label:'endpoint · pt '+p1.id};}
+        const dB=Math.hypot(B[0]-sx,B[1]-sy);if(dB<bd){bd=dB;best={figId:f.id,i1,i2,p1,p2,t:1,type:'endpoint',sx:B[0],sy:B[1],E:p2.E,N:p2.N,Z:p2.Z,label:'endpoint · pt '+p2.id};}});
+      if(best)return best;
+    }
+    if(snapEnabled.intersection){                         // 2) landing near where this line crosses ANY other line (or its own offset lanes) — ask which elevation to use
+      const other=collectSegments();
+      const TOL_X=14;let bxd=TOL_X,bxBest=null;
+      figSegs.forEach(fs=>other.forEach(os=>{
+        const X=lineLineX(fs,os);if(!X||!isFinite(X.x)||X.t<-0.02||X.t>1.02)return;   // crossing must fall within THIS figure's segment
+        const d=Math.hypot(X.x-sx,X.y-sy);if(d>=bxd)return;
+        const z1=fs.aZ+X.t*(fs.bZ-fs.aZ),z2=os.aZ+X.u*(os.bZ-os.aZ);
+        const[E,N]=S2W(X.x,X.y);
+        bxd=d;bxBest={figId:f.id,i1:fs.i1,i2:fs.i2,p1:fs.p1,p2:fs.p2,t:Math.max(0,Math.min(1,X.t)),
+          sx:X.x,sy:X.y,E,N,z1,z2,la:f.code,lb:os.label||'line B',label:'apparent intersection',type:'intersection'};}));
+      if(bxBest)return bxBest;                            // an in-range crossing wins over anything lower-priority
+    }
+    if(snapEnabled.midpoint){                             // 3) snap onto the midpoint of one of this line's own segments
+      const TOL_MID=11;let bd=TOL_MID,best=null;
+      segPts.forEach(({A,B,i1,i2,p1,p2})=>{const mx=(A[0]+B[0])/2,my=(A[1]+B[1])/2,d=Math.hypot(mx-sx,my-sy);
+        if(d<bd){bd=d;best={figId:f.id,i1,i2,p1,p2,t:0.5,type:'midpoint',sx:mx,sy:my,E:(p1.E+p2.E)/2,N:(p1.N+p2.N)/2,Z:(p1.Z+p2.Z)/2,label:'midpoint'};}});
+      if(best)return best;
+    }
+    if(!snapEnabled.nearest)return null;                  // nearest is off and nothing else matched — no landing at all
+  }
+  let best=null,bd=15;                                    // 4) plain nearest-on-this-line landing (fallback, and the only option in 3D)
+  segPts.forEach(({A,B,i1,i2,p1,p2})=>{
     const proj_info=projectPointOnSegment(sx,sy,A[0],A[1],B[0],B[1]);
     const d=Math.hypot(proj_info.x-sx,proj_info.y-sy);
-    if(d<bd){bd=d;best={figId:f.id,i1,i2,p1,p2,t:proj_info.t};}};
-  for(let k=0;k<vs.length-1;k++)track(proj(vs[k].E,vs[k].N,vs[k].Z),proj(vs[k+1].E,vs[k+1].N,vs[k+1].Z),k,k+1,vs[k],vs[k+1]);
-  if(f.closed&&vs.length>1)track(proj(vs[vs.length-1].E,vs[vs.length-1].N,vs[vs.length-1].Z),proj(vs[0].E,vs[0].N,vs[0].Z),vs.length-1,0,vs[vs.length-1],vs[0]);
-  if(!is3D&&insertSnapOn){                                // CAD-style snap (checkbox-gated): landing near where this line crosses ANY other line (or its own offset lanes) — ask which elevation to use
-    const other=collectSegments();
-    const TOL_X=14;let bxd=TOL_X,bxBest=null;
-    figSegs.forEach(fs=>other.forEach(os=>{
-      const X=lineLineX(fs,os);if(!X||!isFinite(X.x)||X.t<-0.02||X.t>1.02)return;   // crossing must fall within THIS figure's segment
-      const d=Math.hypot(X.x-sx,X.y-sy);if(d>=bxd)return;
-      const z1=fs.aZ+X.t*(fs.bZ-fs.aZ),z2=os.aZ+X.u*(os.bZ-os.aZ);
-      const[E,N]=S2W(X.x,X.y);
-      bxd=d;bxBest={figId:f.id,i1:fs.i1,i2:fs.i2,p1:fs.p1,p2:fs.p2,t:Math.max(0,Math.min(1,X.t)),
-        E,N,z1,z2,la:f.code,lb:os.label||'line B',label:'apparent intersection',type:'intersection'};}));
-    if(bxBest)return bxBest;                              // an in-range crossing wins over the plain along-the-line landing
-  }
+    if(d<bd){bd=d;best={figId:f.id,i1,i2,p1,p2,t:proj_info.t,type:'nearest',sx:proj_info.x,sy:proj_info.y,
+      E:p1.E+proj_info.t*(p2.E-p1.E),N:p1.N+proj_info.t*(p2.N-p1.N),Z:p1.Z+proj_info.t*(p2.Z-p1.Z),label:'nearest on line'};}});
   return best;
 }
 function reorderFig(id,from,to){const f=getFig(id);if(!f)return;
@@ -836,7 +875,7 @@ function insertPointOnLine(figId,ptIdx1,ptIdx2,t,zOverride){saveState();
   (figExtra[figId]=figExtra[figId]||[]).push({i:newIdx,after:ptIdx1});
   logEdit('code',`inserted pt ${newId} on ${f.code} between ${p1.id} and ${p2.id}`);
   logEdit('code',`NEZ ${newId} ${newN.toFixed(3)} ${newE.toFixed(3)} ${newZ.toFixed(3)} "${newDesc}"`);
-  insertPt=null;selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();
+  insertPt=null;insertSnap=null;selFig=figId;sel=-1;draw();inspectFig(getFig(figId));flagDirty();
 }
 
 function openCogoDialog(figId){
@@ -950,35 +989,44 @@ function lineLineX(s1,s2){                                 // infinite-line inte
 function snapPoint(sx,sy){
   if(is3D)return null;
   const TOL_PT=12,TOL_X=14,TOL_MID=11,TOL_NEAR=8;
+  let best=null;
   // 1) endpoint / node — nearest point (covers every segment endpoint)
-  let best=null,bd=TOL_PT;
-  PTS.forEach(p=>{if(p.deleted)return;const[x,y]=W2S(p.E,p.N);const d=Math.hypot(x-sx,y-sy);
-    if(d<bd){bd=d;best={E:p.E,N:p.N,Z:p.Z,sx:x,sy:y,type:'endpoint',label:'endpoint · pt '+p.id};}});
-  if(best)return best;
+  if(snapEnabled.endpoint){
+    let bd=TOL_PT;
+    PTS.forEach(p=>{if(p.deleted)return;const[x,y]=W2S(p.E,p.N);const d=Math.hypot(x-sx,y-sy);
+      if(d<bd){bd=d;best={E:p.E,N:p.N,Z:p.Z,sx:x,sy:y,type:'endpoint',label:'endpoint · pt '+p.id};}});
+    if(best)return best;
+  }
   const segs=collectSegments();
   // 2) apparent intersection — pairs of lines passing near the cursor, crossing near the cursor
-  const near=segs.filter(s=>ptLineDist(sx,sy,s.ax,s.ay,s.bx,s.by)<60);
-  let bxd=TOL_X;
-  for(let i=0;i<near.length;i++)for(let j=i+1;j<near.length;j++){
-    const X=lineLineX(near[i],near[j]);if(!X||!isFinite(X.x))continue;
-    const d=Math.hypot(X.x-sx,X.y-sy);if(d<bxd){
-      const z1=near[i].aZ+X.t*(near[i].bZ-near[i].aZ),z2=near[j].aZ+X.u*(near[j].bZ-near[j].aZ);
-      const[E,N]=S2W(X.x,X.y);bxd=d;
-      best={E,N,Z:(z1+z2)/2,z1,z2,la:near[i].label||'line A',lb:near[j].label||'line B',sx:X.x,sy:X.y,type:'intersection',label:'apparent intersection'};}}
-  if(best)return best;
+  if(snapEnabled.intersection){
+    const near=segs.filter(s=>ptLineDist(sx,sy,s.ax,s.ay,s.bx,s.by)<60);
+    let bxd=TOL_X;
+    for(let i=0;i<near.length;i++)for(let j=i+1;j<near.length;j++){
+      const X=lineLineX(near[i],near[j]);if(!X||!isFinite(X.x))continue;
+      const d=Math.hypot(X.x-sx,X.y-sy);if(d<bxd){
+        const z1=near[i].aZ+X.t*(near[i].bZ-near[i].aZ),z2=near[j].aZ+X.u*(near[j].bZ-near[j].aZ);
+        const[E,N]=S2W(X.x,X.y);bxd=d;
+        best={E,N,Z:(z1+z2)/2,z1,z2,la:near[i].label||'line A',lb:near[j].label||'line B',sx:X.x,sy:X.y,type:'intersection',label:'apparent intersection'};}}
+    if(best)return best;
+  }
   // 3) midpoint
-  let bmd=TOL_MID;
-  segs.forEach(s=>{const mx=(s.ax+s.bx)/2,my=(s.ay+s.by)/2,d=Math.hypot(mx-sx,my-sy);
-    if(d<bmd){bmd=d;best={E:(s.aE+s.bE)/2,N:(s.aN+s.bN)/2,Z:(s.aZ+s.bZ)/2,sx:mx,sy:my,type:'midpoint',label:'midpoint'};}});
-  if(best)return best;
+  if(snapEnabled.midpoint){
+    let bmd=TOL_MID;
+    segs.forEach(s=>{const mx=(s.ax+s.bx)/2,my=(s.ay+s.by)/2,d=Math.hypot(mx-sx,my-sy);
+      if(d<bmd){bmd=d;best={E:(s.aE+s.bE)/2,N:(s.aN+s.bN)/2,Z:(s.aZ+s.bZ)/2,sx:mx,sy:my,type:'midpoint',label:'midpoint'};}});
+    if(best)return best;
+  }
   // 4) nearest point on a segment
+  if(!snapEnabled.nearest)return null;
   let bnd=TOL_NEAR;
   segs.forEach(s=>{let t=projParam(sx,sy,s.ax,s.ay,s.bx,s.by);t=Math.max(0,Math.min(1,t));
     const x=s.ax+t*(s.bx-s.ax),y=s.ay+t*(s.by-s.ay),d=Math.hypot(x-sx,y-sy);
     if(d<bnd){bnd=d;const[E,N]=S2W(x,y);best={E,N,Z:s.aZ+t*(s.bZ-s.aZ),sx:x,sy:y,type:'nearest',label:'nearest'};}});
   return best;}
 function drawSnapMarker(){
-  if(!cogoPick||!cogoSnap)return;const s=cogoSnap,x=s.sx,y=s.sy,r=7;ctx.save();
+  const s=cogoPick?cogoSnap:(insertPt&&!is3D?insertSnap:null);
+  if(!s)return;const x=s.sx,y=s.sy,r=7;ctx.save();
   ctx.lineWidth=2;ctx.strokeStyle='#35c184';ctx.fillStyle='rgba(53,193,132,.18)';
   if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}   // box = endpoint (any point/vertex)
   else if(s.type==='intersection'){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();ctx.stroke();}   // circle = apparent intersection of two lines
@@ -987,6 +1035,20 @@ function drawSnapMarker(){
   ctx.font='600 11px ui-monospace,monospace';const txt=s.label;const tw=ctx.measureText(txt).width;
   ctx.fillStyle='rgba(7,11,22,.85)';ctx.fillRect(x+12,y-9,tw+10,18);
   ctx.fillStyle='#9ff0c8';ctx.fillText(txt,x+17,y+4);ctx.restore();}
+/* OSNAP toolbox (#snapBox): shown whenever a snap-driven pick is live — COGO
+   canvas-pick, or insert-on-line in 2D — with checkboxes toggling snapEnabled
+   per type and a live "active" highlight on whichever type actually matched
+   under the cursor right now (cogoSnap / insertSnap). Called every draw() so
+   it always reflects current tool/mode state, not just pointermove ticks. */
+function syncSnapBox(){
+  const box=$('snapBox');if(!box)return;
+  const live=cogoPick||(insertPt&&!is3D);
+  box.classList.toggle('show',!!live);
+  if(!live)return;
+  const s=cogoPick?cogoSnap:insertSnap;
+  ['endpoint','intersection','midpoint','nearest'].forEach(t=>{
+    const lbl=$('snapLbl_'+t);if(lbl)lbl.classList.toggle('active',!!s&&s.type===t);});
+}
 function startCogoPick(){
   if(is3D)setMode('sel');                                  // object snap is a 2D operation
   cogoPick=true;cogoSnap=null;
@@ -1537,7 +1599,7 @@ function P3(E,N,Z){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 function resize(){const r=cv.parentElement.getBoundingClientRect();
   cv.width=r.width*devicePixelRatio;cv.height=r.height*devicePixelRatio;
   ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);draw();}
-function draw(){is3D?draw3D():draw2D();}
+function draw(){syncSnapBox();is3D?draw3D():draw2D();}
 
 function draw2D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -1876,10 +1938,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     ${is3D?'':`<button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>`}
     ${adding?`<div class="warnbox">${addPt.anchor<0?'Click a point <b>already on this line</b> (the insert anchor).':'Now click the <b>existing point</b> to add — it drops in right after the anchor.'}</div>`:''}
     ${is3D?'':`<button class="btn ${insertPt?.figId===f.id?'gold':''}" id="insertModeBtn" style="width:100%;justify-content:center;margin-top:7px">${insertPt?.figId===f.id?'✕ Cancel insert':'⊕ Click line to insert point'}</button>`}
-    ${is3D?'':`<label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:7px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
-      <input type="checkbox" id="insertSnapChk" ${insertSnapOn?'checked':''} style="width:15px;height:15px;cursor:pointer">
-      Snap to line crossings (asks which elevation)</label>`}
-    ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location.${insertSnapOn?' Click near where this line crosses another line (or a curb offset lane) to snap to that crossing — since the two lines can sit at different elevations there, you\'ll be asked which <b>Z</b> to use.':' Crossing-snap is off, so it always lands at the plain along-the-line position.'}</div>`:''}
+    ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location. The <b>OSNAP</b> toolbox (bottom-right of the canvas) shows which snap types are live and lights up whichever one is currently engaged under the cursor — untick a type there to stop landing on it. Snapping onto an <b>intersection</b> asks which <b>Z</b> to use, since the two lines can sit at different elevations.</div>`:''}
     ${is3D?'':`<button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>`}
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
     <label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
@@ -1915,10 +1974,8 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   $('fbkBtn').onclick=()=>openFbk(f.id);
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
-  if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};
-    hud(insertPt?.figId===f.id?'click on the line to insert point':'insert cancelled');inspectFig(getFig(f.id));};
-  if($('insertSnapChk'))$('insertSnapChk').onchange=()=>{insertSnapOn=$('insertSnapChk').checked;
-    hud(`crossing-snap ${insertSnapOn?'on':'off'}`);inspectFig(getFig(f.id));};
+  if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};insertSnap=null;
+    hud(insertPt?.figId===f.id?'click on the line to insert point':'insert cancelled');inspectFig(getFig(f.id));draw();};
   if($('cogoBtn'))$('cogoBtn').onclick=()=>openCogoDialog(f.id);
   if($('nezChk'))$('nezChk').onchange=()=>{saveState();
     if($('nezChk').checked)figNEZ[f.id]=true;else delete figNEZ[f.id];
@@ -2335,6 +2392,10 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     if(cogoSnap)hud(`${cogoSnap.label} · E ${cogoSnap.E.toFixed(2)} N ${cogoSnap.N.toFixed(2)}${isFinite(cogoSnap.Z)?' Z '+cogoSnap.Z.toFixed(2):''}`);
     else{const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Esc to cancel`);}
     draw();return;}
+  if(insertPt&&!is3D){insertSnap=pickSegmentForInsert(sx,sy);
+    if(insertSnap)hud(`${insertSnap.label} · E ${insertSnap.E.toFixed(2)} N ${insertSnap.N.toFixed(2)}${isFinite(insertSnap.Z)?' Z '+insertSnap.Z.toFixed(2):''}`);
+    else hud('no landing here — move onto the line');
+    draw();return;}
   if(pinch&&pointers.size>=2){const p=[...pointers.values()];
     const d=Math.hypot(p[0].sx-p[1].sx,p[0].sy-p[1].sy),mx=(p[0].sx+p[1].sx)/2,my=(p[0].sy+p[1].sy)/2,f=d/pinch.d0;
     if(is3D){orbit.s=pinch.os*f;orbit.ox=pinch.ox+(mx-pinch.mx);orbit.oy=pinch.oy+(my-pinch.my);}
@@ -2462,6 +2523,9 @@ $('cogoScrim').onclick=e=>{if(e.target===$('cogoScrim'))closeCogoDialog();};
 $('simplCogoCancel').onclick=closeSimplCogoDialog;
 $('simplCogoAdd').onclick=addSimplCogoPoint;
 $('simplCogoPick').onclick=startCogoPick;
+['endpoint','intersection','midpoint','nearest'].forEach(t=>{
+  const chk=$('snapChk_'+t);if(!chk)return;
+  chk.onchange=()=>{snapEnabled[t]=chk.checked;hud(`osnap ${t} ${chk.checked?'on':'off'}`);draw();};});
 $('simplCogoScrim').onclick=e=>{if(e.target===$('simplCogoScrim'))closeSimplCogoDialog();};
 $('zpickUse').onclick=()=>applyZPick(parseFloat($('zpickCustom').value));
 $('zpickCancel').onclick=closeZPick;

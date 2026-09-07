@@ -70,8 +70,9 @@ first and follow it on every task in this repo.
     | 54 | 🍐 PEAR | owner tested build 53 in a real browser (the first live confirmation this sandbox's own Google-domain block couldn't provide) and reported two things: markers show up but don't line up well with the real curb, and the panorama's photo colors are inverted (a negative). The color issue turned out to be isolated to the Street View panel itself — nothing else in the app looked wrong — which points at Chrome's own "Force Dark Mode for Web Content" (or a Dark-Reader-style extension) heuristically inverting the panorama's WebGL/canvas imagery because it can't recognize it as a photo the way it recognizes normal `<img>` content, while leaving the rest of the page's ordinary HTML/CSS alone (exactly the asymmetry reported). Fixed by adding `color-scheme:light;forced-color-adjust:none` to `#svPanoDiv`, which explicitly tells the browser this element is intentionally light-themed content it shouldn't auto-invert — confirmed via computed style in a real headless browser that both properties land as set, with no console errors. **The marker-alignment issue is still open** — waiting on a screenshot from the owner before touching any coordinate/marker code, since "markers a little off" could mean either a real bug in our math or plain Street View camera-vs-curb parallax (the panorama's photo is taken from wherever Google's car actually drove, which is rarely the exact curb line a marker sits on — a well-known, unavoidable Street View limitation, not something fixable by us) and guessing which one it is without seeing it risks fixing a non-bug or missing a real one. |
     | 55 | 🍉 WATERMELON | new **point marker symbols** on the 2D canvas, keyed off each point's own description code — a small outline shape drawn AROUND the existing colored dot (dot stays visible in the center) so a feature's type is readable at a glance without opening the inspector: a **☐ square** for any point carrying a real curb code (same `CURB_BOC`/`CURB_FL` token scan `applyKnockdown` already uses), a **△ triangle** for a figure code starting with the letter `C` (e.g. `CP`, `CHK`, `CIP`, `CNL` — catch basin/checkpoint-family codes), and a **🌲 tree emoji** for the two tree codes `TCTR`/`TDTR`. New `drawPtSymbol(p,x,y,r)` checks tree first (most specific — an exact code match), then curb code, then starts-with-C, so a point only ever gets one symbol; wired into `drawPt` behind the SAME zoom/hot visibility gate the point-ID label already uses (`p.kind==='ctrl'\|\|view.s>3\|\|hot`), so symbols declutter at a zoomed-out overview exactly like labels already do. Added matching entries to the on-canvas legend. Verified in a real headless browser against both real job files: zoomed screenshots of a real `TCTR` point, a real `CP` (control) point, and a real `RBCB EC L824` curb point each show the correct symbol with no visual overlap hiding the dot; a full sweep over every non-deleted point in both files (966 Hamline, 1723 Dale) classified each into exactly one bucket (tree/square/triangle/none) with sane counts (Hamline: 33 tree, 5 square, 59 triangle; Dale: 38 tree, 46 square, 53 triangle) and a full canvas redraw at `view.s=1` produced zero console errors on either file. |
     | 56 | 🥥 COCONUT | fix **CAD object snap marker mismatch**: the owner asked for circle=intersection, box=endpoint, triangle=midpoint — endpoint and midpoint already matched (`drawSnapMarker` already drew a box for `'endpoint'` and a triangle for `'midpoint'`), but apparent-**intersection** was drawing an X/cross instead of the requested circle. Changed just that one branch to `ctx.arc(x,y,r,0,7)` (filled+stroked, matching the visual weight of the other two shapes) and updated the on-screen osnap legend hint (`osnap: ▢ endpoint · ○ intersection · △ midpoint · ⋈ nearest`) to match. `nearest` (the bowtie/diamond, not mentioned by the owner) is unchanged. Verified in a real headless browser: a synthetic render of all 4 marker types side-by-side shows the correct box/circle/triangle/bowtie shapes; then swept a full grid of points across the canvas on both real job files calling the real `snapPoint()`/`drawSnapMarker()` pipeline (not synthetic types) — 632 real intersection hits on Hamline, 774 on Dale, plus real endpoint hits on both — zero draw errors. |
+    | 57 | 🍎 APPLE | new **OSNAP toolbox** (`#snapBox`, bottom-right of the canvas): a checkbox per snap type (▢ endpoint / ○ intersection / △ midpoint / ⋈ nearest) that shows up whenever a snap-driven pick is live — COGO canvas-pick, or **Insert point on line**, which is the second half of the owner's request ("make this avibal also on add piont aloung a line"). Unticking a type removes it from the cascade entirely (both `snapPoint()` for COGO and a new matching cascade in `pickSegmentForInsert()` now gate each of their 4 stages behind a shared `snapEnabled` object, in the same endpoint>intersection>midpoint>nearest priority order), and whichever type is actually engaged under the cursor right now lights up green in the toolbox (`syncSnapBox()`, called every `draw()`) — the "check the active snap" half of the request. Insert-on-line previously had only one crossing-snap checkbox (`insertSnapChk`/`insertSnapOn`, build 32/33) buried in the figure editor panel; that's replaced by the shared toolbox, and `pickSegmentForInsert` gained real endpoint-snap (lands exactly on one of the line's own vertices) and midpoint-snap (lands exactly on a segment's midpoint) it never had before, scoped to the clicked figure's own segments since an inserted point has to stay on that line. Insert-on-line also gets a live hover preview now (it never had one pre-build-57 — only computed a landing on click) via the same `drawSnapMarker`/hud pattern COGO already used. **A real bug found and fixed along the way:** the toolbox is a normal DOM element floating over the canvas, so with no `pointer-events` handling it silently ate mouse clicks/moves anywhere its own bounding box overlapped the canvas underneath — confirmed directly (a Dale job figure's segment midpoint landed literally under the toolbox's `midpoint` checkbox row, and every mouse event there stopped reaching `#cv` entirely, `pickSegmentForInsert` never even getting called). Fixed with `.snapbox{pointer-events:none}` plus `.snapbox label{pointer-events:auto}` — empty box background/padding passes clicks straight through to the canvas, only the actual checkbox rows stay clickable, the same tradeoff every other floating overlay in the app (`.legend`, `.tools`) already makes just by existing. Verified end-to-end through the REAL UI (button clicks, not poked state) on both real job files: opening Add Point (COGO) → Pick on canvas shows the toolbox and correctly highlights `endpoint` next to a real point; opening a figure → ⊕ Click line to insert point shows the toolbox and, at real segment locations picked to avoid the toolbox's own footprint, correctly resolves `intersection` → (intersection off) `nearest` → (nearest off too, nothing left enabled) `null` with no crash, matching the same priority cascade as COGO; the toolbox hides again on Esc/cancel in both flows. A 25-figure × 2-file insert-on-line sweep plus a 40-point × 2-file COGO-pick sweep produced zero console errors (only the pre-existing, unrelated `ERR_CONNECTION_RESET` from blocked map-tile fetches, already documented under MAP background). |
   - Suggested next fruits to rotate through:
-    🍎 APPLE, 🍌 BANANA, 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY.
+    🍌 BANANA, 🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1096,6 +1097,62 @@ first and follow it on every task in this repo.
   plain along-the-line position, same as before build 32. Purely a global
   UI toggle (`insertSnapOn`), not per-figure — persists across figures/tool
   switches, resets only on a fresh page load.
+  **Superseded by build 57's OSNAP toolbox, below** — `insertSnapOn` is
+  gone, replaced by `snapEnabled.intersection`.
+- **Build 57 — shared OSNAP toolbox (`#snapBox`, `snapEnabled`, `syncSnapBox`):**
+  the owner asked for a way to check/toggle which snap types are active, and
+  for the same capability on insert-on-line, which until now only had the
+  single build-32/33 intersection checkbox above. One `let snapEnabled=
+  {endpoint,intersection,midpoint,nearest}` (all `true` by default) now
+  gates BOTH `snapPoint()` (COGO) and `pickSegmentForInsert()` (insert-on-
+  line) — each function tries its 4 stages in the same priority order
+  (endpoint > intersection > midpoint > nearest), skipping any stage whose
+  `snapEnabled` flag is off, and stopping the whole cascade (returning
+  `null`) if `nearest` is off and nothing higher-priority matched either.
+  `pickSegmentForInsert` gained two stages it never had: an **endpoint**
+  snap (lands exactly on one of the clicked figure's own vertices) and a
+  **midpoint** snap (lands exactly on one of its segments' midpoints) —
+  both scoped to that figure's own segments only, since an inserted point
+  has to stay on the line being edited; the existing intersection-crossing
+  logic (build 32/33) is unchanged, just now reads `snapEnabled.intersection`
+  instead of the old standalone `insertSnapOn`.
+  - A floating panel (`#snapBox`, bottom-right of the canvas, CSS class
+    `.snapbox`) shows a checkbox per type and appears whenever a
+    snap-driven pick is actually live — `cogoPick` truthy, or `insertPt`
+    truthy and 2D — via `syncSnapBox()`, called on every `draw()` so it
+    never goes stale. Whichever type is engaged right now under the cursor
+    (`cogoSnap.type` or the new `insertSnap.type`, tracked the same way
+    `cogoSnap` always was — insert-on-line gets a live hover preview via
+    `drawSnapMarker` for the first time, it previously only computed a
+    landing on click) gets a green `.active` highlight on its checkbox row.
+  - **A real bug found and fixed:** the box is an ordinary DOM element
+    sitting on top of the canvas, so with no `pointer-events` handling it
+    silently swallowed mouse events anywhere its own footprint overlapped
+    the canvas — confirmed directly against a real Dale job figure whose
+    segment midpoint happened to fall exactly under the toolbox's own
+    `midpoint` row: every mouse event there stopped reaching `#cv`
+    entirely (`pickSegmentForInsert` never even got called, confirmed by
+    monkeypatching it and seeing zero invocations). Fixed with
+    `.snapbox{pointer-events:none}` plus `.snapbox label{pointer-events:
+    auto}` — the box's empty background/padding lets clicks pass straight
+    through to the canvas underneath, while the checkbox rows themselves
+    stay clickable. This is the same tradeoff every other floating overlay
+    in the app (`.legend`, `.tools`) already makes just by existing on top
+    of the canvas; picking a target away from the toolbox's own corner
+    confirmed the underlying snap logic is unaffected.
+  - Insert-on-line's side-panel UI lost the standalone `insertSnapChk`
+    checkbox (superseded) — its hint text now just points at the shared
+    on-canvas toolbox.
+  - Verified through the REAL UI (actual button clicks, not poked state)
+    on both real job files: Add Point (COGO) → Pick on canvas shows the
+    toolbox and correctly highlights `endpoint` beside a real point;
+    opening a figure → ⊕ Click line to insert point shows the toolbox and,
+    at real segment locations, correctly resolves `intersection` → (with
+    intersection off) `nearest` → (with nearest off too) `null`, no crash
+    — the same cascade COGO already used. A 25-figure × 2-file
+    insert-on-line sweep and a 40-point × 2-file COGO-pick sweep produced
+    zero console errors beyond the pre-existing, already-documented
+    `ERR_CONNECTION_RESET` from blocked map-tile fetches.
 
 ## Zoom window in 3D (`setMode`, `endInteract`, build 30)
 
