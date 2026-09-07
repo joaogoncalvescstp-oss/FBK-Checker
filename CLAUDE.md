@@ -72,8 +72,9 @@ first and follow it on every task in this repo.
     | 56 | 🥥 COCONUT | fix **CAD object snap marker mismatch**: the owner asked for circle=intersection, box=endpoint, triangle=midpoint — endpoint and midpoint already matched (`drawSnapMarker` already drew a box for `'endpoint'` and a triangle for `'midpoint'`), but apparent-**intersection** was drawing an X/cross instead of the requested circle. Changed just that one branch to `ctx.arc(x,y,r,0,7)` (filled+stroked, matching the visual weight of the other two shapes) and updated the on-screen osnap legend hint (`osnap: ▢ endpoint · ○ intersection · △ midpoint · ⋈ nearest`) to match. `nearest` (the bowtie/diamond, not mentioned by the owner) is unchanged. Verified in a real headless browser: a synthetic render of all 4 marker types side-by-side shows the correct box/circle/triangle/bowtie shapes; then swept a full grid of points across the canvas on both real job files calling the real `snapPoint()`/`drawSnapMarker()` pipeline (not synthetic types) — 632 real intersection hits on Hamline, 774 on Dale, plus real endpoint hits on both — zero draw errors. |
     | 57 | 🍎 APPLE | new **OSNAP toolbox** (`#snapBox`, bottom-right of the canvas): a checkbox per snap type (▢ endpoint / ○ intersection / △ midpoint / ⋈ nearest) that shows up whenever a snap-driven pick is live — COGO canvas-pick, or **Insert point on line**, which is the second half of the owner's request ("make this avibal also on add piont aloung a line"). Unticking a type removes it from the cascade entirely (both `snapPoint()` for COGO and a new matching cascade in `pickSegmentForInsert()` now gate each of their 4 stages behind a shared `snapEnabled` object, in the same endpoint>intersection>midpoint>nearest priority order), and whichever type is actually engaged under the cursor right now lights up green in the toolbox (`syncSnapBox()`, called every `draw()`) — the "check the active snap" half of the request. Insert-on-line previously had only one crossing-snap checkbox (`insertSnapChk`/`insertSnapOn`, build 32/33) buried in the figure editor panel; that's replaced by the shared toolbox, and `pickSegmentForInsert` gained real endpoint-snap (lands exactly on one of the line's own vertices) and midpoint-snap (lands exactly on a segment's midpoint) it never had before, scoped to the clicked figure's own segments since an inserted point has to stay on that line. Insert-on-line also gets a live hover preview now (it never had one pre-build-57 — only computed a landing on click) via the same `drawSnapMarker`/hud pattern COGO already used. **A real bug found and fixed along the way:** the toolbox is a normal DOM element floating over the canvas, so with no `pointer-events` handling it silently ate mouse clicks/moves anywhere its own bounding box overlapped the canvas underneath — confirmed directly (a Dale job figure's segment midpoint landed literally under the toolbox's `midpoint` checkbox row, and every mouse event there stopped reaching `#cv` entirely, `pickSegmentForInsert` never even getting called). Fixed with `.snapbox{pointer-events:none}` plus `.snapbox label{pointer-events:auto}` — empty box background/padding passes clicks straight through to the canvas, only the actual checkbox rows stay clickable, the same tradeoff every other floating overlay in the app (`.legend`, `.tools`) already makes just by existing. Verified end-to-end through the REAL UI (button clicks, not poked state) on both real job files: opening Add Point (COGO) → Pick on canvas shows the toolbox and correctly highlights `endpoint` next to a real point; opening a figure → ⊕ Click line to insert point shows the toolbox and, at real segment locations picked to avoid the toolbox's own footprint, correctly resolves `intersection` → (intersection off) `nearest` → (nearest off too, nothing left enabled) `null` with no crash, matching the same priority cascade as COGO; the toolbox hides again on Esc/cancel in both flows. A 25-figure × 2-file insert-on-line sweep plus a 40-point × 2-file COGO-pick sweep produced zero console errors (only the pre-existing, unrelated `ERR_CONNECTION_RESET` from blocked map-tile fetches, already documented under MAP background). |
     | 58 | 🍌 BANANA | added an **↗ New tab** button to the Street View modal header — opens the CURRENT point (whichever one `svCtx.idx` is on right now, kept in sync by Prev/Next) in a real Google Maps browser tab via the existing `streetViewURL`/`headingAt` deep-link math (the same URL scheme builds 51/52 used before the embedded panorama replaced tab-opening, still kept around as the build-53 no-panorama fallback). Owner asked after learning the embedded panorama can get its colors inverted by a browser dark-mode feature or extension (see build 54, and the Dark Reader regression the owner found and linked, `darkreader/darkreader#14919` — a bug in THAT extension, unrelated to and not fixable by anything in our code) — a new-tab escape hatch sidesteps whichever one is misbehaving, since the real Google Maps site handles its own theming. Works even before/if the embedded panorama never loads at all (`svCtx` is set synchronously in `openSvModal`, before the async `ensureGMaps` polling even starts) — verified directly, since this sandbox's own Google-domain network block means the embedded panorama can't be exercised here either. `window.open(url,'_blank','noopener')` — `noopener` here is deliberate and different from build 52's walk-the-line tab (which dropped it to reuse one tab): each new-tab click here is a one-off "look at this externally" action, not a walk sequence, so a fresh tab per click is correct, not a bug. Verified via a real headless-browser test on both real job files: opened a mid-line vertex and a plain control point (not just a figure's first vertex) through the actual UI (button clicks, not poked state), intercepted `window.open`, and confirmed the URL/target/noopener args match `streetViewURL`/`headingAt` computed independently for that exact point — zero console errors. |
+    | 59 | 🍇 GRAPE | owner sent a real Google Maps JS sample URL (`developers.google.com/maps/documentation/javascript/examples/streetview-overlays`) to double-check our marker-overlay approach against — I couldn't fetch that page (blocked, same as `maps.googleapis.com`), but the exact same sample lives in the public `googlemaps/js-samples` repo (`samples/streetview-overlays/index.ts`), fetchable and NOT Google-domain-blocked; I read the real, current source there. It does NOT do what build 53's writeup claimed ("a Marker's `.map` can be a `StreetViewPanorama`") — its actual pattern is markers on a regular `Map` plus a **toggleable** panorama obtained via `map.getStreetView()`, shown/hidden with `.setVisible()`. Literally copying that would have dropped the numbered vertex markers from the panorama entirely (a `Map`'s own markers don't carry into its panorama once the panorama takes over the div) — the opposite of what this feature is for. Fix, a synthesis rather than a straight copy: `openSvModal` now obtains the panorama the SAME verified way this sample does — `new google.maps.Map($('svPanoDiv'),{center,zoom,streetViewControl:false})` then `.getStreetView()` then `.setOptions({...})` then `.setVisible(true)` — instead of constructing `new google.maps.StreetViewPanorama(...)` directly (a technique this sample never uses at all) — while STILL placing every vertex's marker directly on the returned panorama object (`new google.maps.Marker({position,map:svPano,...})`, unchanged from build 53). The marker-on-panorama piece remains a separately-documented capability of the classic `Marker` class (its `map` property type is `Map|StreetViewPanorama|null`) that this particular sample just doesn't happen to demonstrate — not something this fix proves either way, but no longer resting on a citation to a sample that turned out to show something else. `svPano` is still cached/reused across modal opens exactly as before (`if(!svPano){...}` guards the Map/getStreetView construction). Verified structurally with a mocked `google.maps` (real `Map`/`getStreetView`/`Marker`/`Panorama` still unreachable from this sandbox): the real call sequence is `Map ctor → getStreetView → pano.setOptions → pano.setVisible(true) → 8× Marker({map:pano}) → pano.setPosition/setPov`, with the fake `StreetViewPanorama` constructor (rigged to throw if called) never invoked; Prev/Next still only calls `setPosition`/`setPov` on the cached pano; the build-58 New-tab button still opens the correct URL unaffected; reopening the modal for a different figure correctly skips reconstructing the Map (`if(!svPano)`) and reuses the cached panorama — all on both real job files, zero console errors. |
   - Suggested next fruits to rotate through:
-    🍇 GRAPE, 🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY.
+    🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1284,12 +1285,18 @@ first and follow it on every task in this repo.
   — both still apply to the coordinate/heading math below, unchanged).
 - **Build 53 — the owner supplied a real Google Maps JavaScript API key, so
   Street View is now a live, embedded, interactive panorama right in the
-  app**, not a tab-opening link — a proper `google.maps.StreetViewPanorama`
-  in a modal (`#svScrim`/`#svPanoDiv`), with **every point of the line
-  overlaid as a numbered marker directly on the panorama** (per Google's own
-  "Overlays within Street View" docs: a `Marker`'s `.map` can be set to a
-  `StreetViewPanorama` instead of a plain `Map`, and it renders anchored at
-  street level in the pano). This is a strict upgrade, not an alternate
+  app**, not a tab-opening link — a proper Street View panorama in a modal
+  (`#svScrim`/`#svPanoDiv`), with **every point of the line overlaid as a
+  numbered marker directly on the panorama** (a `Marker`'s `.map` set to a
+  `StreetViewPanorama` instead of a plain `Map` — a real, documented
+  capability of the classic `Marker` class, whose `map` property type is
+  `Map|StreetViewPanorama|null`, and it renders anchored at street level in
+  the pano). **Correction, build 59:** this section originally cited
+  Google's own `streetview-overlays` sample as the source for that
+  technique — that citation was wrong; see build 59 below for what that
+  sample actually shows and what changed as a result (obtaining the
+  panorama itself, not the marker-overlay technique, which is unaffected).
+  This is a strict upgrade, not an alternate
   mode — the old tab-opening `openStreetView` is gone (the embedded panorama
   needs the same `surveyToLL` coordinate transform anyway and is simply
   better once a key exists), but `streetViewURL` itself lives on as an
@@ -1432,6 +1439,45 @@ first and follow it on every task in this repo.
     UI, intercepted `window.open`, confirmed the URL/target/`noopener`
     exactly match `streetViewURL`/`headingAt` computed independently for
     that same point — zero console errors.
+  - **Build 59 — panorama now obtained via `map.getStreetView()`, matching
+    Google's real sample:** the owner pointed at the actual
+    `streetview-overlays` example on `developers.google.com` to double-check
+    our marker-overlay approach against. `developers.google.com` is blocked
+    from this sandbox exactly like `maps.googleapis.com`, but the identical
+    sample source lives in the public `googlemaps/js-samples` GitHub repo
+    (`samples/streetview-overlays/index.ts`) and IS fetchable — reading the
+    real, current file there showed it does something different from what
+    this section (and build 53's original writeup) claimed: it places
+    markers on a plain `google.maps.Map`, then toggles a **separate**
+    Street View panorama obtained via `map.getStreetView()` visible/
+    invisible over that same div — it never assigns a marker's `.map` to a
+    panorama at all. Copying that literally would have dropped every
+    vertex marker from the panorama (a `Map`'s own markers don't appear
+    once its panorama takes over the div) — exactly the opposite of what
+    this feature exists for, so a straight copy was rejected. Fix instead
+    adopts the ONE piece of that sample that's genuinely an improvement —
+    obtaining the panorama via `new google.maps.Map($('svPanoDiv'),
+    {center,zoom,streetViewControl:false})` → `.getStreetView()` →
+    `.setOptions({...})` → `.setVisible(true)`, in place of build 53's
+    direct `new google.maps.StreetViewPanorama(...)` (a construction this
+    sample never uses) — while leaving the marker-overlay piece completely
+    untouched: `svShowMarkers` still does `new google.maps.Marker({...,
+    map:svPano})`, unchanged since build 53. `svPano` caching (`if(!svPano)`
+    guards the whole Map/getStreetView setup) is unchanged, so the second
+    and later modal opens still just reuse it. Verified structurally with a
+    mocked `google.maps` (`Marker`/`Map`/`Panorama` faked, `StreetViewPanorama`
+    rigged to throw if ever called directly): the real call order on first
+    open is `Map ctor → getStreetView → pano.setOptions → pano.setVisible
+    (true) → one Marker({map:pano}) per vertex → pano.setPosition/setPov`,
+    with the direct-constructor path never invoked; Prev/Next still only
+    calls `setPosition`/`setPov` on the cached pano; the build-58 New-tab
+    button is unaffected; opening the modal again for a different figure
+    correctly skips rebuilding the Map and reuses the cached panorama — all
+    confirmed on both real job files, zero console errors. The genuine,
+    real-browser rendering of markers directly on a `StreetViewPanorama`
+    (a documented Marker-class capability, independent of this specific
+    sample) is still unverified from this sandbox, same standing caveat as
+    build 53 — this fix only changes how the panorama itself is obtained.
 
 ## Point marker symbols (`drawPtSymbol`, build 55)
 

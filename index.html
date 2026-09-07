@@ -158,7 +158,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -396,7 +396,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:58};
+const VERSION={fruit:'🍇',name:'GRAPE',build:59};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1219,7 +1219,13 @@ function svGoto(idx){if(!svPano||!svCtx)return;   // guard against Prev/Next cli
   $('svmPrevBtn').disabled=idx===0;$('svmNextBtn').disabled=idx===vs.length-1;}
 function openSvModal(vs,idx){svCtx={vs,idx};$('svScrim').classList.add('show');
   $('svmLbl').textContent='';$('svmPrevBtn').disabled=true;$('svmNextBtn').disabled=true;   // disabled until the panorama is actually ready — svGoto is a no-op until then anyway, but this also gives clear visual feedback while loading
-  ensureGMaps(()=>{if(!svPano)svPano=new google.maps.StreetViewPanorama($('svPanoDiv'),{addressControl:false,showRoadLabels:false,linksControl:true,panControl:true,zoomControl:true});
+  ensureGMaps(()=>{
+    if(!svPano){                            // obtain the panorama the way Google's own streetview-overlays sample does — a Map's built-in getStreetView(), not a bare `new StreetViewPanorama(...)` — the same div hosts both; setVisible(true) below swaps the (never-shown) map out for the pano in place
+      const svMap=new google.maps.Map($('svPanoDiv'),{center:svLatLng(vs[idx].p),zoom:18,streetViewControl:false});
+      svPano=svMap.getStreetView();
+      svPano.setOptions({addressControl:false,showRoadLabels:false,linksControl:true,panControl:true,zoomControl:true});
+    }
+    svPano.setVisible(true);
     svShowMarkers(vs);svGoto(idx);},
     ()=>{const p=vs[idx].p,url=streetViewURL(p.E,p.N,headingAt(vs,idx));   // the embedded panorama needs a real Maps JS API key with no keyless fallback — if it never loads (bad/quota'd key, no network), fall back to the old no-key deep-link tab instead of leaving a dead modal
       $('svPanoDiv').innerHTML=`<div style="text-align:center;line-height:1.8">Street View didn't load in-app (check the API key/network).<br><a href="${url}" target="_blank" rel="noopener" style="color:var(--gold)">Open in Google Maps instead ↗</a></div>`;});}   // wrapped in its own block div — #svPanoDiv is a flex container, and a <br> between two DIRECT flex-item children is ignored (ends up all on one line); nesting a normal block element sidesteps that
