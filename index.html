@@ -159,7 +159,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -397,7 +397,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:63};
+const VERSION={fruit:'🍑',name:'PEACH',build:64};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -802,20 +802,22 @@ function figures(){const figs=[];
       const nv={i:x.i,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],added:true};
       const ai=r.verts.findIndex(v=>v.i===x.after);
       if(ai<0)r.verts.push(nv);else r.verts.splice(ai+1,0,nv);});
-    // CPN/RPN connect-to-point links (parsed straight from the description, not user-editable
-    // state like figExtra above) — CPN<n> splices point n's own real coordinates in BEFORE the
-    // vertex that coded it, RPN<n> splices them in AFTER, so the drawn line reaches all the way
-    // to that previously-shot point without needing to re-shoot a coincident point. See CLAUDE.md.
-    const links=[];
-    r.verts.forEach(v=>{if(v.cpn)links.push({at:v.i,target:v.cpn,pos:'before'});if(v.rpn)links.push({at:v.i,target:v.rpn,pos:'after'});});
-    links.forEach(({at,target,pos})=>{
+    // CPN/RPN connect-to-point (parsed straight from the description, not user-editable state
+    // like figExtra above) — a SEPARATE tie/spur line from the point that coded CPN<n>/RPN<n>
+    // straight to point n's own real coordinates, kept OUT of r.verts entirely so it never
+    // becomes part of the main line's own sequential path (a splice there drew the base line —
+    // and every consumer of r.verts, e.g. drawOffsets' curb cross-section lanes — detouring
+    // THROUGH the linked point instead of just tying to it: two segments in, one out, not the
+    // single direct connector the code means). strokeFigure draws each one as its own separate
+    // stroked line. See CLAUDE.md.
+    r.links=[];
+    r.verts.forEach(v=>{
+      const target=v.cpn||v.rpn;if(!target)return;
       const ti=PTS.findIndex(p=>p.id===target&&!p.deleted);
-      if(ti<0||r.verts.some(v=>v.i===ti))return;          // point not found, or already part of this line
-      const ai=r.verts.findIndex(v=>v.i===at);
-      if(ai<0)return;
-      r.verts.splice(pos==='before'?ai:ai+1,0,{i:ti,bc:false,ec:false,oc:false,pcc:false,prc:false,cir:false,so:false,steps:[],rect:null,jogs:[],link:pos==='before'?'cpn':'rpn'});});
+      if(ti<0||ti===v.i)return;                           // point not found, or a self-reference
+      r.links.push({at:v.i,to:ti,kind:v.cpn?'cpn':'rpn'});});
     r.circle=r.code==='CIR'||r.verts.some(v=>v.cir);
-    return r;}).filter(r=>r.verts.length>=2);}
+    return r;}).filter(r=>r.verts.length>=2||r.links.length);}
 function getFig(id){return figures().find(f=>f.id===id);}
 function figuresOfPoint(i){return figures().filter(f=>f.verts.some(v=>v.i===i));}
 function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
@@ -1604,7 +1606,19 @@ function offsetTangentArc(A,B,C,D,OC,Boff,Coff){   // the offset lane's own tang
   return arcSamplesCenter(g.center,T1p,T2p,OC,Boff.Z,Coff.Z);}
 function strokeFigure(f,proj,color){
   const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,jogs:v.jogs,closeL:v.closeL};}).filter(Boolean);
-  if(vs.length<2)return;
+  if(vs.length>=2)strokeFigureMain(f,vs,proj,color);
+  // CPN/RPN connect-to-point — ONE separate straight tie line per link, from the point that
+  // coded CPN<n>/RPN<n> directly to point n's own real position, drawn independently of (and
+  // after) the main path above so it never becomes part of that continuous line — see the
+  // figures() comment for why. Draws even when the main path itself is too short (e.g. a lone
+  // CPN-implicit-begun point with nothing else, per CLAUDE.md's build-63 Dale pt 5500 case).
+  if(f.links&&f.links.length){
+    ctx.strokeStyle=color||codeColor(f.code);
+    f.links.forEach(({at,to})=>{const A=PTS[at],B=PTS[to];
+      if(!A||A.deleted||!B||B.deleted)return;
+      const s1=proj(A.E,A.N,A.Z),s2=proj(B.E,B.N,B.Z);
+      ctx.beginPath();ctx.moveTo(s1[0],s1[1]);ctx.lineTo(s2[0],s2[1]);ctx.stroke();});}}
+function strokeFigureMain(f,vs,proj,color){
   if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
     ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
       s?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]);}
@@ -1995,15 +2009,23 @@ function multiDelete(del){const ids=[...selSet].filter(i=>PTS[i]&&PTS[i].deleted
   hud(`${del?'deleted':'restored'} ${ids.length} point(s)`);}
 function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="empty">Figure not found.</div>';return;}
   openSideMobile();
-  const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added,link:v.link})).filter(o=>o.p&&!o.p.deleted);
+  const vs=f.verts.map(v=>({p:PTS[v.i],i:v.i,bc:v.bc,ec:v.ec,added:v.added})).filter(o=>o.p&&!o.p.deleted);
   const moved=!!figOrder[f.id];
   const adding=addPt&&addPt.figId===f.id;
+  const linksHtml=(f.links||[]).map(l=>{
+    const A=PTS[l.at],B=PTS[l.to];if(!A||!B)return'';
+    return `<div class="vrow">
+      <div class="vhd">
+        <span class="vpt">${l.kind.toUpperCase()} pt ${A.id} → pt ${B.id} <span class="arc" style="background:#1c3a2a;color:#7affa0">TIE</span></span>
+        <span class="vbtns"><button class="vb" data-act="zoom" data-i="${l.to}" title="Zoom to the linked point">⌖</button></span>
+      </div>
+      <div class="fbk">${pointFbkLine(B).trim().replace(/</g,'&lt;')}</div>
+    </div>`;}).join('');
   let rows='';
   vs.forEach((o,k)=>{
     const shared=figuresOfPoint(o.i).filter(g=>g.id!==f.id).map(g=>g.code);
     const arc=o.bc?' <span class="arc">BC</span>':o.ec?' <span class="arc">EC</span>':'';
-    const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`
-      :o.link?` <span class="arc" style="background:#1c3a2a;color:#7affa0" title="pulled in via ${o.link.toUpperCase()} on the linked point — already exported on its own line">${o.link.toUpperCase()}</span>`:'';
+    const tag=o.added?` <span class="arc" style="background:#3a2a1c;color:#ffd24a">ADDED</span>`:'';
     const anc=adding&&addPt.anchor===o.i?' <span class="arc" style="background:#1c2a3a;color:#7fb3ff">ANCHOR</span>':'';
     const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(o.p.desc,f.code)}"`:pointFbkLine(o.p)).trim();
     rows+=`<div class="vrow draggable" draggable="true" data-k="${k}">
@@ -2041,6 +2063,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
       <input type="checkbox" id="nezChk" ${figNEZ[f.id]?'checked':''} style="width:15px;height:15px;cursor:pointer">
       Render line as NEZ (setup-independent)</label>
     <div class="warnbox"><b>Drag a row</b> (grab the number) to drop it anywhere in the draw order, or nudge with ▲▼. In-setup reorders permute the shots directly. If the new order crosses a setup, those vertices export as ordered <b>NEZ</b> records (coordinates), with the original shots archived as Deleted. <b>Added</b> points join the line in order; ones shot from another setup export as a <b>NEZ</b> record in line position.<br><br>Tick <b>Render line as NEZ</b> to export <i>every</i> vertex on this line as an NEZ coordinate record — the linework no longer depends on which setup each point was shot from.</div>
+    ${linksHtml?`<div class="field" style="margin-top:9px"><label>Connect-to-point (CPN/RPN) — a single tie line, drawn separately from the line above</label>${linksHtml}</div>`:''}
     <div class="vlist">${rows}</div>`;
   box.querySelectorAll('.vb').forEach(b=>b.onclick=()=>{
     if(b.dataset.act==='zoom'){zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);return;}
@@ -2293,7 +2316,7 @@ function exportFBK(expandCodes=true){
   //     depends on which setup each point was shot from.
   const nezForced=new Set();
   for(const id in figNEZ){if(!figNEZ[id])continue;const f=getFig(id);if(!f)continue;
-    const verts=f.verts.filter(v=>!v.link).map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);if(verts.length<2)continue;
+    const verts=f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);if(verts.length<2)continue;
     nezForced.add(id);
     const block=[];let anchor=Infinity;
     verts.forEach(p=>{
@@ -2308,9 +2331,9 @@ function exportFBK(expandCodes=true){
     (nezBefore[at]=nezBefore[at]||[]).push(...block);
     nezed.push(f.code+'·NEZ'+verts.length);
   }
-  // 2. reorders (natural vertices only — added points handled in 2b, CPN/RPN links never)
+  // 2. reorders (natural vertices only — added points handled in 2b)
   for(const id in figOrder){if(nezForced.has(id))continue;const f=getFig(id);if(!f)continue;
-    const verts=f.verts.filter(v=>!v.added&&!v.link).map(v=>PTS[v.i]).filter(p=>!p.deleted);if(verts.length<2)continue;
+    const verts=f.verts.filter(v=>!v.added).map(v=>PTS[v.i]).filter(p=>!p.deleted);if(verts.length<2)continue;
     const slots=verts.map(p=>p.srcLine).slice().sort((a,b)=>a-b);
     let crosses=false;for(let L=slots[0]+1;L<slots[slots.length-1];L++){const s=(RAW[L]||'').trim();
       if(s.startsWith('STN')||s.startsWith('Used last station')){crosses=true;break;}}

@@ -76,9 +76,10 @@ first and follow it on every task in this repo.
     | 60 | 🍊 ORANGE | new **🧭 UGW→CPN** toolbar button (deliberately separate from ⚙ Knockdown — owner asked explicitly to keep guy-wire rotation out of the curb-code tool). For every **UGW** (guy wire anchor) point, finds the nearest **UPP** (utility pole) point by 2D distance — same nearest-by-distance pattern `applyKnockdown` already uses for REF — computes the bearing of the vector UGW→UPP with **0° at west** (same clockwise rotation sense as `headingAt`'s standard 0°=north survey azimuth, just re-zeroed: `(standardAzimuth+90)%360`), and appends `"<angle> CPN<pole id>"` to the UGW point's description — e.g. `"UGW"` → `"UGW 179.36 CPN11258"`, matching the owner's worked example. Re-running updates the pair/angle in place (strips a previous run's trailing `<angle> CPN<id>` before re-appending) instead of stacking duplicate tokens. See the dedicated section below for the full writeup, including an open verification gap: the owner's own worked example gives only bare `F1 VA` shot lines with no `STN`/`BS` setup context, so there's no way to independently reduce those two points to real N/E and confirm the exact `179.36`/`179.31` output from here — checked whether points 11250/11258 exist in either real job file on hand (they don't, so no ground truth available there either) and verified the mechanics instead: on BOTH real job files (which turned out to already contain real UGW/UPP guy-wire data), the nearest-UPP search reliably pairs each UGW with the UPP shot immediately adjacent to it in point-number order (9305↔9304, 5374↔5373, etc.) — exactly the pairing a crew shooting a guy wire right after its pole would produce — and the tool is idempotent (re-running twice yields byte-identical output) with zero console errors on both files. The owner should confirm point 11250 actually reads `179.36` once run on their real file; if it doesn't, tell me the actual output and the correct rotation offset can be solved for immediately from one known-good pair. |
     | 61 | 🍓 STRAWBERRY | fix **UGW→CPN's angle convention** (build 60's own worked example, finally checked against real ground truth): the owner uploaded the actual job file (`TOPO PASCAL`) their original example came from, and it turned out to contain the exact points (11250/11251/11258) verbatim. Run through the app's real `STN 31`/`BS 30` setup chain (not a guess), build 60's clockwise `0=W,90=N,180=E,270=S` formula (which matched the owner's own LATER verbal confirmation, "0 WEST 90 NORTH 180 EST SOUTH 270") produced `179.36`'s point 11250 as **180.39°** and point 11251 as **180.48°** — off by a full ~1°/1.2° from the owner's stated `179.36`/`179.31`. The MIRRORED rotation direction — `0=W,90=S,180=E,270=N`, i.e. counterclockwise, the OPPOSITE of what the owner verbally described — instead produces `179.61°`/`179.52°`, off by only `0.25°`/`0.21°`: a 5x smaller, mutually-consistent residual small enough to be ordinary rounding in a hand-typed reference value. Since the owner's own verbal description and their own real data directly conflicted, and the real data is both authoritative and far more precise than a quick all-caps summary, the mirrored convention won — `bearingFromWest` now computes `(630-az)%360` instead of `(az+90)%360`. Re-verified on both original sample files afterward: idempotent, zero errors, same sensible nearest-pole pairings as build 60 (only the angle values themselves changed). |
     | 62 | 🍒 CHERRY | widen **UGW→CPN's** pole search from UPP-only to **ULP/UPP/UGP** — the owner's original worked example happened to use `UPP`, but a guy wire in the field can anchor any of these pole/pedestal codes, not just `UPP`. `addUgwCpn` now scans a shared `UGW_POLE_CODES=['ULP','UPP','UGP']` list and still just picks whichever single point (of any of the three codes) is nearest by plain 2D distance — no per-code priority order, same nearest-by-distance rule as before, just over a wider candidate set. Verified on all 3 real job files: `TOPO PASCAL`'s UGW points still pair with the same `UPP` points as build 61 (angles unchanged, 179.61°/179.52° for 11250/11251), and both Hamline (which has a real `UGP` point) and Dale (which has a real `ULP` point) still pick the nearest actual pole regardless of code — no regression, idempotent, zero console errors on any file. A synthetic test (placing a `ULP` and separately a `UGP` closer to a `UGW` than any `UPP`) confirmed the search genuinely considers all three codes and picks the truly nearest one, not just falling back to `UPP` when present. |
-    | 63 | 🥝 KIWI | new **CPN/RPN connect-to-point** line codes — the owner sent screenshots + the vendor's own doc: `CPN<n>` ("connect to point number") begins a feature by connecting its linework to a previously-shot point `n`, and `RPN<n>` ("recall point number") does the same at a feature's end — both let a crew avoid re-shooting a coincident point just to tie two lines together. This is a REAL, unrelated feature that happens to collide in name with the build-60/62 `addUgwCpn` guy-wire tool (which just appends a plain descriptive `CPN<id>` text token, never parsed as linework) — the owner explicitly said to leave that tool alone and build the real vendor code instead. Confirmed real usage in 2 of 3 job files on hand: Hamline's `RWLK1` uses `CPN9124` on an **E**-flagged point (9588) and `CPN9123` on a **B**-flagged point (9692); Dale's `RWLK3` uses a bare `CPN 5341` with **no B/E at all** (point 5500), and `RWLK4` uses `CPN 5342` on a plain mid-run point (5501 B → 5502 CPN). `RPN` never appears in any real file on hand — implemented symmetrically from the vendor doc text alone, disclosed as unverified against real data. See the dedicated section below for the full design/verification writeup. |
+    | 63 | 🥝 KIWI | new **CPN/RPN connect-to-point** line codes — the owner sent screenshots + the vendor's own doc: `CPN<n>` ("connect to point number") begins a feature by connecting its linework to a previously-shot point `n`, and `RPN<n>` ("recall point number") does the same at a feature's end — both let a crew avoid re-shooting a coincident point just to tie two lines together. This is a REAL, unrelated feature that happens to collide in name with the build-60/62 `addUgwCpn` guy-wire tool (which just appends a plain descriptive `CPN<id>` text token, never parsed as linework) — the owner explicitly said to leave that tool alone and build the real vendor code instead. Confirmed real usage in 2 of 3 job files on hand: Hamline's `RWLK1` uses `CPN9124` on an **E**-flagged point (9588) and `CPN9123` on a **B**-flagged point (9692); Dale's `RWLK3` uses a bare `CPN 5341` with **no B/E at all** (point 5500), and `RWLK4` uses `CPN 5342` on a plain mid-run point (5501 B → 5502 CPN). `RPN` never appears in any real file on hand — implemented symmetrically from the vendor doc text alone, disclosed as unverified against real data. **Superseded the same day by build 64's rendering fix — see below.** |
+    | 64 | 🍑 PEACH | fix **CPN/RPN rendering a detour instead of one connector line**: build 63 spliced the linked point INTO the figure's own sequential vertex path, so the main line routed straight THROUGH it (e.g. `9581→9582→9124→9588` instead of the intended tie) — two segments in and out of the linked point, not the single direct connector the owner wanted ("only render one line, active point to call out point"). Reworked so CPN/RPN links are no longer part of `r.verts` at all — they're now a separate `r.links` array (`{at,to,kind}`), and `strokeFigure` draws each one as its own standalone 2-point line (from the point that coded `CPN`/`RPN` straight to the referenced point) AFTER finishing the main path untouched. The main line is now byte-identical to how it rendered before `CPN`/`RPN` existed at all (Hamline's `RWLK1@700` is back to plain `[9581,9582,9588]`); the tie is a clean separate segment. Also fixes the same detour bug for the green curb-offset cross-section lanes and any other consumer of a figure's vertex list, since none of them ever see the linked point mixed into the main sequence anymore. `figures()`'s length filter widened to `r.verts.length>=2||r.links.length` so a lone implicitly-CPN-begun point (Dale's pt 5500, a single real vertex plus its tie) still renders instead of being dropped. `inspectFig`'s line-editor panel now shows connect-to-point ties in their own small "Connect-to-point (CPN/RPN)" section (a `TIE` badge, the linked point's own real FBK line, and a zoom button) instead of as a fake extra vertex row. Verified against all 3 real job files: same figure counts as build 63 (70/99/162), the exact same figures gain links, zero console errors; export safety re-confirmed (point 9124 still exports exactly once, on its own original line); RPN re-verified with the same synthetic figure. |
   - Suggested next fruits to rotate through:
-    🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍉 WATERMELON,
+    🍍 PINEAPPLE, 🥭 MANGO, 🍉 WATERMELON,
     🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -164,7 +165,7 @@ first and follow it on every task in this repo.
   point (or adding a new closer UPP) updates the pairing/angle in place
   instead of stacking duplicate tokens.
 
-## CPN / RPN — connect-to-point / recall-point-number (`parseDesc`/`figures`, build 63)
+## CPN / RPN — connect-to-point / recall-point-number (`parseDesc`/`figures`/`strokeFigure`, build 63, rendering fixed build 64)
 
 - **Not the same thing as `addUgwCpn`'s `CPN` tag above** — that's a custom,
   descriptive text token the guy-wire tool invents (build 60-62), never
@@ -180,91 +181,113 @@ first and follow it on every task in this repo.
   previously observed point `n` so you don't have to shoot a point on top
   of a point just for the sake of creating linework. `RPN<n>` — "recall
   point number" — the same idea, but used when **ending** a feature.
-- **Implementation:** `parseDesc` recognizes `CPN<n>`/`RPN<n>` (glued
-  `CPN9124` or spaced `CPN 9124`, matching every other description-key
-  token in this parser) and stores the referenced point NUMBER (a string,
-  matching `p.id`) as `cpn`/`rpn` on that code's flags — plumbed through
+- **Parsing:** `parseDesc` recognizes `CPN<n>`/`RPN<n>` (glued `CPN9124` or
+  spaced `CPN 9124`, matching every other description-key token in this
+  parser) and stores the referenced point NUMBER (a string, matching
+  `p.id`) as `cpn`/`rpn` on that code's flags — plumbed through
   `figures()`'s vertex objects the same way `bc`/`ec`/`pcc` already are.
-  In the final vertex-assembly step (the same place `figExtra`'s manual
-  "pull in an existing point" splice already runs), any vertex carrying
-  `cpn` gets the referenced point's REAL, already-existing N/E/Z spliced in
-  as a new vertex immediately **before** it; `rpn` splices one in
-  immediately **after**. The referenced point keeps its own separate
-  figure/identity untouched — this only adds an extra vertex to the
-  *borrowing* figure's drawn line, it doesn't move, delete, or reassign the
-  referenced point in any way.
+- **Rendering — build 64 rewrite (the owner's own words: "ONLY RENDER ONE
+  LINE ACTIVE POINT TO CALL OUT POINT"):** build 63's first cut spliced the
+  linked point straight INTO the figure's own sequential vertex list
+  (`r.verts`), so the base line detoured THROUGH it — e.g. Hamline's real
+  `9581→9582→9588` run rendered as `9581→9582→9124→9588`, two segments in
+  and out of the linked point, not the single direct tie the owner asked
+  for. It also meant `drawOffsets` (the green curb cross-section lanes) and
+  any other consumer of a figure's vertex list would ALSO detour through
+  it, since they all just walk `r.verts` in order — a spliced-in vertex
+  isn't a "connect to this point" instruction to those consumers at all,
+  it's just an extra point in the path.
+  - Fix: CPN/RPN links are no longer part of `r.verts`. `figures()`'s final
+    `.map()` step now builds a separate `r.links=[{at,to,kind}]` array
+    (`at`/`to` are `PTS` indices, `kind` is `'cpn'`/`'rpn'`) — one entry per
+    vertex that carried a `cpn`/`rpn` flag, resolved to the target point's
+    `PTS` index (self-references and not-found targets are skipped). The
+    main path (`r.verts`) is completely untouched by this — it's now
+    byte-identical to how it rendered before `CPN`/`RPN` existed at all.
+  - `strokeFigure` was split: the original body (circle branch + the whole
+    `bc`/`oc`/`RECT`/`RT`/`X` vertex walk) moved into a new
+    `strokeFigureMain(f,vs,proj,color)`, called only when `vs.length>=2`.
+    The outer `strokeFigure` now, after that, loops `f.links` and draws
+    each one as its own completely separate `beginPath()`/`moveTo()`/
+    `lineTo()`/`stroke()` — a single straight 2-point line from the point
+    that coded `CPN`/`RPN` directly to the referenced point's real N/E/Z —
+    independent of, and drawn after, the main path. This is the literal
+    "one line, active point to called-out point" the owner asked for.
+  - `figures()`'s length filter widened from `r.verts.length>=2` to
+    `r.verts.length>=2||r.links.length` — a lone implicitly-CPN-begun point
+    with nothing else on its line (Dale's point 5500, one real vertex plus
+    its tie to 5341) still needs to survive to draw its spur, even though
+    its own "main path" is too short to be a line by itself.
+  - `inspectFig`'s line-editor panel no longer shows the linked point as a
+    fake extra vertex row (with a badge and reorder buttons that didn't
+    really apply to it). It now gets its own small **"Connect-to-point
+    (CPN/RPN)"** section below the real vertex list — one row per link,
+    showing `CPN pt <A> → pt <B>` (or `RPN`) with a `TIE` badge, the linked
+    point's own real current FBK line (`pointFbkLine`, unchanged), and a
+    **⌖** zoom button (reuses the existing delegated `.vb`/`data-act=zoom`
+    click handler — no new wiring needed, since it's already generic over
+    any point index).
+  - `exportFBK`'s `figNEZ`/`figOrder` vertex-filtering (the build-63
+    `.filter(v=>!v.link)` guards added to stop the linked point being
+    re-exported under the borrowing figure) were removed — no longer
+    needed, since the linked point was never in `r.verts` to begin with
+    under this design, so there's nothing for those steps to accidentally
+    sweep up.
 - **`CPN` can implicitly begin a run, mirroring the `CIR` precedent (build
-  40):** every other code needs an explicit `B` to become a line at all
-  (`buildLinework`'s "no B anywhere → not a line" filter). `CPN` is now a
-  second exception, matching the vendor doc's own framing ("CPN can be used
-  when beginning a feature") — if a `CPN`-flagged point is reached with no
-  run currently open for that code, `figures()` now implicitly opens one
-  right there (`implicitCpn:true`), exactly like `CIR`'s own implicit-begin.
-  This is not a guess: Dale's real job has `"RWLK3 CPN 5341"` on point 5500
-  with **no `B` anywhere nearby** (the prior `RWLK3` run had already closed
-  with `E` at point 5491, and the next explicit `B` doesn't appear until
-  point 6427) — without this, point 5500's `CPN` would silently do nothing,
-  defeating the entire visible purpose of the code being there. `RPN` was
-  deliberately **NOT** given a matching implicit-end/implicit-begin power —
-  `RPN` never appears in any real job file on hand, so there's zero ground
-  truth to justify inventing extra behavior for it beyond the plain vendor
-  text (splice a vertex in after an already-real vertex); a bare `RPN` with
-  no open run correctly does nothing, verified with a synthetic test.
-- **A real ordering bug found and fixed while implementing this:**
-  `figures()`'s final `.filter(r=>r.verts.length>=2)` used to run BEFORE
-  the vertex-assembly `.map()` step that does the CPN/RPN splicing — so an
-  implicit-CPN-begun run with only ONE real vertex (like Dale's point 5500,
-  which has no other `RWLK3` point next to it before the run closes) got
-  filtered out and dropped *before* the second (spliced) vertex was ever
-  added, silently losing the whole figure. Fixed by moving the `>=2` length
-  filter to the very end, after the CPN/RPN splice (and after the existing
-  `figOrder`/`figExtra` steps, which were already positioned correctly).
-  Caught by testing point 5500 specifically, not by chance — the two other
-  real CPN cases (Hamline's 9588/9692, Dale's 5502) all had ≥2 real vertices
-  already and would have looked fine without this fix, which is exactly why
-  it's worth calling out: a feature can pass on the "easy" real cases and
-  still be broken on a legitimate edge one.
+  40) — unchanged by build 64's rendering rewrite:** every other code needs
+  an explicit `B` to become a line at all (`buildLinework`'s "no B anywhere
+  → not a line" filter). `CPN` is a second exception, matching the vendor
+  doc's own framing ("CPN can be used when beginning a feature") — if a
+  `CPN`-flagged point is reached with no run currently open for that code,
+  `figures()` implicitly opens one right there, exactly like `CIR`'s own
+  implicit-begin. This is not a guess: Dale's real job has
+  `"RWLK3 CPN 5341"` on point 5500 with **no `B` anywhere nearby** (the
+  prior `RWLK3` run had already closed with `E` at point 5491, and the
+  next explicit `B` doesn't appear until point 6427) — without this, point
+  5500's `CPN` would silently do nothing, defeating the entire visible
+  purpose of the code being there. `RPN` was deliberately **NOT** given a
+  matching implicit-end/implicit-begin power — `RPN` never appears in any
+  real job file on hand, so there's zero ground truth to justify inventing
+  extra behavior for it beyond the plain vendor text (draw a tie off an
+  already-real vertex); a bare `RPN` with no open run correctly does
+  nothing, verified with a synthetic test.
+- **A real ordering bug (build 63, still relevant under build 64's design):**
+  `figures()`'s length filter must run AFTER `r.links` is computed, not
+  before — an implicit-CPN-begun run with only ONE real vertex (Dale's
+  point 5500) has `r.verts.length===1` on its own, and only survives via
+  the widened `||r.links.length` check once its link exists. Caught by
+  testing point 5500 specifically — the other real CPN cases (Hamline's
+  9588/9692, Dale's 5502) all had ≥2 real vertices already and would have
+  looked fine without this, which is exactly why it's worth calling out: a
+  feature can pass on the "easy" real cases and still be broken on a
+  legitimate edge one.
 - **Export safety:** the referenced/linked point is a REAL, already-
   existing point that already exports on its own line elsewhere (verified:
   Hamline's point 9124 has its own `"TBW H0 V3.27"` shot line, untouched).
-  The spliced-in vertex must never cause it to be re-exported/re-homed
-  under the *borrowing* figure. `exportFBK`'s two vertex-collecting steps
-  that iterate `f.verts` for **their own figure's** override handling
-  (`figNEZ`'s "render as NEZ" and `figOrder`'s reorder-and-permute step)
-  now both explicitly `.filter(v=>!v.link)` before collecting vertices —
-  mirroring the exact same exclusion `figOrder` already applied for
-  `figExtra`'s `added` vertices, just extended to cover this new kind of
-  synthetic/borrowed vertex too. Verified directly: toggling `figNEZ` on
-  Hamline's `RWLK1@700` (the figure that borrows point 9124 via `CPN9124`)
-  and exporting shows exactly ONE standalone occurrence of point 9124 in
-  the output — its own original, untouched `F1 VA` line — never a second,
-  duplicate `NEZ 9124 ...` record from the borrowing figure.
-- **Figure/line code review UI:** a spliced-in vertex shows its OWN real
-  current FBK line (via the existing `pointFbkLine()` preview, unchanged)
-  plus a small `CPN`/`RPN` badge (green, distinct from the unrelated
-  gold-colored `ADDED` badge `figExtra` vertices already show) so it's
-  visually obvious this row is a borrowed connection, not a real point of
-  this line. It keeps the normal ▲▼ reorder buttons (not the `figExtra`
-  `✕ remove` button, which only exists for manually-added points and would
-  silently no-op on a computed vertex) — dragging it is harmless since
-  `figures()` recomputes and re-splices this vertex fresh on every call
-  regardless of any stale saved order.
-- **Verified against all 3 real job files, full before/after figure diff**
-  (every figure's id/code/closed/circle/vertex-list compared, not a spot
-  check): Pascal (no `CPN`/`RPN` at all) is byte-identical, 70/70 figures.
-  Hamline goes from 99→99 figures with exactly the 2 targeted changes
-  (`RWLK1@700` gains `9124` before its `E`-flagged end vertex 9588;
-  `RWLK1@825` gains `9123` before its `B`-flagged begin vertex 9692) and
-  every other figure byte-identical. Dale goes from 161→162 figures — the
-  `+1` is the new implicit-CPN-begun `RWLK3@596` (`[5341(linked),5500]`,
-  the previously-invisible point-5500 case above) — plus `RWLK4@597` gains
-  `5342` spliced between its real vertices 5501 and 5502; every other
-  figure (all 160/161 of them) byte-identical. Zero console errors on any
-  file. `RPN` itself (untestable against real data — it never appears in
-  any file on hand) was verified with a synthetic figure: `EC1 B`(200) →
-  `EC1`(201) → `EC1 E RPN100`(202) correctly produces
-  `[200,201,202,100(rpn-linked)]`, and a synthetic bare `RPN100` with no
-  open run correctly produces zero figures (no implicit-begin, as designed).
+  Since build 64 the linked point is never part of `r.verts` at all, so
+  there's nothing for `exportFBK`'s `figNEZ`/`figOrder` steps to
+  accidentally sweep into the *borrowing* figure's own export block in the
+  first place. Verified directly: toggling `figNEZ` on Hamline's
+  `RWLK1@700` (the figure with a `CPN9124` tie) and exporting shows exactly
+  ONE standalone occurrence of point 9124 — its own original, untouched
+  `F1 VA` line — never a second, duplicate `NEZ 9124 ...` record.
+- **Verified against all 3 real job files** (figure counts, and every
+  figure that gains a link, checked directly — not a full byte diff this
+  time since build 64 is a rendering-only change to the same underlying
+  `figures()` data build 63 already verified line-for-line): Pascal
+  unaffected, 70 figures, no links. Hamline 99 figures — `RWLK1@700`'s main
+  path is back to the pre-`CPN`-work `[9581,9582,9588]` (no detour) with a
+  separate `9588→9124` `cpn` link; `RWLK1@825`'s main path is
+  `[9692,9693,...,9905]` unchanged with a separate `9692→9123` link. Dale
+  162 figures (same `+1` as build 63) — the implicit-CPN-begun figure is
+  now `verts:[5500]` plus a `5500→5341` link (was `[5341,5500]` spliced
+  under build 63); `RWLK4@597`'s main path is back to the original
+  `[5501,5502]` with a separate `5502→5342` link. Zero console errors on
+  any file, including a forced full redraw. Export safety and the `RPN`
+  synthetic test (`EC1 B`(200)→`EC1`(201)→`EC1 E RPN100`(202)) were both
+  re-run under the new design: the synthetic figure's main path stays
+  `[200,201,202]` with a separate `202→100` `rpn` link, and a bare
+  `RPN100` with no open run still correctly produces zero figures.
 
 ## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-29, build 49)
 
