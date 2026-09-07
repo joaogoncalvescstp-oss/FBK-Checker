@@ -73,8 +73,9 @@ first and follow it on every task in this repo.
     | 57 | 🍎 APPLE | new **OSNAP toolbox** (`#snapBox`, bottom-right of the canvas): a checkbox per snap type (▢ endpoint / ○ intersection / △ midpoint / ⋈ nearest) that shows up whenever a snap-driven pick is live — COGO canvas-pick, or **Insert point on line**, which is the second half of the owner's request ("make this avibal also on add piont aloung a line"). Unticking a type removes it from the cascade entirely (both `snapPoint()` for COGO and a new matching cascade in `pickSegmentForInsert()` now gate each of their 4 stages behind a shared `snapEnabled` object, in the same endpoint>intersection>midpoint>nearest priority order), and whichever type is actually engaged under the cursor right now lights up green in the toolbox (`syncSnapBox()`, called every `draw()`) — the "check the active snap" half of the request. Insert-on-line previously had only one crossing-snap checkbox (`insertSnapChk`/`insertSnapOn`, build 32/33) buried in the figure editor panel; that's replaced by the shared toolbox, and `pickSegmentForInsert` gained real endpoint-snap (lands exactly on one of the line's own vertices) and midpoint-snap (lands exactly on a segment's midpoint) it never had before, scoped to the clicked figure's own segments since an inserted point has to stay on that line. Insert-on-line also gets a live hover preview now (it never had one pre-build-57 — only computed a landing on click) via the same `drawSnapMarker`/hud pattern COGO already used. **A real bug found and fixed along the way:** the toolbox is a normal DOM element floating over the canvas, so with no `pointer-events` handling it silently ate mouse clicks/moves anywhere its own bounding box overlapped the canvas underneath — confirmed directly (a Dale job figure's segment midpoint landed literally under the toolbox's `midpoint` checkbox row, and every mouse event there stopped reaching `#cv` entirely, `pickSegmentForInsert` never even getting called). Fixed with `.snapbox{pointer-events:none}` plus `.snapbox label{pointer-events:auto}` — empty box background/padding passes clicks straight through to the canvas, only the actual checkbox rows stay clickable, the same tradeoff every other floating overlay in the app (`.legend`, `.tools`) already makes just by existing. Verified end-to-end through the REAL UI (button clicks, not poked state) on both real job files: opening Add Point (COGO) → Pick on canvas shows the toolbox and correctly highlights `endpoint` next to a real point; opening a figure → ⊕ Click line to insert point shows the toolbox and, at real segment locations picked to avoid the toolbox's own footprint, correctly resolves `intersection` → (intersection off) `nearest` → (nearest off too, nothing left enabled) `null` with no crash, matching the same priority cascade as COGO; the toolbox hides again on Esc/cancel in both flows. A 25-figure × 2-file insert-on-line sweep plus a 40-point × 2-file COGO-pick sweep produced zero console errors (only the pre-existing, unrelated `ERR_CONNECTION_RESET` from blocked map-tile fetches, already documented under MAP background). |
     | 58 | 🍌 BANANA | added an **↗ New tab** button to the Street View modal header — opens the CURRENT point (whichever one `svCtx.idx` is on right now, kept in sync by Prev/Next) in a real Google Maps browser tab via the existing `streetViewURL`/`headingAt` deep-link math (the same URL scheme builds 51/52 used before the embedded panorama replaced tab-opening, still kept around as the build-53 no-panorama fallback). Owner asked after learning the embedded panorama can get its colors inverted by a browser dark-mode feature or extension (see build 54, and the Dark Reader regression the owner found and linked, `darkreader/darkreader#14919` — a bug in THAT extension, unrelated to and not fixable by anything in our code) — a new-tab escape hatch sidesteps whichever one is misbehaving, since the real Google Maps site handles its own theming. Works even before/if the embedded panorama never loads at all (`svCtx` is set synchronously in `openSvModal`, before the async `ensureGMaps` polling even starts) — verified directly, since this sandbox's own Google-domain network block means the embedded panorama can't be exercised here either. `window.open(url,'_blank','noopener')` — `noopener` here is deliberate and different from build 52's walk-the-line tab (which dropped it to reuse one tab): each new-tab click here is a one-off "look at this externally" action, not a walk sequence, so a fresh tab per click is correct, not a bug. Verified via a real headless-browser test on both real job files: opened a mid-line vertex and a plain control point (not just a figure's first vertex) through the actual UI (button clicks, not poked state), intercepted `window.open`, and confirmed the URL/target/noopener args match `streetViewURL`/`headingAt` computed independently for that exact point — zero console errors. |
     | 59 | 🍇 GRAPE | owner sent a real Google Maps JS sample URL (`developers.google.com/maps/documentation/javascript/examples/streetview-overlays`) to double-check our marker-overlay approach against — I couldn't fetch that page (blocked, same as `maps.googleapis.com`), but the exact same sample lives in the public `googlemaps/js-samples` repo (`samples/streetview-overlays/index.ts`), fetchable and NOT Google-domain-blocked; I read the real, current source there. It does NOT do what build 53's writeup claimed ("a Marker's `.map` can be a `StreetViewPanorama`") — its actual pattern is markers on a regular `Map` plus a **toggleable** panorama obtained via `map.getStreetView()`, shown/hidden with `.setVisible()`. Literally copying that would have dropped the numbered vertex markers from the panorama entirely (a `Map`'s own markers don't carry into its panorama once the panorama takes over the div) — the opposite of what this feature is for. Fix, a synthesis rather than a straight copy: `openSvModal` now obtains the panorama the SAME verified way this sample does — `new google.maps.Map($('svPanoDiv'),{center,zoom,streetViewControl:false})` then `.getStreetView()` then `.setOptions({...})` then `.setVisible(true)` — instead of constructing `new google.maps.StreetViewPanorama(...)` directly (a technique this sample never uses at all) — while STILL placing every vertex's marker directly on the returned panorama object (`new google.maps.Marker({position,map:svPano,...})`, unchanged from build 53). The marker-on-panorama piece remains a separately-documented capability of the classic `Marker` class (its `map` property type is `Map|StreetViewPanorama|null`) that this particular sample just doesn't happen to demonstrate — not something this fix proves either way, but no longer resting on a citation to a sample that turned out to show something else. `svPano` is still cached/reused across modal opens exactly as before (`if(!svPano){...}` guards the Map/getStreetView construction). Verified structurally with a mocked `google.maps` (real `Map`/`getStreetView`/`Marker`/`Panorama` still unreachable from this sandbox): the real call sequence is `Map ctor → getStreetView → pano.setOptions → pano.setVisible(true) → 8× Marker({map:pano}) → pano.setPosition/setPov`, with the fake `StreetViewPanorama` constructor (rigged to throw if called) never invoked; Prev/Next still only calls `setPosition`/`setPov` on the cached pano; the build-58 New-tab button still opens the correct URL unaffected; reopening the modal for a different figure correctly skips reconstructing the Map (`if(!svPano)`) and reuses the cached panorama — all on both real job files, zero console errors. |
+    | 60 | 🍊 ORANGE | new **🧭 UGW→CPN** toolbar button (deliberately separate from ⚙ Knockdown — owner asked explicitly to keep guy-wire rotation out of the curb-code tool). For every **UGW** (guy wire anchor) point, finds the nearest **UPP** (utility pole) point by 2D distance — same nearest-by-distance pattern `applyKnockdown` already uses for REF — computes the bearing of the vector UGW→UPP with **0° at west** (same clockwise rotation sense as `headingAt`'s standard 0°=north survey azimuth, just re-zeroed: `(standardAzimuth+90)%360`), and appends `"<angle> CPN<pole id>"` to the UGW point's description — e.g. `"UGW"` → `"UGW 179.36 CPN11258"`, matching the owner's worked example. Re-running updates the pair/angle in place (strips a previous run's trailing `<angle> CPN<id>` before re-appending) instead of stacking duplicate tokens. See the dedicated section below for the full writeup, including an open verification gap: the owner's own worked example gives only bare `F1 VA` shot lines with no `STN`/`BS` setup context, so there's no way to independently reduce those two points to real N/E and confirm the exact `179.36`/`179.31` output from here — checked whether points 11250/11258 exist in either real job file on hand (they don't, so no ground truth available there either) and verified the mechanics instead: on BOTH real job files (which turned out to already contain real UGW/UPP guy-wire data), the nearest-UPP search reliably pairs each UGW with the UPP shot immediately adjacent to it in point-number order (9305↔9304, 5374↔5373, etc.) — exactly the pairing a crew shooting a guy wire right after its pole would produce — and the tool is idempotent (re-running twice yields byte-identical output) with zero console errors on both files. The owner should confirm point 11250 actually reads `179.36` once run on their real file; if it doesn't, tell me the actual output and the correct rotation offset can be solved for immediately from one known-good pair. |
   - Suggested next fruits to rotate through:
-    🍊 ORANGE, 🍓 STRAWBERRY, 🍒 CHERRY.
+    🍓 STRAWBERRY, 🍒 CHERRY.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -86,6 +87,63 @@ first and follow it on every task in this repo.
   cross-section (full reveal), but **only at points that carry their OWN curb
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
+
+## Guy wire rotation — UGW→CPN (`addUgwCpn`/`bearingFromWest`, ⚙ button `#ugwCpnBtn`, build 60)
+
+- A **deliberately separate tool from Knockdown** (the owner asked explicitly
+  to keep this out of the curb-code workflow) — it only ever touches **UGW**
+  (guy wire anchor) and **UPP** (utility pole) points; it never looks at
+  curb codes or cross-sections.
+- For every non-deleted **UGW** point, `addUgwCpn` finds the nearest
+  non-deleted **UPP** point by plain 2D distance (`Math.hypot(dE,dN)` over
+  every UPP — same nearest-by-distance pattern `applyKnockdown` already
+  uses to find the nearest **REF** point), computes the bearing of the
+  vector UGW→UPP, and appends `"<angle> CPN<pole id>"` to the UGW point's
+  description.
+- **Angle convention — 0° at WEST, clockwise:** `bearingFromWest(dE,dN)`
+  first computes the standard survey azimuth the app already uses
+  everywhere else (`headingAt`'s `(atan2(dE,dN)*180/PI+360)%360` — 0°=north,
+  90°=east, clockwise), then re-zeroes it to west by adding 90°
+  (`(az+90)%360`) — this keeps the SAME clockwise rotation sense as every
+  other bearing/heading calculation in the app (Street View's `headingAt`,
+  the Zoom-window math, etc.), just shifts which direction reads as zero.
+  Due west → 0°, due north → 90°, due east → 180°, due south → 270°.
+- **CPN** records which pole the guy wire is tied to (`CPN<upp id>`) — the
+  owner's own phrasing suggested this is meant to eventually let a future
+  step draw a line connecting the guy wire to its pole, but that drawing
+  behavior itself was NOT part of this request and is not implemented —
+  `CPN` is currently just a descriptive token, like `REF`, not a figure
+  code that draws anything.
+- **Idempotent:** re-running strips a previous run's trailing
+  `<angle> CPN<id>` pair (`/\s+-?\d+\.?\d*\s+CPN\d+\s*$/i`) before
+  appending the freshly computed one, so running it again after moving a
+  point (or adding a new closer UPP) updates the pairing/angle in place
+  instead of stacking duplicate tokens.
+- **A real, disclosed verification gap:** the owner's own worked example
+  (`"UGW"` on point 11250 → `"UGW 179.36 CPN11258"`) is given as bare
+  `F1 VA` shot lines with no `STN`/`BS` setup context, so there's no way to
+  independently reduce those two points to real N/E from here and confirm
+  the exact `179.36`/`179.31` output — a synthetic test file with an
+  invented station/backsight produced a self-consistent, idempotent result
+  but (expectedly, since the station geometry was fabricated) a different
+  numeric angle, which proves nothing either way about the convention.
+  Checked whether points 11250/11258 exist in either real job file on hand
+  — they don't, so no ground truth was available there either. What COULD
+  be verified: both real job files turned out to already contain real
+  UGW/UPP guy-wire data, and running the tool on them produced consistently
+  sensible pairings — Hamline's UGW 9305 paired with UPP 9304, UGW 9178
+  with UPP 9183, UGW 9110/9111 both with UPP 9114; Dale's UGW 6753 paired
+  with UPP 6752, UGW 5374 with UPP 5373 — every single pairing landed on
+  the UPP shot immediately adjacent to it in point-number order, exactly
+  what a crew shooting a guy wire anchor right after its pole would
+  produce, a strong indirect signal the nearest-neighbor search itself is
+  correct even though the angle convention couldn't be independently
+  confirmed. The tool ran idempotently (byte-identical output on a second
+  click) with zero console errors on both real files. **The owner should
+  confirm point 11250 reads `179.36` once run on their actual file** — if
+  it doesn't, the actual output plus one known-good pair is enough to
+  solve for the correct rotation/offset immediately (add or subtract a
+  constant, or flip rotation direction) rather than guessing again.
 
 ## BC..EC curve linework (`sampleCurve`/`sampleArcFit`, build 24-29, build 49)
 
