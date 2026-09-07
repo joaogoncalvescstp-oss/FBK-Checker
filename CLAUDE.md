@@ -75,8 +75,9 @@ first and follow it on every task in this repo.
     | 59 | 🍇 GRAPE | owner sent a real Google Maps JS sample URL (`developers.google.com/maps/documentation/javascript/examples/streetview-overlays`) to double-check our marker-overlay approach against — I couldn't fetch that page (blocked, same as `maps.googleapis.com`), but the exact same sample lives in the public `googlemaps/js-samples` repo (`samples/streetview-overlays/index.ts`), fetchable and NOT Google-domain-blocked; I read the real, current source there. It does NOT do what build 53's writeup claimed ("a Marker's `.map` can be a `StreetViewPanorama`") — its actual pattern is markers on a regular `Map` plus a **toggleable** panorama obtained via `map.getStreetView()`, shown/hidden with `.setVisible()`. Literally copying that would have dropped the numbered vertex markers from the panorama entirely (a `Map`'s own markers don't carry into its panorama once the panorama takes over the div) — the opposite of what this feature is for. Fix, a synthesis rather than a straight copy: `openSvModal` now obtains the panorama the SAME verified way this sample does — `new google.maps.Map($('svPanoDiv'),{center,zoom,streetViewControl:false})` then `.getStreetView()` then `.setOptions({...})` then `.setVisible(true)` — instead of constructing `new google.maps.StreetViewPanorama(...)` directly (a technique this sample never uses at all) — while STILL placing every vertex's marker directly on the returned panorama object (`new google.maps.Marker({position,map:svPano,...})`, unchanged from build 53). The marker-on-panorama piece remains a separately-documented capability of the classic `Marker` class (its `map` property type is `Map|StreetViewPanorama|null`) that this particular sample just doesn't happen to demonstrate — not something this fix proves either way, but no longer resting on a citation to a sample that turned out to show something else. `svPano` is still cached/reused across modal opens exactly as before (`if(!svPano){...}` guards the Map/getStreetView construction). Verified structurally with a mocked `google.maps` (real `Map`/`getStreetView`/`Marker`/`Panorama` still unreachable from this sandbox): the real call sequence is `Map ctor → getStreetView → pano.setOptions → pano.setVisible(true) → 8× Marker({map:pano}) → pano.setPosition/setPov`, with the fake `StreetViewPanorama` constructor (rigged to throw if called) never invoked; Prev/Next still only calls `setPosition`/`setPov` on the cached pano; the build-58 New-tab button still opens the correct URL unaffected; reopening the modal for a different figure correctly skips reconstructing the Map (`if(!svPano)`) and reuses the cached panorama — all on both real job files, zero console errors. |
     | 60 | 🍊 ORANGE | new **🧭 UGW→CPN** toolbar button (deliberately separate from ⚙ Knockdown — owner asked explicitly to keep guy-wire rotation out of the curb-code tool). For every **UGW** (guy wire anchor) point, finds the nearest **UPP** (utility pole) point by 2D distance — same nearest-by-distance pattern `applyKnockdown` already uses for REF — computes the bearing of the vector UGW→UPP with **0° at west** (same clockwise rotation sense as `headingAt`'s standard 0°=north survey azimuth, just re-zeroed: `(standardAzimuth+90)%360`), and appends `"<angle> CPN<pole id>"` to the UGW point's description — e.g. `"UGW"` → `"UGW 179.36 CPN11258"`, matching the owner's worked example. Re-running updates the pair/angle in place (strips a previous run's trailing `<angle> CPN<id>` before re-appending) instead of stacking duplicate tokens. See the dedicated section below for the full writeup, including an open verification gap: the owner's own worked example gives only bare `F1 VA` shot lines with no `STN`/`BS` setup context, so there's no way to independently reduce those two points to real N/E and confirm the exact `179.36`/`179.31` output from here — checked whether points 11250/11258 exist in either real job file on hand (they don't, so no ground truth available there either) and verified the mechanics instead: on BOTH real job files (which turned out to already contain real UGW/UPP guy-wire data), the nearest-UPP search reliably pairs each UGW with the UPP shot immediately adjacent to it in point-number order (9305↔9304, 5374↔5373, etc.) — exactly the pairing a crew shooting a guy wire right after its pole would produce — and the tool is idempotent (re-running twice yields byte-identical output) with zero console errors on both files. The owner should confirm point 11250 actually reads `179.36` once run on their real file; if it doesn't, tell me the actual output and the correct rotation offset can be solved for immediately from one known-good pair. |
     | 61 | 🍓 STRAWBERRY | fix **UGW→CPN's angle convention** (build 60's own worked example, finally checked against real ground truth): the owner uploaded the actual job file (`TOPO PASCAL`) their original example came from, and it turned out to contain the exact points (11250/11251/11258) verbatim. Run through the app's real `STN 31`/`BS 30` setup chain (not a guess), build 60's clockwise `0=W,90=N,180=E,270=S` formula (which matched the owner's own LATER verbal confirmation, "0 WEST 90 NORTH 180 EST SOUTH 270") produced `179.36`'s point 11250 as **180.39°** and point 11251 as **180.48°** — off by a full ~1°/1.2° from the owner's stated `179.36`/`179.31`. The MIRRORED rotation direction — `0=W,90=S,180=E,270=N`, i.e. counterclockwise, the OPPOSITE of what the owner verbally described — instead produces `179.61°`/`179.52°`, off by only `0.25°`/`0.21°`: a 5x smaller, mutually-consistent residual small enough to be ordinary rounding in a hand-typed reference value. Since the owner's own verbal description and their own real data directly conflicted, and the real data is both authoritative and far more precise than a quick all-caps summary, the mirrored convention won — `bearingFromWest` now computes `(630-az)%360` instead of `(az+90)%360`. Re-verified on both original sample files afterward: idempotent, zero errors, same sensible nearest-pole pairings as build 60 (only the angle values themselves changed). |
+    | 62 | 🍒 CHERRY | widen **UGW→CPN's** pole search from UPP-only to **ULP/UPP/UGP** — the owner's original worked example happened to use `UPP`, but a guy wire in the field can anchor any of these pole/pedestal codes, not just `UPP`. `addUgwCpn` now scans a shared `UGW_POLE_CODES=['ULP','UPP','UGP']` list and still just picks whichever single point (of any of the three codes) is nearest by plain 2D distance — no per-code priority order, same nearest-by-distance rule as before, just over a wider candidate set. Verified on all 3 real job files: `TOPO PASCAL`'s UGW points still pair with the same `UPP` points as build 61 (angles unchanged, 179.61°/179.52° for 11250/11251), and both Hamline (which has a real `UGP` point) and Dale (which has a real `ULP` point) still pick the nearest actual pole regardless of code — no regression, idempotent, zero console errors on any file. A synthetic test (placing a `ULP` and separately a `UGP` closer to a `UGW` than any `UPP`) confirmed the search genuinely considers all three codes and picks the truly nearest one, not just falling back to `UPP` when present. |
   - Suggested next fruits to rotate through:
-    🍒 CHERRY, 🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍉 WATERMELON,
+    🥝 KIWI, 🍑 PEACH, 🍍 PINEAPPLE, 🥭 MANGO, 🍉 WATERMELON,
     🥥 COCONUT, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
@@ -90,18 +91,37 @@ first and follow it on every task in this repo.
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
 
-## Guy wire rotation — UGW→CPN (`addUgwCpn`/`bearingFromWest`, ⚙ button `#ugwCpnBtn`, build 60, angle fixed build 61)
+## Guy wire rotation — UGW→CPN (`addUgwCpn`/`bearingFromWest`, ⚙ button `#ugwCpnBtn`, build 60, angle fixed build 61, pole codes widened build 62)
 
 - A **deliberately separate tool from Knockdown** (the owner asked explicitly
   to keep this out of the curb-code workflow) — it only ever touches **UGW**
-  (guy wire anchor) and **UPP** (utility pole) points; it never looks at
-  curb codes or cross-sections.
+  (guy wire anchor) and pole-type (`ULP`/`UPP`/`UGP`) points; it never looks
+  at curb codes or cross-sections.
 - For every non-deleted **UGW** point, `addUgwCpn` finds the nearest
-  non-deleted **UPP** point by plain 2D distance (`Math.hypot(dE,dN)` over
-  every UPP — same nearest-by-distance pattern `applyKnockdown` already
-  uses to find the nearest **REF** point), computes the bearing of the
-  vector UGW→UPP, and appends `"<angle> CPN<pole id>"` to the UGW point's
-  description.
+  non-deleted point coded **ULP**, **UPP**, or **UGP** (`UGW_POLE_CODES`) by
+  plain 2D distance (`Math.hypot(dE,dN)` over every candidate — same
+  nearest-by-distance pattern `applyKnockdown` already uses to find the
+  nearest **REF** point), computes the bearing of the vector UGW→pole, and
+  appends `"<angle> CPN<pole id>"` to the UGW point's description.
+  - **Build 62 — pole code set widened from UPP-only to ULP/UPP/UGP:** the
+    owner's original worked example happened to use `UPP` for the pole, so
+    build 60/61 only ever searched for `UPP`. The owner then asked to widen
+    the search to also match `ULP` (light pole) and `UGP` (another pole/
+    pedestal variant) — a guy wire can anchor to any of these pole types in
+    the field, not just `UPP`. `addUgwCpn` now filters candidates against
+    `UGW_POLE_CODES=['ULP','UPP','UGP']` instead of a single hardcoded
+    `==='UPP'` check; the nearest-by-distance selection itself is otherwise
+    unchanged — there's no priority between the three codes, purely whichever
+    single point (of any of them) is physically closest wins. Verified on all
+    3 real job files: `TOPO PASCAL`'s UGW points still pair with the same
+    `UPP` points as build 61 with unchanged angles (179.61°/179.52° for
+    11250/11251); Hamline (which has a real `UGP` point) and Dale (which has
+    a real `ULP` point) both still resolve to the nearest actual pole
+    regardless of its code — no regression, idempotent, zero console errors.
+    A synthetic test (placing a `ULP`, and separately a `UGP`, closer to a
+    `UGW` than any `UPP`) confirmed the search genuinely considers all three
+    codes and picks the truly nearest one rather than silently preferring
+    `UPP` when present.
 - **Angle convention — 0° at WEST, MIRRORED (counterclockwise):**
   `bearingFromWest(dE,dN)` computes the standard survey azimuth
   (`(atan2(dE,dN)*180/PI+360)%360` — 0°=north, 90°=east, clockwise, the
@@ -131,7 +151,7 @@ first and follow it on every task in this repo.
     fix: idempotent (byte-identical on a 2nd run), zero console errors,
     same nearest-pole pairings as build 60 — only the angle NUMBERS
     changed, not which UPP each UGW pairs with.
-- **CPN** records which pole the guy wire is tied to (`CPN<upp id>`) — the
+- **CPN** records which pole the guy wire is tied to (`CPN<pole id>`) — the
   owner's own phrasing suggested this is meant to eventually let a future
   step draw a line connecting the guy wire to its pole, but that drawing
   behavior itself was NOT part of this request and is not implemented —
