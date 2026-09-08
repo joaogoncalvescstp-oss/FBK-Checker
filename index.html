@@ -53,6 +53,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .snapbox label{display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 5px;border-radius:5px;transition:background .12s,color .12s;pointer-events:auto}
 .snapbox label.active{background:rgba(53,193,132,.24);color:#9ff0c8}
 .snapbox input{width:13px;height:13px;cursor:pointer}
+.labelbox{left:64px;right:auto;bottom:44px}
 .vex input{width:130px;accent-color:var(--gold)}
 .side{background:var(--panel);border-left:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
 .side h3{font:700 10px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--gold);padding:12px 14px 8px;border-bottom:1px solid var(--rule)}
@@ -159,8 +160,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
+    <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -198,6 +200,16 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <label id="snapLbl_intersection"><input type="checkbox" id="snapChk_intersection" checked>○ intersection</label>
         <label id="snapLbl_midpoint"><input type="checkbox" id="snapChk_midpoint" checked>△ midpoint</label>
         <label id="snapLbl_nearest"><input type="checkbox" id="snapChk_nearest" checked>⋈ nearest</label>
+      </div>
+      <div class="snapbox labelbox" id="labelBox">
+        <div class="sbTitle">POINT LABELS</div>
+        <label><input type="checkbox" id="lblNumChk" checked>Point #</label>
+        <label><input type="checkbox" id="lblCodeChk">Code</label>
+        <label><input type="checkbox" id="lblElevChk">Elevation</label>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;padding:2px 5px;pointer-events:auto">
+          <span>Size</span><input type="range" id="lblSizeR" min="7" max="20" step="1" value="10" style="width:80px;accent-color:var(--gold)">
+          <span id="lblSizeV">10px</span>
+        </div>
       </div>
       <div class="vex" id="vex">
         <span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
@@ -415,7 +427,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍎',name:'APPLE',build:70};
+const VERSION={fruit:'🍌',name:'BANANA',build:71};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -475,6 +487,8 @@ let mapLastKey='';                                        // viewport key last r
 let flash=null;                                          // {i,t0}
 let showArrows=false;                                     // direction arrows on linework
 let showPreKd=false;                                      // line review: show curb codes (pre-knockdown) instead of baked offsets
+let labelShow={num:true,code:false,elev:false};           // point-label toolbox: which fields show next to a point (Point #, Code, Elevation)
+let labelSize=10;                                         // point-label font size in px, set by the toolbox's size slider
 let inv={a:-1,b:-1};                                      // inverse: two picked point indices
 let cogoCtx=null;                                          // COGO insertion dialog context: {figId}
 let simplCogoCtx=null;                                     // Simple COGO dialog context
@@ -1856,7 +1870,8 @@ function draw3D(){
     ctx.fillStyle=i===sel?'#F1B434':(p.kind==='ctrl'?'#ffd24a':elevColor(p.Z,b));
     ctx.fill();if(i===sel){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
-      ctx.font='600 10px ui-monospace,monospace';ctx.fillText(p.kind==='ctrl'?p.desc.split(' ')[0]:p.id,x+7,y-6);}});
+      const lbl=pointLabelText(p);
+      if(lbl){ctx.font=`600 ${labelSize}px ui-monospace,monospace`;ctx.fillText(lbl,x+7,y-6);}}});
   drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();
 }
 /* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
@@ -1866,6 +1881,17 @@ function draw3D(){
    curb-box family code), tree emoji for the two tree codes TCTR/TDTR. Checked
    in that order (tree first) since it's the most specific match; a code can
    only ever match one of the three. */
+/* Point label toolbox (labelShow/labelSize): builds the text drawn next to a
+   point from whichever of Point #, Code, Elevation are checked — '' (drawn as
+   nothing) when all three are off. Shared by both the 2D and 3D point loops
+   so the toolbox controls both views identically. */
+function pointLabelText(p){
+  const parts=[];
+  if(labelShow.num)parts.push(p.id);
+  if(labelShow.code)parts.push((p.desc||'').trim().split(/\s+/)[0]||'');
+  if(labelShow.elev)parts.push(Number.isFinite(p.Z)?p.Z.toFixed(2):'');
+  return parts.join(' ');
+}
 function drawPtSymbol(p,x,y,r){
   const CODE=((p.desc||'').trim().split(/\s+/)[0]||'').toUpperCase();
   if(CODE==='TCTR'||CODE==='TDTR'){
@@ -1886,7 +1912,8 @@ function drawPt(p,i,x,y){
   ctx.fillStyle=hot?'#F1B434':(p.kind==='ctrl'?'#ffd24a':(p.edited?'#35c184':'#7fb3ff'));ctx.fill();
   if(hot){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
   if(p.kind==='ctrl'||view.s>3||hot){drawPtSymbol(p,x,y,hot?r+3:r);ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#9fb4d8';
-    ctx.font='600 10px ui-monospace,monospace';ctx.fillText(p.kind==='ctrl'?p.desc.split(' ')[0]:p.id,x+7,y-6);}
+    const lbl=pointLabelText(p);
+    if(lbl){ctx.font=`600 ${labelSize}px ui-monospace,monospace`;ctx.fillText(lbl,x+7,y-6);}}
 }
 function drawGizmo(){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,gx=w-46,gy=h-46,L=22;
   const dirs=[['N',0,1,'#F1B434'],['E',1,0,'#7fb3ff'],['Z',0,0,'#35c184']];
@@ -2829,6 +2856,11 @@ $('tMap').onclick=()=>{showMap=!showMap;$('tMap').classList.toggle('on',showMap)
   else{mapTiles=[];mapErr=null;const d=$('agmap');if(d)d.style.display='none';}
   draw();};
 $('vexR').oninput=e=>{orbit.ve=+e.target.value;$('vexV').textContent=orbit.ve+'×';if(is3D)draw();};
+$('labelBtn').onclick=()=>{$('labelBox').classList.toggle('show');};
+$('lblNumChk').onchange=e=>{labelShow.num=e.target.checked;draw();};
+$('lblCodeChk').onchange=e=>{labelShow.code=e.target.checked;draw();};
+$('lblElevChk').onchange=e=>{labelShow.elev=e.target.checked;draw();};
+$('lblSizeR').oninput=e=>{labelSize=+e.target.value;$('lblSizeV').textContent=labelSize+'px';draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
 $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
