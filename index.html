@@ -37,24 +37,28 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 #agmap{position:absolute;inset:0;z-index:0;display:none}
 #agmap .esri-view-surface{outline:none}
 /* Street View must render with Google's original imagery colors, without
-   breaking Google's OWN internal tile compositing. Build 75 dropped every
-   descendant-targeting rule (isolation:isolate on the container alone
-   should have been enough to block an ANCESTOR's blend-mode invert), but
-   the owner reported the inversion came right back — meaning something
-   (a browser/extension "smart invert" heuristic) applies its own
-   counter-invert filter DIRECTLY to the panorama's own <canvas>/<img>
-   leaf elements, not via a blend coming from outside #svPanoDiv, so
-   isolation on the container can't intercept it — it has to be reset on
-   those exact elements. Build 74's mistake wasn't resetting canvas/img at
-   all, it was ALSO resetting the many plain <div> wrapper layers under
-   .gm-style that Google's own renderer blends/cross-fades tiles through
-   while panning — forcing THOSE to mix-blend-mode:normal is what broke
-   orbiting. This version resets filter/mix-blend-mode only on the actual
-   canvas/img leaf elements (where the real counter-invert lands), leaving
-   every generic wrapper <div> Google's tile compositing needs completely
-   untouched. */
+   breaking Google's OWN internal rendering. Evidence across 3 real-browser
+   reports now points at ONE specific element, not just "descendants" in
+   general: every build that reset filter/mix-blend-mode on <canvas>
+   inside #svPanoDiv went black at some later interaction — build 74
+   (canvas + img + every wrapper <div>) went black on ORBIT; build 76
+   (canvas + img only, no <div>s) went black once MARKERS were added
+   instead — two different triggers, but both are moments Google's own
+   script re-touches the live panorama's rendering state, and both only
+   ever happened in builds that touched <canvas>. Build 75, which reset
+   NOTHING (container only), never went black at all — it just had the
+   color regression, because with nothing reset an external counter-invert
+   filter goes uncancelled. Conclusion: the actual counter-invert lands on
+   plain <img> tiles (Street View's classic DOM tile-mosaic rendering,
+   not necessarily WebGL), and <canvas> was never actually where color
+   correction needed to happen — it's a separate element Google's own
+   script legitimately manages the style of at those exact moments (a
+   fresh pan/orbit reload, mounting marker overlays), and forcing its
+   filter/mix-blend-mode with !important fights that management and
+   breaks it. This version resets filter/mix-blend-mode on <img> only —
+   canvas is left completely alone. */
 #svPanoDiv{color-scheme:light only!important;isolation:isolate;filter:none!important;forced-color-adjust:none!important}
-#svPanoDiv canvas,#svPanoDiv img{filter:none!important;mix-blend-mode:normal!important}
+#svPanoDiv img{filter:none!important;mix-blend-mode:normal!important}
 .tools,.zbtns,.legend,.vex,.hud,.zwbox{z-index:2}
 .hud{position:absolute;left:12px;bottom:12px;font:600 11px var(--mono);color:var(--mut);background:rgba(7,11,22,.7);border:1px solid var(--rule);padding:6px 10px;border-radius:6px;pointer-events:none}
 .tools{position:absolute;left:12px;top:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
@@ -181,7 +185,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
   </div>
 
   <div class="main">
@@ -446,7 +450,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:76};
+const VERSION={fruit:'🍍',name:'PINEAPPLE',build:77};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
