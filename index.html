@@ -186,7 +186,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
   </div>
 
   <div class="main">
@@ -457,7 +457,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:78};
+const VERSION={fruit:'🍋',name:'LEMON',build:79};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1429,6 +1429,28 @@ let svPano=null,svMarkers=[],svCtx=null;
 let svInvertOn=true;
 function syncSvInvertOverlay(){$('svInvertOverlay').classList.toggle('on',svInvertOn);$('svInvertChk').checked=svInvertOn;}
 $('svInvertChk').onchange=e=>{svInvertOn=e.target.checked;syncSvInvertOverlay();};
+// Build 79 — the overlay above sits over #svPanoDiv as an ordinary sibling, which is
+// exactly why it survives Google's own re-renders — but the browser's real Fullscreen
+// API (triggered by the panorama's own native fullscreen control) only paints elements
+// that are actual DESCENDANTS of whatever element requestFullscreen() was called on.
+// Once the panorama goes fullscreen, our overlay — a sibling OUTSIDE that subtree —
+// would simply stop rendering, even though `.on`/display:block never changed. Fix:
+// follow the fullscreen element. On fullscreenchange, if the browser is now fullscreen
+// on #svPanoDiv (or an ancestor/descendant of it — Google's own control may target
+// either #svPanoDiv itself or an internal wrapper it creates inside it), reparent the
+// overlay INTO that fullscreen element (appendChild is a safe no-op if it's already
+// there) and switch it to position:fixed so `inset:0` covers the real viewport instead
+// of #svPanoWrap's now-irrelevant box; leaving fullscreen moves it straight back into
+// #svPanoWrap as an ordinary sibling at position:absolute, exactly like build 78.
+function svSyncOverlayFullscreen(){
+  const ov=$('svInvertOverlay'),panoDiv=$('svPanoDiv'),wrap=$('svPanoWrap');
+  const fsEl=document.fullscreenElement||document.webkitFullscreenElement||null;
+  const inSv=fsEl&&(fsEl===panoDiv||panoDiv.contains(fsEl)||fsEl.contains(panoDiv));
+  if(inSv){fsEl.appendChild(ov);ov.style.position='fixed';ov.style.zIndex='2147483647';}
+  else{wrap.appendChild(ov);ov.style.position='absolute';ov.style.zIndex='';}
+}
+document.addEventListener('fullscreenchange',svSyncOverlayFullscreen);
+document.addEventListener('webkitfullscreenchange',svSyncOverlayFullscreen);
 function ensureGMaps(cb,onTimeout,tries){tries=tries||0;
   if(window.google&&google.maps&&google.maps.StreetViewPanorama){cb();return;}
   if(tries>150){onTimeout();return;}
