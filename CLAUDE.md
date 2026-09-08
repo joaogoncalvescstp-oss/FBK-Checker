@@ -88,9 +88,10 @@ first and follow it on every task in this repo.
     | 72 | 🍇 GRAPE | **UNVERIFIED, on branch `claude/streetview-color-test` only — NOT merged to main or `claude/street-view-linework`.** Added `filter:none!important` to `#svPanoDiv` (additive, alongside the existing build-54 `color-scheme`/`forced-color-adjust` fix, which was NOT removed) as a low-risk experiment against a possible remaining Street View color-inversion path — declined a third-party suggestion to also restore a supposedly "missing" COGO code block (the real `openCogoDialog`/`insertCogoPoint` were never missing and are more correct than the suggested replacement) and to drop the build-54 CSS fix entirely (already verified working). See the Street View section below for the full writeup. Merge only after the owner confirms in a real browser that this actually helps — this sandbox still can't reach Google's domains to check itself. |
     | 73 | 🍓 STRAWBERRY | **STILL UNVERIFIED, same branch `claude/streetview-color-test` only — NOT merged.** Owner asked to try a pre-invert instead of a no-op: `#svPanoDiv`'s `filter` changed from build 72's inert `filter:none!important` to `filter:invert(1) hue-rotate(180deg)` — the standard "cancel out an external color inversion" trick, additive to (not replacing) the untouched build-54 `color-scheme`/`forced-color-adjust` fix. **Real tradeoff, not hidden:** this helps if something really is externally inverting the panorama (a forced-dark heuristic, a dark-mode extension in filter mode) but actively makes the photo wrong if nothing was inverting it in the owner's actual browser — unverifiable from this sandbox either way (still blocked from Google's domains), which is exactly why this stays on its own unmerged branch until the owner reports back what they actually see. Verified only what's checkable without live imagery: script still parses, the computed filter lands exactly as written, all 3 original real job files redraw with unchanged figure counts and zero new console errors. |
     | 74 | 🍒 CHERRY | **STILL UNVERIFIED, same branch `claude/streetview-color-test` only — NOT merged.** Owner asked to check a fix a DIFFERENT AI had produced against this repo (`index_streetview_color_fixed.html`) — diffed it directly against the real file (unlike the earlier pasted suggestion, this one was a real, small, purely-additive CSS diff, nothing fabricated or removed) and adopted the bulk of it, REPLACING build 73's speculative pre-invert: neutralizes `filter`/`mix-blend-mode`/`forced-color-adjust` on `#svPanoDiv` AND everything Google's own JS mounts inside it (`.gm-style`, `canvas`, `img`), plus `isolation:isolate` (defeats a blend-mode-based "smart invert," a different mechanism than build 54's forced-dark-heuristic fix) and `color-scheme:light only` (a stronger signal than plain `light`). Dropped the one piece NOT kept — a forced `background:#fff` that would have hurt the loading/fallback placeholder's contrast for no anti-inversion benefit. Unlike build 73's pre-invert (helps XOR hurts depending on whether something really was inverting it), this one can only help or do nothing. See the Street View section below for the full writeup. Still fundamentally unverifiable from this sandbox (no Google-domain network access) — merge only after the owner confirms in a real browser. |
+    | 75 | 🥝 KIWI | **Real regression fix, same branch `claude/streetview-color-test` only — still NOT merged.** Owner confirmed build 74 fixed the colors but reported the live panorama going black while orbiting/panning. Root cause: build 74's `mix-blend-mode:normal!important`, forced onto every descendant of `#svPanoDiv` (not just the container), was almost certainly stomping on whatever blend mode Google's own renderer uses internally to cross-fade newly-loading tiles as the view moves — fine once settled, black mid-transition. Fix: the anti-inversion protection only ever needed `isolation:isolate` on the CONTAINER (that alone blocks an ancestor's blend-mode-based invert from compositing through) — removed both build-74 rules that reached into `#svPanoDiv`'s descendants (the universal `#svPanoDiv *{...}` rule and the `.gm-style`/`canvas`/`img`-specific one) and replaced them with one container-only rule, no `mix-blend-mode` anywhere. Verified nothing in our CSS touches descendants anymore (a synthetic child element's own `mix-blend-mode:screen` now survives, computed style confirms it's not forced to `normal`), figure counts unchanged (70/99/161) on all 3 files, zero new console errors, Street View modal still opens normally. Still needs the owner to confirm in a real browser that orbiting no longer goes black before this merges anywhere. |
   - Suggested next fruits to rotate through:
-    🥝 KIWI, 🍑 PEACH,
-    🍍 PINEAPPLE, 🥭 MANGO.
+    🍑 PEACH, 🍍 PINEAPPLE,
+    🥭 MANGO, 🍐 PEAR.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -2096,6 +2097,58 @@ first and follow it on every task in this repo.
     modal, header, New tab/Close buttons, and the (still-loading, since
     this sandbox can't reach Google) placeholder all rendering normally
     with the expected dark background and readable placeholder text.
+  - **Build 75 (🥝 KIWI) — real regression found in build 74, fixed, still
+    on `claude/streetview-color-test` only, still NOT merged:** the owner
+    pulled build 74 into a real browser and confirmed the colors ARE
+    fixed, but reported a new problem: orbiting/panning inside the live
+    Street View panorama makes it go black. Build 74's stylesheet had two
+    rules touching every descendant of `#svPanoDiv`, not just the
+    container: `#svPanoDiv,#svPanoDiv *{filter:none!important;
+    mix-blend-mode:normal!important;forced-color-adjust:none!important}`
+    and a second rule forcing the same on `.gm-style`/`canvas`/`img`
+    specifically, plus `opacity:1`. That `mix-blend-mode:normal!important`
+    landing on EVERY element inside the live panorama — including
+    whatever internal layers Google's own renderer uses to cross-fade or
+    stitch newly-loading tiles together as the view moves — is almost
+    certainly what broke it: a panorama tile mid-load/mid-blend needs its
+    OWN blend mode (screen/lighten/whatever Google's renderer actually
+    uses for that transition) to composite correctly, and a page-level
+    `!important` rule reaching into Google's own DOM and force-resetting
+    it to `normal` on every element would show up exactly as described —
+    fine once everything's settled, black while new tiles are actively
+    loading/blending during a pan or orbit.
+  - **The actual fix only ever needed to touch the CONTAINER, never its
+    descendants:** `isolation:isolate` on `#svPanoDiv` alone is what
+    blocks an ancestor's blend-mode-based invert trick from compositing
+    through in the first place (it gives the element its own stacking
+    context, so nothing outside that subtree can blend against anything
+    inside it) — forcing `mix-blend-mode:normal`/`opacity:1` on every
+    descendant was never necessary to achieve that, and is exactly what
+    broke Google's own tile compositing. Removed BOTH build-74 rules
+    entirely (`#svPanoDiv,#svPanoDiv *{...}` and the `.gm-style`/`canvas`/
+    `img`-specific one) and replaced them with a single container-only
+    rule: `#svPanoDiv{color-scheme:light only!important;isolation:isolate;
+    filter:none!important;forced-color-adjust:none!important}` — no `*`
+    selector, no `mix-blend-mode` anywhere, nothing targeting anything
+    inside `#svPanoDiv` at all. Also dropped the matching
+    `mix-blend-mode:normal!important` build 74 had added to `#svPanoDiv`'s
+    own inline style (the container's inline style still keeps
+    `filter:none!important`/`isolation:isolate` — only the blend-mode
+    piece was removed, everywhere).
+  - Verified the fix actually stops touching descendants: appended a
+    synthetic child `<div>` inside `#svPanoDiv` with its own
+    `mix-blend-mode:screen` set directly, then read its COMPUTED style —
+    it correctly comes back `screen`, not forced to `normal`, confirming
+    nothing in our CSS reaches into the panorama's own DOM anymore, while
+    the container itself still shows the intended `filter:"none"`,
+    `isolation:"isolate"`, `color-scheme:"light only"`. Re-ran across all
+    3 original real job files: figure counts unchanged (70/99/161), zero
+    new console errors, and a real-UI open of the Street View modal still
+    renders normally (modal, header, buttons, placeholder). Still can't
+    verify the ACTUAL live-panorama pan/orbit behavior from this sandbox
+    (same standing Google-domain block) — the owner needs to confirm in
+    their own browser that orbiting no longer goes black before this
+    merges anywhere.
 
 ## Point marker symbols (`drawPtSymbol`, build 55)
 
