@@ -160,7 +160,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
   </div>
 
   <div class="main">
@@ -415,7 +415,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍋',name:'LEMON',build:69};
+const VERSION={fruit:'🍎',name:'APPLE',build:70};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1830,7 +1830,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -1857,7 +1857,7 @@ function draw3D(){
     ctx.fill();if(i===sel){ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();}
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
       ctx.font='600 10px ui-monospace,monospace';ctx.fillText(p.kind==='ctrl'?p.desc.split(' ')[0]:p.id,x+7,y-6);}});
-  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();
+  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();
 }
 /* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
    center), keyed off the point's own description — square for any point
@@ -1902,6 +1902,15 @@ function drawFlash(){if(!flash)return;const p=PTS[flash.i];if(!p)return;
   const[x,y]=is3D?P3(p.E,p.N,p.Z):W2S(p.E,p.N);
   const t=dt/1200;ctx.beginPath();ctx.arc(x,y,6+30*(1-t),0,7);
   ctx.strokeStyle=`rgba(241,180,52,${(1-t).toFixed(2)})`;ctx.lineWidth=2;ctx.stroke();
+  requestAnimationFrame(draw);}
+function drawUgwPickRing(){                                  // pulsing ring at a UGW origin while its target is being picked
+  if(ugwPick==null||!ugwReviewRows)return;
+  const row=ugwReviewRows[ugwPick];const p=row&&PTS[row.i];if(!p)return;
+  const t=(performance.now()%900)/900;                        // 0..1, repeats — stays visible for the whole pick, unlike drawFlash's 1-shot fade
+  const r=8+22*t;
+  const[x,y]=is3D?P3(p.E,p.N,p.Z):W2S(p.E,p.N);
+  ctx.beginPath();ctx.arc(x,y,r,0,7);
+  ctx.strokeStyle=`rgba(241,180,52,${(1-t*0.85).toFixed(2)})`;ctx.lineWidth=2.5;ctx.stroke();
   requestAnimationFrame(draw);}
 /* ---------- direction arrows ---------- */
 function arrowHead(x1,y1,x2,y2,col){
