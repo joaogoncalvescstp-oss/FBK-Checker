@@ -91,6 +91,7 @@ first and follow it on every task in this repo.
     | 75 | 🥝 KIWI | **Real regression fix, same branch `claude/streetview-color-test` only — still NOT merged.** Owner confirmed build 74 fixed the colors but reported the live panorama going black while orbiting/panning. Root cause: build 74's `mix-blend-mode:normal!important`, forced onto every descendant of `#svPanoDiv` (not just the container), was almost certainly stomping on whatever blend mode Google's own renderer uses internally to cross-fade newly-loading tiles as the view moves — fine once settled, black mid-transition. Fix: the anti-inversion protection only ever needed `isolation:isolate` on the CONTAINER (that alone blocks an ancestor's blend-mode-based invert from compositing through) — removed both build-74 rules that reached into `#svPanoDiv`'s descendants (the universal `#svPanoDiv *{...}` rule and the `.gm-style`/`canvas`/`img`-specific one) and replaced them with one container-only rule, no `mix-blend-mode` anywhere. Verified nothing in our CSS touches descendants anymore (a synthetic child element's own `mix-blend-mode:screen` now survives, computed style confirms it's not forced to `normal`), figure counts unchanged (70/99/161) on all 3 files, zero new console errors, Street View modal still opens normally. Still needs the owner to confirm in a real browser that orbiting no longer goes black before this merges anywhere. |
     | 76 | 🍑 PEACH | **Real color regression from build 75, fixed narrower — same branch `claude/streetview-color-test` only, still NOT merged.** Owner pulled build 75 (which dropped every descendant-targeting rule) and reported the inversion came back — a useful signal that something applies its counter-invert DIRECTLY to the panorama's own `canvas`/`img` elements, not as a blend from outside `#svPanoDiv` that `isolation:isolate` alone could block. Put back a `filter:none!important;mix-blend-mode:normal!important` reset, but scoped ONLY to `#svPanoDiv canvas,#svPanoDiv img` — not `.gm-style`, not `.gm-style>div`, not the universal `#svPanoDiv *` build 74 used — so the generic wrapper `<div>` layers Google's own tile cross-fade needs (the actual cause of build 74/75's orbit-goes-black) stay untouched while the two leaf element types that actually render pixels get their counter-invert cancelled. Verified the split holds: a synthetic plain `<div>` keeps its own `mix-blend-mode:screen`, while a synthetic `canvas`/`img` with an injected `filter:invert(1)`+`mix-blend-mode:screen` both correctly come back to `none`/`normal`. Figure counts unchanged (70/99/161), zero new console errors, modal opens normally. Owner needs to confirm BOTH correct colors AND smooth orbiting in a real browser before merging. |
     | 77 | 🍍 PINEAPPLE | **3rd real black-out trigger reported (this time on markers appearing, not orbit) — same branch `claude/streetview-color-test` only, still NOT merged.** Lined up all 3 real-browser reports: every build that reset `filter`/`mix-blend-mode` on `<canvas>` inside `#svPanoDiv` went black at SOME later interaction (build 74: orbit; build 76: markers appearing); the one build that never touched `<canvas>` (build 75) never went black, only had the color regression. Conclusion: `<canvas>` was never actually where the color fix needed to happen — dropped it from the reset selector entirely, keeping only `#svPanoDiv img{filter:none!important;mix-blend-mode:normal!important}`; both `<canvas>` and every wrapper `<div>` are now completely untouched. Verified with synthetic elements: a `<div>` AND a `<canvas>` with injected `filter:invert(1)`/`mix-blend-mode:screen` both now survive completely unmodified, while a synthetic `<img>` with the same injected properties still gets correctly reset. Figure counts and console errors unchanged across all 3 real job files, modal opens normally. This is the 4th CSS-only iteration on this issue — if it still goes black, the next useful signal is the actual browser console output at the moment it happens, not another blind guess. |
+    | — | — | **ROOT CAUSE FOUND — builds 72-77's entire CSS chase was solving the wrong problem.** The owner finally pulled real browser console output, and it shows a hard Google Maps API failure: `"You must enable Billing on the Google Cloud Project"` — the API key's Google Cloud project has no billing enabled, so Street View can't actually load/render properly. NOT a CSS bug, never was, no CSS on our side can fix it. This retroactively explains every symptom chased across builds 72-77: without billing, the panorama falls back to unstable/broken rendering, and whichever CSS filter/blend-mode tweak happened to be active just changed how that already-broken output looked (sometimes "inverted," sometimes black) — never a real fix-vs-break tradeoff. The fix is entirely outside this repo: enable billing on the Google Cloud project at `console.cloud.google.com` (Maps includes a monthly free credit, but a payment method must be on file regardless). No further CSS pushed pending that — next step is retesting on the CLEAN `claude/street-view-linework` baseline (build 71, pre-chase) once billing is on; if that alone renders correctly, all of `claude/streetview-color-test` (builds 72-77) gets discarded rather than merged. See the Street View section below for the full writeup. |
   - Suggested next fruits to rotate through:
     🥭 MANGO, 🍐 PEAR,
     🍉 WATERMELON, 🍎 APPLE.
@@ -2246,6 +2247,55 @@ first and follow it on every task in this repo.
     black (any error Google's own script throws) and which extensions are
     active, since blind CSS iteration is reaching the point of diminishing
     returns without that.
+- **THE REAL ROOT CAUSE, FINALLY FOUND — builds 72-77's whole CSS chase
+  was solving the wrong problem.** The owner pulled the actual browser
+  console output at last, and it contains the real answer, buried under
+  a harmless `google.maps.Marker` deprecation warning (noise, not the
+  cause — that API still works fine, just discouraged in favor of
+  `AdvancedMarkerElement`):
+  ```
+  You must enable Billing on the Google Cloud Project at
+  https://console.cloud.google.com/project/_/billing/enable
+  ```
+  This is a hard failure from Google's Maps JS API itself: **the API
+  key's Google Cloud project has no billing account enabled**, so the
+  Street View service can't actually load/render properly at all. This
+  is not a CSS bug, was never a CSS bug, and no CSS on our side can fix
+  it — it's an account-level setting on Google's side, outside the
+  codebase entirely.
+- **This retroactively explains every symptom chased across builds
+  72-77:** without billing enabled, the panorama service degrades or
+  errors out, and whatever broken/fallback rendering state results from
+  that is inherently unstable — which of our CSS filter/blend-mode
+  tweaks happened to be active at the time could easily make that
+  already-broken output LOOK inverted one moment and black the next,
+  purely as a side effect, without any of it ever being a genuine
+  "correct colors vs. broken rendering" tradeoff in the first place. The
+  entire build 72→77 sequence (`filter:none`, then `invert()`, then
+  neutralize-everything, then narrow to canvas+img, then drop canvas,
+  then owner reports colors reverted) was pattern-matching against a
+  moving target that was never going to converge, because the actual
+  cause was never in scope for a CSS fix to begin with.
+- **The fix is entirely outside this repo:** the owner needs to enable
+  billing on the Google Cloud project tied to the Street View API key
+  (`console.cloud.google.com` → select the project → enable billing —
+  Google Maps includes a monthly free credit, so light use like this
+  typically stays free, but a payment method has to be on file
+  regardless of usage level for the API to function past its free
+  trial/dev-mode restrictions).
+- **Next step, deliberately NOT another CSS push:** once billing is
+  enabled, the owner should retest Street View on the CLEAN, pre-chase
+  baseline — `claude/street-view-linework` (build 71, before any of
+  builds 72-77's filter/mix-blend-mode changes) — to see the real,
+  unmodified behavior with a properly-functioning API. If it renders
+  correctly on its own with billing enabled and zero CSS hacks, every
+  build on `claude/streetview-color-test` (72-77) was solving a phantom
+  and should be discarded rather than merged — there is no reason to
+  carry speculative, already-proven-unstable CSS overrides for a
+  problem billing alone resolves. If something is still genuinely wrong
+  once billing is confirmed enabled, THAT would be the first real signal
+  worth chasing, since it would no longer be confounded by an API
+  that's failing to load in the first place.
 
 ## Point marker symbols (`drawPtSymbol`, build 55)
 
