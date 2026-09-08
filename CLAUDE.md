@@ -91,6 +91,7 @@ first and follow it on every task in this repo.
     | 75 | 🥝 KIWI | **Real regression fix, same branch `claude/streetview-color-test` only — still NOT merged.** Owner confirmed build 74 fixed the colors but reported the live panorama going black while orbiting/panning. Root cause: build 74's `mix-blend-mode:normal!important`, forced onto every descendant of `#svPanoDiv` (not just the container), was almost certainly stomping on whatever blend mode Google's own renderer uses internally to cross-fade newly-loading tiles as the view moves — fine once settled, black mid-transition. Fix: the anti-inversion protection only ever needed `isolation:isolate` on the CONTAINER (that alone blocks an ancestor's blend-mode-based invert from compositing through) — removed both build-74 rules that reached into `#svPanoDiv`'s descendants (the universal `#svPanoDiv *{...}` rule and the `.gm-style`/`canvas`/`img`-specific one) and replaced them with one container-only rule, no `mix-blend-mode` anywhere. Verified nothing in our CSS touches descendants anymore (a synthetic child element's own `mix-blend-mode:screen` now survives, computed style confirms it's not forced to `normal`), figure counts unchanged (70/99/161) on all 3 files, zero new console errors, Street View modal still opens normally. Still needs the owner to confirm in a real browser that orbiting no longer goes black before this merges anywhere. |
     | 76 | 🍑 PEACH | **Real color regression from build 75, fixed narrower — same branch `claude/streetview-color-test` only, still NOT merged.** Owner pulled build 75 (which dropped every descendant-targeting rule) and reported the inversion came back — a useful signal that something applies its counter-invert DIRECTLY to the panorama's own `canvas`/`img` elements, not as a blend from outside `#svPanoDiv` that `isolation:isolate` alone could block. Put back a `filter:none!important;mix-blend-mode:normal!important` reset, but scoped ONLY to `#svPanoDiv canvas,#svPanoDiv img` — not `.gm-style`, not `.gm-style>div`, not the universal `#svPanoDiv *` build 74 used — so the generic wrapper `<div>` layers Google's own tile cross-fade needs (the actual cause of build 74/75's orbit-goes-black) stay untouched while the two leaf element types that actually render pixels get their counter-invert cancelled. Verified the split holds: a synthetic plain `<div>` keeps its own `mix-blend-mode:screen`, while a synthetic `canvas`/`img` with an injected `filter:invert(1)`+`mix-blend-mode:screen` both correctly come back to `none`/`normal`. Figure counts unchanged (70/99/161), zero new console errors, modal opens normally. Owner needs to confirm BOTH correct colors AND smooth orbiting in a real browser before merging. |
     | 77 | 🍍 PINEAPPLE | **3rd real black-out trigger reported (this time on markers appearing, not orbit) — same branch `claude/streetview-color-test` only, still NOT merged.** Lined up all 3 real-browser reports: every build that reset `filter`/`mix-blend-mode` on `<canvas>` inside `#svPanoDiv` went black at SOME later interaction (build 74: orbit; build 76: markers appearing); the one build that never touched `<canvas>` (build 75) never went black, only had the color regression. Conclusion: `<canvas>` was never actually where the color fix needed to happen — dropped it from the reset selector entirely, keeping only `#svPanoDiv img{filter:none!important;mix-blend-mode:normal!important}`; both `<canvas>` and every wrapper `<div>` are now completely untouched. Verified with synthetic elements: a `<div>` AND a `<canvas>` with injected `filter:invert(1)`/`mix-blend-mode:screen` both now survive completely unmodified, while a synthetic `<img>` with the same injected properties still gets correctly reset. Figure counts and console errors unchanged across all 3 real job files, modal opens normally. This is the 4th CSS-only iteration on this issue — if it still goes black, the next useful signal is the actual browser console output at the moment it happens, not another blind guess. |
+    | 78 | 🍊 ORANGE | owner, after the billing root-cause was found and documented: "go back on the Street View branch and add a filter on top, independent from the app, and invert color[s] during view[ing] Street View." Rather than a 5th round of setting `filter`/`mix-blend-mode` directly ON `#svPanoDiv` or its descendants (builds 74-77's whole approach, which repeatedly fought Google's own dynamic style updates on those exact elements and caused the orbit/marker black-outs), this build removes ALL of that direct manipulation and replaces it with a genuinely separate element: `#svInvertOverlay`, a plain sibling `<div>` (never a child — `#svPanoDiv` is wrapped in a new `#svPanoWrap`, and the overlay sits alongside it, absolutely positioned to cover it) using `mix-blend-mode:difference` against a white background, the standard blend-mode trick for inverting whatever renders underneath without ever touching a single property on the thing being inverted or anything inside it. A new **Invert colors** checkbox in the Street View modal's header (`#svInvertChk`) toggles it — `svInvertOn` (default `true`, per the request) persists across modal opens/closes for the session, re-synced every time `openSvModal` runs (`syncSvInvertOverlay()`). Since the overlay never touches `#svPanoDiv`, it can't be wiped out by Google's own `Map`/`getStreetView()` setup or `innerHTML` fallback-swap, and can't fight Google's internal style updates the way builds 74-77 did — it's compositing on top, not competing for the same properties. Build 54's real, independently-confirmed `color-scheme:light only`/`forced-color-adjust:none` fix on `#svPanoDiv` itself (a genuinely different, unrelated problem — Chrome's forced-dark-mode heuristic) is kept untouched. Verified through the real UI in a real headless browser: overlay/checkbox/wrapper all present in the DOM; opening the modal (via the actual `openSvModal` call path) correctly syncs the overlay to `display:block`/`mix-blend-mode:difference` and the checkbox to checked; a real click unchecks both the checkbox and the overlay's `on` class; a second real click re-checks both; closing and reopening the modal for a different point correctly preserves the ON state; `#svPanoDiv`'s own computed style now shows plain browser defaults (`filter:none`, `mix-blend-mode:normal` — no longer FORCED by our CSS) alongside the still-present `color-scheme:light only`; zero console errors beyond the pre-existing, already-documented Google-domain network block. This is still on `claude/streetview-color-test` only, still not merged — same standing caveat as every build since 72: the owner needs to actually look at Street View in a real browser (now hopefully with billing enabled) and say whether inversion is even still wanted, since the root cause turned out to be billing, not color handling — this build makes inversion a deliberate, toggleable, non-invasive OPTION rather than another forced guess. |
     | — | — | **ROOT CAUSE FOUND — builds 72-77's entire CSS chase was solving the wrong problem.** The owner finally pulled real browser console output, and it shows a hard Google Maps API failure: `"You must enable Billing on the Google Cloud Project"` — the API key's Google Cloud project has no billing enabled, so Street View can't actually load/render properly. NOT a CSS bug, never was, no CSS on our side can fix it. This retroactively explains every symptom chased across builds 72-77: without billing, the panorama falls back to unstable/broken rendering, and whichever CSS filter/blend-mode tweak happened to be active just changed how that already-broken output looked (sometimes "inverted," sometimes black) — never a real fix-vs-break tradeoff. The fix is entirely outside this repo: enable billing on the Google Cloud project at `console.cloud.google.com` (Maps includes a monthly free credit, but a payment method must be on file regardless). No further CSS pushed pending that — next step is retesting on the CLEAN `claude/street-view-linework` baseline (build 71, pre-chase) once billing is on; if that alone renders correctly, all of `claude/streetview-color-test` (builds 72-77) gets discarded rather than merged. See the Street View section below for the full writeup. |
   - Suggested next fruits to rotate through:
     🥭 MANGO, 🍐 PEAR,
@@ -2296,6 +2297,76 @@ first and follow it on every task in this repo.
   once billing is confirmed enabled, THAT would be the first real signal
   worth chasing, since it would no longer be confounded by an API
   that's failing to load in the first place.
+- **Build 78 — independent invert overlay, instead of a 5th round of direct
+  CSS on `#svPanoDiv`:** the owner asked to add a color-inverting filter
+  "on top, independent from the app" rather than resume touching
+  `#svPanoDiv`'s own properties. Builds 74-77 all set `filter`/
+  `mix-blend-mode` directly on `#svPanoDiv` or its descendants (`canvas`/
+  `img`), and every one of those attempts risked fighting Google's own
+  dynamic style updates on those SAME elements (the orbit/marker black-out
+  regressions build 75-77 chased) — even though the root cause turned out
+  to be billing, not CSS, the underlying risk of touching Google-managed
+  elements directly is real and worth avoiding regardless.
+  - `#svPanoDiv` is now wrapped in `#svPanoWrap` (`position:relative`), and
+    a brand-new sibling `<div id="svInvertOverlay">` — never a child of
+    `#svPanoDiv`, never touching anything inside it — sits absolutely
+    positioned over it (`inset:0`) with `mix-blend-mode:difference` against
+    a white `background`. Blending white in `difference` mode against
+    whatever's underneath produces a full color inversion of everything
+    the overlay covers, achieved entirely by the overlay's OWN properties —
+    zero properties are set on `#svPanoDiv` or any element Google's script
+    manages. `pointer-events:none` on the overlay means it never blocks
+    dragging/clicking to look around inside the actual panorama.
+  - Because it's a sibling, not a child, it's immune to BOTH ways
+    `#svPanoDiv`'s content changes: `new google.maps.Map($('svPanoDiv'),...)`
+    mounting the panorama, and the no-key/no-network fallback path's
+    `$('svPanoDiv').innerHTML=...` swap — neither can wipe out or interact
+    with the overlay, since it was never inside `#svPanoDiv` to begin with.
+  - A new **Invert colors** checkbox (`#svInvertChk`) in the Street View
+    modal's header toggles `svInvertOn` (a plain global, default `true` per
+    the owner's request) and calls `syncSvInvertOverlay()`, which just
+    toggles the overlay's `.on` class (`display:block`/`none`) and the
+    checkbox's `checked` state to match. `openSvModal` calls
+    `syncSvInvertOverlay()` every time it opens, so the toggle's state
+    (which persists across opens/closes for the session, same pattern as
+    `labelShow`/`snapEnabled`) is always reflected correctly the moment the
+    modal shows, regardless of which point/line it's opened for.
+  - All of build 74-77's direct `filter`/`mix-blend-mode` resets on
+    `#svPanoDiv img` are removed — the CSS comment block above `#svPanoDiv`
+    now explains why. Build 54's `color-scheme:light only`/
+    `forced-color-adjust:none` on `#svPanoDiv` itself is kept exactly as-is
+    — that's a real, separately-confirmed fix for a genuinely different
+    problem (Chrome's forced-dark-mode heuristic misreading the panorama's
+    canvas as needing auto-inversion), not part of the builds-74-77 chase,
+    and not something this overlay approach has any reason to touch.
+  - Verified end-to-end through the real UI in a real headless browser (the
+    actual `openSvModal` call path, real DOM clicks on `#svInvertChk`, not
+    poked state): overlay/wrapper/checkbox all present; opening the modal
+    syncs the overlay to visible (`display:block`, computed
+    `mix-blend-mode:difference`, white background) and the checkbox to
+    checked (default ON); a real click un-checks both the checkbox and the
+    overlay's `on` class; a second real click re-checks both; closing and
+    reopening the modal for a different point preserves the ON state
+    (confirming the session-persistent toggle); `#svPanoDiv`'s own computed
+    style now shows plain unforced browser defaults (`filter:"none"`,
+    `mix-blend-mode:"normal"`) alongside the still-intact `color-scheme:
+    "light only"`; script parses (`node --check`); zero console errors
+    beyond the pre-existing, already-documented Google-domain network
+    block that every Street View section in this project already discloses
+    (this sandbox still can't load the real Maps JS script or reach
+    `cbk0.google.com`, so the actual live panorama imagery — whether the
+    invert genuinely looks right now, and whether it's even still needed
+    post-billing-fix — is unverified from here, same standing caveat as
+    every build since 51).
+  - **Still on `claude/streetview-color-test` only, still not merged.** The
+    owner should test this with billing now enabled (per the section
+    above) and decide: if Street View already renders correctly with the
+    invert toggled OFF, this whole branch (72-78) may no longer be needed
+    at all and the clean `claude/street-view-linework` baseline (build 71)
+    is probably the better one to keep using; if the invert genuinely still
+    helps, this build at least makes it a deliberate, safe, independent
+    toggle instead of another guess baked directly into Google's own
+    elements.
 
 ## Point marker symbols (`drawPtSymbol`, build 55)
 

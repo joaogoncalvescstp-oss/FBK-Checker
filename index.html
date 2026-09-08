@@ -36,29 +36,30 @@ body{background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI",system-ui,s
 canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;z-index:1;background:transparent}
 #agmap{position:absolute;inset:0;z-index:0;display:none}
 #agmap .esri-view-surface{outline:none}
-/* Street View must render with Google's original imagery colors, without
-   breaking Google's OWN internal rendering. Evidence across 3 real-browser
-   reports now points at ONE specific element, not just "descendants" in
-   general: every build that reset filter/mix-blend-mode on <canvas>
-   inside #svPanoDiv went black at some later interaction — build 74
-   (canvas + img + every wrapper <div>) went black on ORBIT; build 76
-   (canvas + img only, no <div>s) went black once MARKERS were added
-   instead — two different triggers, but both are moments Google's own
-   script re-touches the live panorama's rendering state, and both only
-   ever happened in builds that touched <canvas>. Build 75, which reset
-   NOTHING (container only), never went black at all — it just had the
-   color regression, because with nothing reset an external counter-invert
-   filter goes uncancelled. Conclusion: the actual counter-invert lands on
-   plain <img> tiles (Street View's classic DOM tile-mosaic rendering,
-   not necessarily WebGL), and <canvas> was never actually where color
-   correction needed to happen — it's a separate element Google's own
-   script legitimately manages the style of at those exact moments (a
-   fresh pan/orbit reload, mounting marker overlays), and forcing its
-   filter/mix-blend-mode with !important fights that management and
-   breaks it. This version resets filter/mix-blend-mode on <img> only —
-   canvas is left completely alone. */
-#svPanoDiv{color-scheme:light only!important;isolation:isolate;filter:none!important;forced-color-adjust:none!important}
-#svPanoDiv img{filter:none!important;mix-blend-mode:normal!important}
+/* Builds 72-77's whole chase (see git history / CLAUDE.md) turned out to be
+   solved by neither of the above — real browser console output eventually
+   showed the actual cause was Google Cloud BILLING not being enabled on the
+   Maps JS API key's project, which made Street View's own rendering
+   unstable in ways that looked exactly like a CSS problem. `color-scheme`/
+   `forced-color-adjust` below are kept because they're a real, independently
+   confirmed fix (build 54) for Chrome's own forced-dark-mode heuristic
+   inverting the panorama's canvas — unrelated to the billing saga. Every
+   build-74-77 attempt at directly resetting `filter`/`mix-blend-mode` ON
+   #svPanoDiv or its descendants (<canvas>/<img>) is REMOVED here — those
+   were guesses at a problem that wasn't ours to fix by touching Google's
+   own elements, and doing so repeatedly fought Google's own dynamic style
+   updates on those same elements (the orbit/marker black-out regressions).
+   Build 78 replaces all of that with a genuinely independent invert
+   mechanism: #svInvertOverlay, a plain sibling <div> that sits ON TOP of
+   #svPanoDiv (never a child, never touches #svPanoDiv or anything inside
+   it) using `mix-blend-mode:difference` against a white background — the
+   standard blend-mode trick for visually inverting whatever renders
+   underneath without ever setting a single property on the thing being
+   inverted. See #svInvertOverlay below and the JS toggle next to it. */
+#svPanoDiv{color-scheme:light only!important;isolation:isolate;forced-color-adjust:none!important}
+#svPanoWrap{position:relative}
+#svInvertOverlay{position:absolute;inset:0;pointer-events:none;mix-blend-mode:difference;background:#fff;border-radius:6px;display:none}
+#svInvertOverlay.on{display:block}
 .tools,.zbtns,.legend,.vex,.hud,.zwbox{z-index:2}
 .hud{position:absolute;left:12px;bottom:12px;font:600 11px var(--mono);color:var(--mut);background:rgba(7,11,22,.7);border:1px solid var(--rule);padding:6px 10px;border-radius:6px;pointer-events:none}
 .tools{position:absolute;left:12px;top:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
@@ -185,7 +186,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍍 PINEAPPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -430,11 +431,17 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <h4 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <span>Street View <span id="svModalSub" style="color:var(--mut);font-weight:400;text-transform:none;letter-spacing:0"></span></span>
       <span style="display:flex;align-items:center;gap:8px">
+        <label style="display:flex;align-items:center;gap:5px;font:600 11px var(--mono);color:var(--mut);cursor:pointer" title="Overlay a color-inverting blend layer on top of the panorama — a separate element, independent from Google's own rendering, never touches #svPanoDiv itself">
+          <input type="checkbox" id="svInvertChk"> Invert colors
+        </label>
         <button class="btn" id="svTabBtn" title="Open this exact view in a new browser tab (Google Maps site)" style="padding:5px 9px;font-size:11px">↗ New tab</button>
         <button class="sideClose" id="svCloseBtn" style="display:inline-flex" title="Close">✕</button>
       </span>
     </h4>
-    <div id="svPanoDiv" style="width:100%;height:min(56vh,420px);border:1px solid var(--rule);border-radius:6px;background:#0a1426;display:flex;align-items:center;justify-content:center;color:var(--mut);font:12px var(--mono);color-scheme:light;forced-color-adjust:none;filter:none!important;isolation:isolate">Loading Street View…</div>
+    <div id="svPanoWrap">
+      <div id="svPanoDiv" style="width:100%;height:min(56vh,420px);border:1px solid var(--rule);border-radius:6px;background:#0a1426;display:flex;align-items:center;justify-content:center;color:var(--mut);font:12px var(--mono);color-scheme:light;forced-color-adjust:none;isolation:isolate">Loading Street View…</div>
+      <div id="svInvertOverlay"></div>
+    </div>
     <div class="chgrp" style="margin-top:10px">
       <button class="btn" id="svmPrevBtn" title="Previous point">◀</button>
       <div class="hint" id="svmLbl" style="flex:1;text-align:center;margin:0;align-self:center"></div>
@@ -450,7 +457,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍍',name:'PINEAPPLE',build:77};
+const VERSION={fruit:'🍊',name:'ORANGE',build:78};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1411,6 +1418,17 @@ function headingAt(vs,k){          // vs: [{p}] figure vertices in draw order; k
    network ever fails and the panorama never loads, `openSvModal` falls back to a
    `streetViewURL` link the user can open in a new tab instead of a dead modal. */
 let svPano=null,svMarkers=[],svCtx=null;
+// Build 78 — independent invert overlay: a plain sibling <div> blended on top of
+// #svPanoDiv (mix-blend-mode:difference against a white background inverts whatever
+// renders underneath). It never sets a single property on #svPanoDiv or anything
+// inside it, so it can't fight Google's own dynamic style updates the way builds
+// 74-77's direct filter/mix-blend-mode resets on #svPanoDiv/<canvas>/<img> did (see
+// the CSS comment above). Defaults ON per the owner's request; the checkbox in the
+// modal header toggles it, and the choice persists across modal opens/closes (only
+// resets on a fresh page load) since it's a simple global, same pattern as labelShow.
+let svInvertOn=true;
+function syncSvInvertOverlay(){$('svInvertOverlay').classList.toggle('on',svInvertOn);$('svInvertChk').checked=svInvertOn;}
+$('svInvertChk').onchange=e=>{svInvertOn=e.target.checked;syncSvInvertOverlay();};
 function ensureGMaps(cb,onTimeout,tries){tries=tries||0;
   if(window.google&&google.maps&&google.maps.StreetViewPanorama){cb();return;}
   if(tries>150){onTimeout();return;}
@@ -1425,6 +1443,7 @@ function svGoto(idx){if(!svPano||!svCtx)return;   // guard against Prev/Next cli
   $('svmLbl').textContent=`pt ${p.id} · ${idx+1}/${vs.length}`;
   $('svmPrevBtn').disabled=idx===0;$('svmNextBtn').disabled=idx===vs.length-1;}
 function openSvModal(vs,idx){svCtx={vs,idx};$('svScrim').classList.add('show');
+  syncSvInvertOverlay();   // overlay is a sibling of #svPanoDiv, so it survives whatever Google does to #svPanoDiv's own content — just re-sync its on/off state and the checkbox each time the modal opens
   $('svmLbl').textContent='';$('svmPrevBtn').disabled=true;$('svmNextBtn').disabled=true;   // disabled until the panorama is actually ready — svGoto is a no-op until then anyway, but this also gives clear visual feedback while loading
   ensureGMaps(()=>{
     if(!svPano){                            // obtain the panorama the way Google's own streetview-overlays sample does — a Map's built-in getStreetView(), not a bare `new StreetViewPanorama(...)` — the same div hosts both; setVisible(true) below swaps the (never-shown) map out for the pano in place
