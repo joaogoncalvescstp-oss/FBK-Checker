@@ -162,7 +162,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -427,7 +427,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:71};
+const VERSION={fruit:'🍇',name:'GRAPE',build:72};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1417,6 +1417,148 @@ function svOpenForPoint(i){const fs=figuresOfPoint(i);
   if(fs.length){const vs=fs[0].verts.map(v=>({p:PTS[v.i],i:v.i})).filter(o=>o.p&&!o.p.deleted);
     const k=vs.findIndex(o=>o.i===i);$('svModalSub').textContent=fs[0].code;openSvModal(vs,k<0?0:k);}
   else{$('svModalSub').textContent='';openSvModal([{p:PTS[i],i}],0);}}
+/* ---------- Street View point cloud (EXPERIMENTAL) ----------
+   Reimplements the technique from wearenocomputer's ofxGSVImageStitcher/ofxGSVDepthmap/
+   ofxGSVPointCloud openFrameworks addons (github.com/wearenocomputer — see their
+   Medium writeup, "Creating Point Clouds with Google Street View") in plain JS. Google's
+   own web client loads panorama tiles AND a compact binary depth map (a small set of 3D
+   planes plus a per-pixel plane index) from an UNDOCUMENTED, keyless internal endpoint —
+   completely separate from, and NOT gated by, the official Maps JavaScript API key/
+   billing this app's embedded Street View panorama (above) needs. Ray-casting each
+   depth-map pixel's viewing direction against its assigned plane recovers a real-world
+   distance in meters; combined with the panorama's own equirectangular color, that turns
+   one Street View panorama into a genuine colored 3D point cloud, anchored at whichever
+   point you build it from — no official API/billing involved in this path at all.
+   Purely a visual reference overlay (3D view only, ⟲ 3D tool) — never added to PTS, never
+   exported, never touches survey data.
+
+   UNVERIFIED, disclosed honestly: this sandbox cannot reach any Google domain (the same
+   standing block already documented throughout the Street View sections above), so
+   NEITHER the network fetch (does cbk0.google.com send CORS headers permitting a fetch()
+   from an arbitrary origin? unknown) NOR the color-tile canvas read (does the tile
+   server send CORS headers letting a crossOrigin='anonymous' <img> avoid tainting the
+   canvas? unknown) could be exercised end-to-end from here — both fail with a clear hud
+   message (not a silent blank overlay) if either one doesn't work in the owner's real
+   browser. What COULD be verified without live network access, and WAS: the binary
+   depth-map format parsing and the ray-plane depth math below, checked byte-for-byte in
+   Node against a REAL depth_map value captured in ofxGSVDepthmap's own demo source (a
+   real Google response, not synthetic test data) — exact header (8/8), exact byte
+   accounting (zero leftover bytes), 81 real planes, depths ranging 2.9-198.8m, all
+   physically sane for a street-level panorama. The browser's native
+   DecompressionStream('deflate') was separately confirmed byte-identical to Node's own
+   zlib on that same real compressed data, so no external library is needed for the
+   zlib-format inflate step either.
+
+   Heading/orientation is the one piece left genuinely open: Google's local frame has no
+   confirmed correspondence to true north from here — the ofxGSV* reference code never
+   parses or applies any yaw correction at all (it just displays the cloud in the
+   panorama's own unrotated local frame), and no full example depth-map XML response (as
+   opposed to just the isolated depth_map value quoted in the demo source) was available
+   to confirm this legacy format's yaw attribute name/path. parseYawDeg() below tries a
+   couple of plausible attribute names and applies a horizontal rotation if it finds one,
+   but falls back to NO rotation (an arbitrary, unverified heading relative to survey
+   north) if it doesn't — hud/console disclose which case applied on every build. */
+let svPointCloud=null;             // {pts:[{E,N,Z,r,g,b}],anchorId,panoId,yawKnown} or null
+let svPcBusy=false;
+const CBK_META_URL=(lat,lon)=>`https://cbk0.google.com/cbk?output=xml&ll=${lat}%2C${lon}&dm=1`;
+const CBK_TILE_URL=(panoId,zoom,x,y)=>`https://cbk0.google.com/cbk?output=tile&panoid=${encodeURIComponent(panoId)}&zoom=${zoom}&x=${x}&y=${y}`;
+function urlSafeB64ToBytes(s){
+  let std=s.replace(/-/g,'+').replace(/_/g,'/');while(std.length%4)std+='=';
+  const bin=atob(std);const out=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);
+  return out;}
+async function inflateZlib(bytes){                 // RFC1950 zlib format — same as C++ zlib's uncompress(), confirmed byte-identical to Node's zlib on real Google data
+  const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());}
+async function decodeDepthMap(base64){              // -> {width,height,indices,planes}; format/math verified against real captured Google data, see header comment above
+  const raw=await inflateZlib(urlSafeB64ToBytes(base64));
+  const headersize=raw[0],numberofplanes=raw[1]|(raw[2]<<8),width=raw[3]|(raw[4]<<8),height=raw[5]|(raw[6]<<8),offset=raw[7];
+  if(headersize!==8||offset!==8)throw new Error('unexpected depth map header — Google may have changed the format');
+  const indices=raw.subarray(offset,offset+width*height);
+  const planesStart=offset+width*height;
+  const dv=new DataView(raw.buffer,raw.byteOffset+planesStart,numberofplanes*16);
+  const planes=[{x:0,y:0,z:0,d:0}];                 // index 0 is reserved ("no plane"/infinite) in Google's own format
+  for(let i=1;i<numberofplanes;i++)planes.push({x:dv.getFloat32(i*16,true),y:dv.getFloat32(i*16+4,true),z:dv.getFloat32(i*16+8,true),d:dv.getFloat32(i*16+12,true)});
+  return {width,height,indices,planes};}
+function depthAt(dm,x,y){                           // returns {depthM, vx,vy,vz} — vx/vy horizontal, vz up, in Google's own local unrotated frame
+  const W=dm.width,H=dm.height;
+  const xn=(W-x-1)/(W-1),yn=(H-y-1)/(H-1);
+  const theta=xn*(2*Math.PI)+(Math.PI/2),phi=yn*Math.PI;
+  const vx=Math.sin(phi)*Math.cos(theta),vy=Math.sin(phi)*Math.sin(theta),vz=Math.cos(phi);
+  const planeIdx=dm.indices[y*W+x];
+  let depthM=0;
+  if(planeIdx>0){const p=dm.planes[planeIdx];const denom=vx*p.x+vy*p.y+vz*p.z;if(denom)depthM=Math.abs(p.d/denom);}
+  return {depthM,vx,vy,vz};}
+function parseYawDeg(xmlDoc){                        // best-effort — see header comment; returns null (no rotation applied) if not found
+  const tryAttr=(sel,attr)=>{const el=xmlDoc.querySelector(sel);const v=el&&el.getAttribute(attr);
+    return v!=null&&v!==''&&isFinite(+v)?+v:null;};
+  return tryAttr('data_properties','pano_yaw_deg')??tryAttr('projection_properties','pano_yaw_deg');}
+function loadImgCrossOrigin(url){return new Promise((resolve,reject)=>{
+  const im=new Image();im.crossOrigin='anonymous';
+  im.onload=()=>resolve(im);im.onerror=()=>reject(new Error('tile failed to load'));
+  im.src=url;});}
+async function fetchPanoCanvas(panoId,zoom,outW,outH){   // stitches raw tiles, then resizes+mirrors into an outW×outH canvas index-aligned with the depth map for 1:1 color sampling — the same horizontal mirror ofxGSVImageStitcher applies (to match the depth decode's own x-flip above), just done during the resize instead of the raw stitch
+  const tw=Math.pow(2,zoom),th=Math.pow(2,zoom-1);
+  const raw=document.createElement('canvas');raw.width=tw*512;raw.height=th*512;
+  const rc=raw.getContext('2d');
+  let anyLoaded=false;
+  const loads=[];
+  for(let y=0;y<th;y++)for(let x=0;x<tw;x++)
+    loads.push(loadImgCrossOrigin(CBK_TILE_URL(panoId,zoom,x,y)).then(im=>{rc.drawImage(im,x*512,y*512);anyLoaded=true;}).catch(()=>{}));
+  await Promise.all(loads);
+  if(!anyLoaded)throw new Error('no panorama tiles loaded (network or CORS)');
+  const out=document.createElement('canvas');out.width=outW;out.height=outH;
+  const oc=out.getContext('2d');
+  oc.translate(outW,0);oc.scale(-1,1);
+  oc.drawImage(raw,0,0,outW,outH);
+  return out;}
+async function buildStreetViewPointCloud(anchorIdx){
+  if(svPcBusy)return;svPcBusy=true;
+  const p=PTS[anchorIdx];if(!p){svPcBusy=false;return;}
+  hud('point cloud: fetching Street View metadata…');draw();
+  try{
+    const[lat,lon]=surveyToLL(p.E,p.N);
+    const metaResp=await fetch(CBK_META_URL(lat.toFixed(6),lon.toFixed(6)));
+    if(!metaResp.ok)throw new Error('metadata request failed: HTTP '+metaResp.status);
+    const metaText=await metaResp.text();
+    const xmlDoc=new DOMParser().parseFromString(metaText,'text/xml');
+    if(xmlDoc.querySelector('parsererror'))throw new Error('metadata response was not valid XML — Google may have changed the format');
+    const panoId=xmlDoc.querySelector('data_properties')?.getAttribute('pano_id');
+    const depthB64=xmlDoc.querySelector('depth_map')?.textContent;
+    if(!panoId||!depthB64)throw new Error('no pano_id/depth_map in the response — likely no Street View coverage at this point');
+    const yawDeg=parseYawDeg(xmlDoc);
+    hud('point cloud: decoding depth map…');draw();
+    const dm=await decodeDepthMap(depthB64);
+    hud('point cloud: fetching panorama tiles…');draw();
+    const panoCanvas=await fetchPanoCanvas(panoId,2,dm.width,dm.height);
+    let pix;
+    try{pix=panoCanvas.getContext('2d').getImageData(0,0,dm.width,dm.height).data;}
+    catch(e){throw new Error('could not read panorama tile colors (CORS) — building without colors is not supported, see the ⚠ note on the button');}
+    const yawRad=yawDeg==null?0:yawDeg*Math.PI/180,cy=Math.cos(yawRad),sy=Math.sin(yawRad);
+    const FT=RC.FT;                                  // meters per US survey foot — same constant the survey<->lat/lon transform (surveyToLL) already uses
+    const pts=[];
+    for(let y=0;y<dm.height;y++)for(let x=0;x<dm.width;x++){
+      const{depthM,vx,vy,vz}=depthAt(dm,x,y);
+      if(depthM<=0||depthM>150)continue;              // skip "no plane"/sky and implausibly-far rays
+      const rx=vx*cy-vy*sy,ry=vx*sy+vy*cy;             // rotate horizontal component by yaw if known; identity rotation (unrotated) otherwise
+      const idx=(y*dm.width+x)*4;
+      pts.push({E:p.E+rx*depthM/FT,N:p.N+ry*depthM/FT,Z:p.Z+vz*depthM/FT,r:pix[idx],g:pix[idx+1],b:pix[idx+2]});}
+    svPointCloud={pts,anchorId:p.id,panoId,yawKnown:yawDeg!=null};
+    hud(`point cloud: ${pts.length} pts from pano ${panoId}${yawDeg==null?' — heading unknown, orientation unverified (see ⟲ 3D)':', switch to ⟲ 3D to view'}`);
+    draw();if(sel===anchorIdx)inspect();
+  }catch(err){
+    svPointCloud=null;
+    hud('point cloud failed: '+err.message);
+    console.error('Street View point cloud error',err);
+    if(sel===anchorIdx)inspect();
+  }finally{svPcBusy=false;}}
+function clearStreetViewPointCloud(){svPointCloud=null;draw();hud('point cloud cleared');}
+function drawStreetViewPointCloud(proj){
+  if(!svPointCloud||!is3D)return;
+  for(const pt of svPointCloud.pts){
+    const[x,y]=proj(pt.E,pt.N,pt.Z);
+    ctx.fillStyle=`rgb(${pt.r},${pt.g},${pt.b})`;
+    ctx.fillRect(x-0.5,y-0.5,1.5,1.5);}}
 $('svmPrevBtn').onclick=()=>svGoto(svCtx.idx-1);
 $('svmNextBtn').onclick=()=>svGoto(svCtx.idx+1);
 $('svTabBtn').onclick=()=>{if(!svCtx)return;const p=svCtx.vs[svCtx.idx].p;
@@ -1862,6 +2004,7 @@ function draw3D(){
   drawOffsets((E,N,Z)=>P3(E,N,Z));
   if(showArrows)drawArrows((E,N,Z)=>P3(E,N,Z));
   drawCircles((E,N,Z)=>P3(E,N,Z));
+  drawStreetViewPointCloud((E,N,Z)=>P3(E,N,Z));
   // points painter-sorted by depth, colored by elevation
   const order=PTS.map((p,i)=>({p,i,s:P3(p.E,p.N,p.Z)})).filter(o=>!o.p.deleted)
     .sort((a,bb)=>a.s[2]-bb.s[2]);
@@ -2119,6 +2262,7 @@ function inspect(){const box=$('insp');
     ${fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:''}
     ${connectTieHtml(sel)}
     <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
+    <button class="btn ghost" id="svPcBtn" style="width:100%;justify-content:center;margin:0 0 7px" title="EXPERIMENTAL — fetch Street View's own depth data (a separate, keyless Google endpoint — no API key/billing needed) and build a real colored 3D point cloud anchored at this point. View it in the ⟲ 3D tool. Heading/orientation may be unverified — see hud message after building.">${svPointCloud&&svPointCloud.anchorId===p.id?'☁ Clear point cloud':'☁ Point Cloud (experimental)'}</button>
     ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete'}</button></div>
@@ -2126,6 +2270,7 @@ function inspect(){const box=$('insp');
     box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
     box.querySelectorAll('[data-act="zoomtie"]').forEach(b=>b.onclick=()=>{zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);});
     $('svBtn').onclick=()=>svOpenForPoint(sel);
+    $('svPcBtn').onclick=()=>{if(svPointCloud&&svPointCloud.anchorId===p.id)clearStreetViewPointCloud();else buildStreetViewPointCloud(sel);inspect();};
     if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
       ['fDesc','eId','eN','eE','eZ'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
       $('delBtn').onclick=()=>toggleDel(p);}
@@ -2149,6 +2294,7 @@ function inspect(){const box=$('insp');
     ${(()=>{const fs=figuresOfPoint(sel);return fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:'';})()}
     ${connectTieHtml(sel)}
     <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
+    <button class="btn ghost" id="svPcBtn" style="width:100%;justify-content:center;margin:0 0 7px" title="EXPERIMENTAL — fetch Street View's own depth data (a separate, keyless Google endpoint — no API key/billing needed) and build a real colored 3D point cloud anchored at this point. View it in the ⟲ 3D tool. Heading/orientation may be unverified — see hud message after building.">${svPointCloud&&svPointCloud.anchorId===p.id?'☁ Clear point cloud':'☁ Point Cloud (experimental)'}</button>
     ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit codes or coordinates.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete shot'}</button></div>
@@ -2862,7 +3008,7 @@ $('lblCodeChk').onchange=e=>{labelShow.code=e.target.checked;draw();};
 $('lblElevChk').onchange=e=>{labelShow.elev=e.target.checked;draw();};
 $('lblSizeR').oninput=e=>{labelSize=+e.target.value;$('lblSizeV').textContent=labelSize+'px';draw();};
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
-  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
+  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;svPointCloud=null;inspect();};rd.readAsText(f);};
 $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{importCSV(rd.result);e.target.value='';};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{

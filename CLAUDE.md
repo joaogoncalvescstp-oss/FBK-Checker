@@ -85,9 +85,10 @@ first and follow it on every task in this repo.
     | 69 | 🍋 LEMON | **UGW→CPN gets an editable review popup instead of applying blind** — the owner asked: "on guy wire tool I want [a] popup window showing the list and option to ed[i]t target by point or select target point, as automation may not resolve all cases." The nearest-pole automation (build 60-62) always just wrote its pick straight to the point description with no way to correct it short of hand-editing raw FBK text — reasonable for the common case, but a guy wire can legitimately anchor to a pole that ISN'T the physically-nearest one (e.g. the nearest pole is across a street, or on the wrong side of a building), and the tool had no way to say so. `🧭 UGW→CPN` now opens a **review modal** (`#ugwReviewScrim`, new `.modal.wide` CSS variant for the wider list) instead of applying immediately: `openUgwCpnReview()` runs the exact same nearest-pole search as before (`computeUgwPairs()`, factored out of the old `addUgwCpn`) to prefill every row, but nothing is written until the owner hits **Apply**. Each row (`renderUgwReviewList()`) shows the UGW's point id, an editable **Target pt** text input (defaults to the auto-picked pole, with an `auto: <id> ✓` note so it's obvious when a row still matches the automation), a **📍** pick-on-canvas button, and a live-recomputed angle preview (`ugwRowAngle()`, re-run on every keystroke) that reads `skip` for a blank target, `no such point` for one that doesn't resolve, or the real `bearingFromWest` angle otherwise — so the owner sees the exact number that will be written before committing to it. **📍 pick-on-canvas** (`startUgwPick`/`endUgwPick`) reuses the same hide-modal/crosshair-cursor/reveal-modal pattern the existing COGO "Pick on canvas" (`startCogoPick`/`endCogoPick`) and circle-center tool already establish — click any real point on the canvas (via the existing plain `pick()`, not an object-snap search, since the target here is always an existing shot, not a computed location) and it fills that row's target field; **Esc** cancels the pick and returns to the list untouched. Blanking a row's target field means "skip this UGW, don't touch it" — `applyUgwReview()` silently skips both blank rows and rows whose typed id doesn't resolve to a live, non-deleted, non-self point, applying only the rows that DO resolve, then reports "applied to N of M pt(s)" so a skip is never silently confused with "did nothing." `addUgwCpn()` itself is gone — its pairing search lives on as `computeUgwPairs()` and its write logic (strip-old-CPN-then-append, `saveState()`/`logEdit`/`buildLinework()`/`flagDirty()`) lives on unchanged inside `applyUgwReview()`, so this is a UI layer added in front of the exact same, already-verified (build 60-62) math and write path, not a rewrite of either. Verified end-to-end through the real UI (actual clicks/typing, not poked state) on all 3 real job files with genuine UGW/pole data: opening the review shows the correct row count and the same auto-picks build 60-62 already verified (Pascal's 11250/11251 still auto-pair to 11258 at 179.61°/179.52°, byte-identical to the ground-truth-checked build-61 values); **Cancel** leaves every UGW description completely untouched on all 3 files; typing a bad point number live-updates the angle preview to `no such point` with nothing applied for that row; **📍 pick** on a real canvas point (after `fit()`) correctly hides the modal, sets `ugwPick`, resolves the clicked point via the same `pick()` the rest of the app's canvas tools use, fills the target field, and reopens the modal with the picked id and its freshly-computed angle both visible; **Apply** with one row blanked (skip) leaves that UGW's description exactly `"UGW"` (no CPN token added) while the other rows get their normal `"UGW <angle> CPN<id>"` write, confirmed via the actual point descriptions after apply, not just a return value; re-opening the review after an apply and applying again is **idempotent** (byte-identical descriptions both times) on all 3 files, matching build 60-62's own idempotency guarantee. Synthetic edge cases also verified: a UGW with genuinely no ULP/UPP/UGP anywhere in the file correctly shows an empty target / `no pole found nearby` / `skip` row (not a crash or a wrong forced pairing) and still accepts a manual override target typed in by hand (applied and computed correctly, confirming the target field accepts ANY resolvable point, not just pole-coded ones — the whole point of the "automation may not resolve all cases" request); a file with zero UGW points at all correctly hud's a message and never opens the modal. Zero console errors across every scenario tested. |
     | 70 | 🍎 APPLE | **UGW→CPN pick-on-canvas shows an animated ring at the guy wire's own origin point** — the owner: "when picking the point guy target show animated ring of the guy wire origin location." Build 69's **📍 pick-on-canvas** hides the review modal and lets the owner click anywhere on the canvas to find the target pole — but nothing on screen marked which UGW point that pick was FOR, so on a busy job file with several rows it was easy to lose track of which guy wire you were currently assigning a target to while panning/zooming around looking for the right pole. The app already had one ring-flash mechanism (`flash`/`drawFlash`, used by `⌖ Go to point`/`zoomToPoint`) — a gold ring that shrinks and fades out once over exactly 1200ms — but that's the wrong shape for this: a pick can take an arbitrary amount of time (finding the right pole across a street, zooming/panning to look), and a one-shot fade would disappear long before the owner finishes looking. Added a **second, separate** ring function, `drawUgwPickRing()`, purpose-built to stay visible for the pick's entire duration instead of a single fade: it reads the currently-picking row's origin point directly off `ugwPick`/`ugwReviewRows` (both already tracked by build 69's `startUgwPick`/`endUgwPick`) and draws a ring whose radius/opacity **loops** on a 900ms cycle (`(performance.now()%900)/900`, radius 8→30px, fading out and restarting) via its own `requestAnimationFrame(draw)` chain — same animation-loop pattern `drawFlash` already established, just repeating instead of terminating. No new state was needed beyond what build 69 already tracks: the ring simply reads `ugwPick`/`ugwReviewRows[ugwPick].i` each frame and draws nothing at all once `ugwPick` goes back to `null` (set by `endUgwPick`, on both a real click and an Esc cancel) — so the ring starts the instant `startUgwPick` is called (its existing trailing `draw()` call) and stops on its own the very next frame after the pick ends, no explicit teardown code needed. Wired into both `draw2D()` and `draw3D()` right next to the existing `drawFlash()` call (`drawUgwPickRing()` added immediately after it in both), so it works the same in 2D and 3D/orbit view exactly like every other picking overlay in the app. Verified end-to-end through the real UI on the real Pascal job file (its 3 real UGW points): starting a pick on UGW pt 11236 correctly hides the modal, shows the crosshair cursor + hud hint, and a screenshot centered on that point shows a visible gold ring around it — a second screenshot ~300ms later shows the ring at a different radius/opacity, confirming it's actually animating/looping rather than a static circle; clicking a real different point (pt 11226) correctly completes the pick (`endUgwPick`), fills that row's target field, reopens the modal, and the ring stops (confirmed via `ugwPick===null` and a screenshot with the modal back on top and no stray ring); Escape mid-pick correctly cancels the same way with the row's target left untouched. Re-ran the full regression sweep across all 5 real job files (Pascal/Hamline/Dale/Ravoux/Arundel): figure counts unchanged (70/99/161/36/43), `collectSegments()`/`collectOffsetSegments()` still run with no error, every file's UGW review (including Arundel, which correctly has zero UGW points and never opens the modal) opens/picks/cancels cleanly, re-running Apply is still idempotent, and zero console errors beyond the pre-existing, already-documented map-tile network block on every file. |
     | 71 | 🍌 BANANA | new **🏷 Labels toolbox** — the owner: "add tool set to control point by showing point number and code and elevation, have check box to activate and deactivated and size slider." Before this, a point's on-canvas label was hardcoded to exactly one of two things — a control point always showed its code (`p.desc.split(' ')[0]`), every other point always showed its point number — at a fixed 10px font, with no way to see a shot's code or elevation without opening the inspector, and no way to change the text size. Added a toolbar toggle button (`#labelBtn`, "🏷 Labels") that shows/hides a small floating panel (`#labelBox`, styled off the existing `.snapbox` OSNAP-toolbox CSS so it matches the app's look, positioned bottom-left clear of both the tool column and the hud) with three independent checkboxes — **Point #**, **Code**, **Elevation** — plus a **Size** range slider (7-20px). A new shared `pointLabelText(p)` builds the label string from whichever fields are checked, in that fixed order, space-joined (`labelShow.num`/`.code`/`.elev`, each independently toggleable — e.g. Code+Elevation with Point # off reads `"UGW 229.00"`; all three reads `"11236 UGW 229.00"`), returning `''` when every box is unchecked so nothing is drawn at all. Both the 2D (`drawPt`) and 3D (`draw3D`'s point-painter loop) label draws were switched from their old hardcoded `ctx.font='600 10px ...'` + single-field `fillText` to `pointLabelText(p)` + the new `labelSize` variable (`` `600 ${labelSize}px ui-monospace,monospace` ``), and skip the `fillText` call entirely when the built string is empty — one shared function drives both views identically, so the toolbox controls 2D and 3D at once. Default state (`labelShow={num:true,code:false,elev:false}`, `labelSize=10`) reproduces the OLD non-control-point look exactly (point number only, 10px) so nothing changes for anyone who doesn't open the toolbox; the one deliberate default behavior change is that a **control point** now also defaults to showing its number instead of its code (previously code-only for control points, number-only for everything else) — the owner can tick **Code** back on for control points same as any other point, since the whole point of this feature is no longer hardcoding one field per point kind. Verified through the real UI on the real Pascal job file: toggling the toolbox button shows/hides the panel; zoomed screenships at the default state show plain point numbers exactly as before; ticking Code+Elevation (Point # off) shows e.g. `"UGW 229.00"` next to point 11236 — confirmed via both a direct `pointLabelText()` call and a real rendered screenshot; ticking all three shows `"11236 UGW 229.00"`; dragging the size slider to 18px visibly enlarges every label on screen and updates the panel's own `18px` readout; unchecking all three produces an empty string and no label draws. Re-ran the full regression sweep across all 5 real job files cycling every checkbox combination (num-only / code-only / elev-only / all-three / none) through both `draw2D()` and `draw3D()`: figure counts unchanged (70/99/161/36/43), zero console errors beyond the pre-existing, already-documented map-tile network block on any file. |
+    | 72 | 🍇 GRAPE | **NEW BRANCH `claude/streetview-pointcloud` (off `main`, not merged) — EXPERIMENTAL ☁ Point Cloud (Street View).** The owner linked 3 real openFrameworks addons (`wearenocomputer/ofxGSVImageStitcher`/`ofxGSVDepthmap`/`ofxGSVPointCloud` on GitHub, from their own "Creating Point Clouds with Google Street View" writeup) and asked to try the technique. Cloned and read all 3 (their Medium article itself is blocked from this sandbox, same as every Google domain, but GitHub isn't) — they use an UNDOCUMENTED, keyless Google endpoint (`cbk0.google.com/cbk`) that serves raw panorama tiles AND a compact binary depth map (a handful of 3D planes + a per-pixel plane index), completely separate from and NOT gated by the official Maps JS API key/billing this app's embedded Street View panorama needs. Reimplemented the technique in plain JS (`decodeDepthMap`/`depthAt`/`fetchPanoCanvas`/`buildStreetViewPointCloud`) — see the dedicated section below for the full writeup, including exactly what was and wasn't verifiable from this sandbox. The core binary-format/math WAS verified byte-for-byte against a real depth_map value captured in the reference C++ source (Node cross-check + a real-browser cross-check via `DecompressionStream('deflate')`, both exact matches); the actual network path (CORS on the depth-metadata fetch and the tile-pixel canvas read) could NOT be verified end-to-end (this sandbox can't reach any Google domain) but fails with a clear hud message rather than hanging or crashing, confirmed by deliberately triggering the real failure through the real UI. Heading/orientation relative to true survey north is explicitly disclosed as unverified (best-effort yaw parsing, falls back to no rotation). New `☁ Point Cloud (experimental)` button in the single-point inspector (both control-point and shot-point panels); 3D-view-only overlay via `drawStreetViewPointCloud`, never added to `PTS`/export. Full regression sweep across all 5 real job files: figure counts unchanged (70/99/161/36/43), zero new console errors. |
   - Suggested next fruits to rotate through:
-    🍇 GRAPE, 🍓 STRAWBERRY,
-    🍒 CHERRY, 🥝 KIWI.
+    🍓 STRAWBERRY, 🍒 CHERRY,
+    🥝 KIWI, 🍑 PEACH.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1949,6 +1950,173 @@ first and follow it on every task in this repo.
     (a documented Marker-class capability, independent of this specific
     sample) is still unverified from this sandbox, same standing caveat as
     build 53 — this fix only changes how the panorama itself is obtained.
+
+## ☁ Street View point cloud — EXPERIMENTAL (`decodeDepthMap`/`depthAt`/`buildStreetViewPointCloud`, build 72, branch `claude/streetview-pointcloud` off `main`, NOT merged)
+
+- **Not the embedded panorama above.** This is a completely separate feature,
+  on its own branch off `main` (not `claude/street-view-linework`), that
+  reconstructs a real, colored 3D point cloud from a single Street View
+  panorama — a different kind of thing entirely from walking/viewing the
+  panorama.
+- **Where the idea came from:** the owner linked three real GitHub repos —
+  `wearenocomputer/ofxGSVImageStitcher`, `ofxGSVDepthmap`, `ofxGSVPointCloud`
+  — openFrameworks (C++) addons built by a real person, from their own
+  Medium writeup ("Creating Point Clouds with Google Street View"). The
+  Medium article itself is blocked from this sandbox (`medium.com` is on the
+  same domain-block list as every Google property), but GitHub is not — all
+  3 repos were cloned (read-only, via `add_repo`) and their actual source
+  read directly, not guessed at from a description.
+- **The technique, as implemented in the reference C++ and ported here:**
+  Google's own web Street View client loads two things from an
+  **undocumented, keyless internal endpoint** (`cbk0.google.com/cbk`) that
+  has nothing to do with the official Maps JavaScript API key/billing this
+  app's embedded panorama (above) needs:
+  1. `?output=xml&ll=<lat>,<lon>&dm=1` — panorama metadata (`pano_id`) plus
+     a **binary depth map**: a small set of 3D planes (`{x,y,z,d}` — a
+     normal vector + distance) and a per-pixel byte index saying which
+     plane (if any) that pixel belongs to, base64-encoded (URL-safe, `-`/`_`
+     not `+`/`/`) and zlib-compressed.
+  2. `?output=tile&panoid=<id>&zoom=<z>&x=<x>&y=<y>` — raw 512×512 JPEG
+     tiles of the panorama's own equirectangular color imagery.
+  For each depth-map pixel, its `(x,y)` position converts to a viewing
+  direction in spherical coordinates (`theta`/`phi` from normalized pixel
+  position, then to a unit vector `(sinφcosθ, sinφsinθ, cosφ)` — `z` is
+  "up"), and ray-casting that direction against its assigned plane
+  (`t = |d / (v·planeNormal)|`) recovers a real-world distance in meters.
+  Multiply the direction by that distance and you have a real 3D point;
+  color comes from the same pixel position in the (separately fetched)
+  panorama image. One panorama → thousands of real, colored 3D points, with
+  **no official API key or billing involved in this path at all**.
+- **JS reimplementation, not a straight port** (the reference is C++/
+  openFrameworks, this app is a single-file browser page):
+  - `urlSafeB64ToBytes`/`inflateZlib` — decode + zlib-inflate the depth
+    blob. **No external library added**: the browser's native
+    `DecompressionStream('deflate')` handles zlib's RFC1950 format
+    directly (the exact same format C++ zlib's `uncompress()` reads) —
+    confirmed byte-identical to Node's own `zlib.inflateSync` on the same
+    real compressed data (see verification below), so this avoids adding
+    a `pako`-style dependency the project has never needed before.
+  - `decodeDepthMap` — parses the 8-byte header (`headersize`,
+    `numberofplanes`, `width`, `height`, `offset` — all little-endian,
+    `headersize`/`offset` both must read `8`), the `width×height` byte
+    plane-index array, then `numberofplanes×16` bytes of `{x,y,z,d}`
+    float32 planes (plane 0 reserved as "no plane"/infinite, matching the
+    reference).
+  - `depthAt(dm,x,y)` — the exact spherical-direction + ray-plane math
+    above, one pixel at a time.
+  - `fetchPanoCanvas(panoId,zoom,outW,outH)` — stitches whatever raw tiles
+    load (a single failed tile leaves a gap, not a hard failure) into one
+    canvas, then resizes it down to the depth map's own `width×height` —
+    unlike the reference's hardcoded `512×256` resize target, this uses
+    whatever dimensions the ACTUAL parsed depth-map header reports, so it
+    isn't tied to one specific panorama's resolution. Resizing (not just
+    stitching) is what makes color and depth trivially index-aligned:
+    `pix[(y*width+x)*4]` and `depthAt(dm,x,y)` read the exact same pixel
+    grid, no separate UV math needed for color. The same horizontal mirror
+    the reference applies when stitching tiles (`translate`+`scale(-1,1)`,
+    to match the depth decode's own x-flip) is applied here during the
+    resize step instead, with identical net effect.
+  - `buildStreetViewPointCloud(anchorIdx)` — the orchestration: `surveyToLL`
+    (already used for the embedded panorama and the MAP background) gets
+    lat/lon for the anchor point; fetch metadata → parse XML (`DOMParser`,
+    no library) → decode depth map → fetch+build the color canvas → for
+    every depth-map pixel with a real (non-zero, <150m) depth, convert to a
+    3D point, convert meters→feet via `RC.FT` (the same US-survey-foot
+    constant `surveyToLL` itself already uses, so this stays consistent
+    with the rest of the app's unit handling), and offset from the anchor
+    point's own `E/N/Z` — never written to `PTS`, never exported, purely a
+    rendering-time overlay (`svPointCloud`, a plain array of `{E,N,Z,r,g,b}`
+    plus which point it's anchored to).
+  - `drawStreetViewPointCloud(proj)` — draws each point as a small
+    solid-colored square using its own captured photo color, 3D-view-only
+    (`is3D` gated, wired into `draw3D()` right before the survey points'
+    own painter loop, so real survey points stay drawn on top and
+    clickable). New **☁ Point Cloud (experimental)** button in the
+    single-point inspector (both the control-point and shot-point panels,
+    next to the existing 📷 Street View button) toggles building/clearing
+    it for whichever point is selected; the button's own label flips to
+    "☁ Clear point cloud" once one exists for that point, refreshing
+    automatically the moment the async build actually finishes (not just on
+    click) so it never shows a stale label. Cleared automatically on a
+    fresh file load, same as other transient per-session state.
+- **What was actually verified, and how — the honest split, since this
+  sandbox cannot reach any Google domain (same standing block documented
+  throughout every Street View section above):**
+  - **The binary format + math — verified byte-for-byte against REAL
+    captured Google data, not synthetic test data.** The reference
+    `ofxGSVDepthmap` demo's own source has a real `depth_map` value
+    hardcoded in it (a real Google response, captured by its author) —
+    extracted that exact string (regex, not retyped by hand — a
+    3600+-character blob is exactly the kind of thing transcription errors
+    hide in) and ran it through: (1) a standalone Node script replicating
+    the exact decode: URL-safe base64 → `zlib.inflateSync` → header/plane
+    parse → ray-plane depth math. Result: header parses cleanly
+    (`headersize=8, offset=8`), **81 real planes**, **512×256** depth map,
+    plane-index array exactly `512×256` bytes, **total bytes consumed
+    exactly equals the decompressed length with zero leftover** (the
+    single strongest signal the byte-offset math is exactly right, not
+    approximately right), depths ranging **2.90m–198.8m** — physically sane
+    for a street-level panorama (nothing negative, nothing absurdly huge).
+    (2) The SAME real compressed bytes run through a real headless
+    Chromium's native `DecompressionStream('deflate')` — **byte-identical**
+    output to Node's zlib, confirming the no-external-library choice is
+    safe. (3) The app's OWN real `decodeDepthMap`/`depthAt` functions
+    (not a reimplementation for testing — the actual shipped code) run
+    against that same real base64 string inside a real headless browser
+    with the real `index.html` loaded: **exact match** on every stat
+    (512×256, 81 planes, 92587 non-zero-depth pixels, min/max depth to 6
+    decimal places) — this is the strongest verification available without
+    live network access, and it passed cleanly on the first real test.
+  - **The network path — genuinely NOT verifiable from here, disclosed
+    rather than assumed.** Whether `cbk0.google.com` sends CORS headers
+    permitting a `fetch()` from an arbitrary page origin, and whether its
+    tile server sends CORS headers letting a `crossOrigin='anonymous'`
+    `<img>` avoid tainting the canvas on `getImageData` — both unknown from
+    this sandbox, and this is exactly the kind of assumption build 53's
+    "should work, can't verify" writeup already got proven wrong once by
+    real testing (see the color-inversion saga in the sections above) — so
+    it's stated plainly here as unverified, not glossed over. What WAS
+    confirmed: triggering the REAL failure through the REAL UI (clicking
+    the actual `#svPcBtn` button on a real point, in a real headless
+    browser, where the fetch genuinely fails against this sandbox's own
+    network block) resolves cleanly — `svPointCloud` stays `null`,
+    `svPcBusy` correctly resets to `false` (not stuck busy forever),
+    the hud shows `"point cloud failed: Failed to fetch"`, and the button
+    label correctly reverts — confirming the failure path itself is solid
+    even though the success path (real Google data actually arriving)
+    couldn't be exercised. If it fails with a CORS error specifically in
+    the owner's real browser (as opposed to succeeding, or failing for a
+    different reason), that would need a genuinely different approach — a
+    small same-origin proxy, most likely — since no page-side JS trick gets
+    around a server that simply doesn't send CORS headers.
+  - **Heading/orientation is the one open, explicitly-unverified piece.**
+    Google's local frame (`depthAt`'s `vx,vy,vz`) has no confirmed
+    correspondence to true survey north from here — the reference C++ code
+    never parses or applies any yaw correction at all (it just displays the
+    cloud in the panorama's own unrotated local frame), and no FULL example
+    depth-map XML response (as opposed to just the isolated `depth_map`
+    value quoted in the demo source) was available to confirm this legacy
+    format's yaw attribute name/path. `parseYawDeg` tries a couple of
+    plausible attribute names (`pano_yaw_deg` under `data_properties` or
+    `projection_properties`) and applies a horizontal rotation if found,
+    but falls back to **no rotation** (an arbitrary, unverified heading) if
+    not — and the hud message after a successful build says explicitly
+    which case applied (`"heading unknown, orientation unverified"` vs. a
+    plain success message), so this is never silently wrong.
+- **Full regression sweep** across all 5 real job files (Pascal/Hamline/
+  Dale/Ravoux/Arundel): figure counts unchanged (70/99/161/36/43), zero new
+  console errors beyond the pre-existing, already-documented map-tile
+  network block on any file — this feature is purely additive and doesn't
+  touch any existing rendering/parsing path.
+- **Deliberately on its own branch off `main`** (not merged, and not on
+  `claude/street-view-linework` either) — this is a genuinely new,
+  substantial, unverified-in-the-one-way-that-matters-most feature, exactly
+  the kind of thing this project's own recent history (the Street View
+  color-inversion chase above) shows shouldn't be merged on the strength of
+  sandbox-only testing alone. The owner needs to actually click **☁ Point
+  Cloud** on a real point in a real browser and report what happens —
+  success (and how the heading looks), a CORS error specifically, or
+  something else — before this goes anywhere near `main`.
 
 ## Point marker symbols (`drawPtSymbol`, build 55)
 
