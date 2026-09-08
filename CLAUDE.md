@@ -87,9 +87,10 @@ first and follow it on every task in this repo.
     | 71 | 🍌 BANANA | new **🏷 Labels toolbox** — the owner: "add tool set to control point by showing point number and code and elevation, have check box to activate and deactivated and size slider." Before this, a point's on-canvas label was hardcoded to exactly one of two things — a control point always showed its code (`p.desc.split(' ')[0]`), every other point always showed its point number — at a fixed 10px font, with no way to see a shot's code or elevation without opening the inspector, and no way to change the text size. Added a toolbar toggle button (`#labelBtn`, "🏷 Labels") that shows/hides a small floating panel (`#labelBox`, styled off the existing `.snapbox` OSNAP-toolbox CSS so it matches the app's look, positioned bottom-left clear of both the tool column and the hud) with three independent checkboxes — **Point #**, **Code**, **Elevation** — plus a **Size** range slider (7-20px). A new shared `pointLabelText(p)` builds the label string from whichever fields are checked, in that fixed order, space-joined (`labelShow.num`/`.code`/`.elev`, each independently toggleable — e.g. Code+Elevation with Point # off reads `"UGW 229.00"`; all three reads `"11236 UGW 229.00"`), returning `''` when every box is unchecked so nothing is drawn at all. Both the 2D (`drawPt`) and 3D (`draw3D`'s point-painter loop) label draws were switched from their old hardcoded `ctx.font='600 10px ...'` + single-field `fillText` to `pointLabelText(p)` + the new `labelSize` variable (`` `600 ${labelSize}px ui-monospace,monospace` ``), and skip the `fillText` call entirely when the built string is empty — one shared function drives both views identically, so the toolbox controls 2D and 3D at once. Default state (`labelShow={num:true,code:false,elev:false}`, `labelSize=10`) reproduces the OLD non-control-point look exactly (point number only, 10px) so nothing changes for anyone who doesn't open the toolbox; the one deliberate default behavior change is that a **control point** now also defaults to showing its number instead of its code (previously code-only for control points, number-only for everything else) — the owner can tick **Code** back on for control points same as any other point, since the whole point of this feature is no longer hardcoding one field per point kind. Verified through the real UI on the real Pascal job file: toggling the toolbox button shows/hides the panel; zoomed screenships at the default state show plain point numbers exactly as before; ticking Code+Elevation (Point # off) shows e.g. `"UGW 229.00"` next to point 11236 — confirmed via both a direct `pointLabelText()` call and a real rendered screenshot; ticking all three shows `"11236 UGW 229.00"`; dragging the size slider to 18px visibly enlarges every label on screen and updates the panel's own `18px` readout; unchecking all three produces an empty string and no label draws. Re-ran the full regression sweep across all 5 real job files cycling every checkbox combination (num-only / code-only / elev-only / all-three / none) through both `draw2D()` and `draw3D()`: figure counts unchanged (70/99/161/36/43), zero console errors beyond the pre-existing, already-documented map-tile network block on any file. |
     | 72 | 🍇 GRAPE | **UNVERIFIED, on branch `claude/streetview-color-test` only — NOT merged to main or `claude/street-view-linework`.** Added `filter:none!important` to `#svPanoDiv` (additive, alongside the existing build-54 `color-scheme`/`forced-color-adjust` fix, which was NOT removed) as a low-risk experiment against a possible remaining Street View color-inversion path — declined a third-party suggestion to also restore a supposedly "missing" COGO code block (the real `openCogoDialog`/`insertCogoPoint` were never missing and are more correct than the suggested replacement) and to drop the build-54 CSS fix entirely (already verified working). See the Street View section below for the full writeup. Merge only after the owner confirms in a real browser that this actually helps — this sandbox still can't reach Google's domains to check itself. |
     | 73 | 🍓 STRAWBERRY | **STILL UNVERIFIED, same branch `claude/streetview-color-test` only — NOT merged.** Owner asked to try a pre-invert instead of a no-op: `#svPanoDiv`'s `filter` changed from build 72's inert `filter:none!important` to `filter:invert(1) hue-rotate(180deg)` — the standard "cancel out an external color inversion" trick, additive to (not replacing) the untouched build-54 `color-scheme`/`forced-color-adjust` fix. **Real tradeoff, not hidden:** this helps if something really is externally inverting the panorama (a forced-dark heuristic, a dark-mode extension in filter mode) but actively makes the photo wrong if nothing was inverting it in the owner's actual browser — unverifiable from this sandbox either way (still blocked from Google's domains), which is exactly why this stays on its own unmerged branch until the owner reports back what they actually see. Verified only what's checkable without live imagery: script still parses, the computed filter lands exactly as written, all 3 original real job files redraw with unchanged figure counts and zero new console errors. |
+    | 74 | 🍒 CHERRY | **STILL UNVERIFIED, same branch `claude/streetview-color-test` only — NOT merged.** Owner asked to check a fix a DIFFERENT AI had produced against this repo (`index_streetview_color_fixed.html`) — diffed it directly against the real file (unlike the earlier pasted suggestion, this one was a real, small, purely-additive CSS diff, nothing fabricated or removed) and adopted the bulk of it, REPLACING build 73's speculative pre-invert: neutralizes `filter`/`mix-blend-mode`/`forced-color-adjust` on `#svPanoDiv` AND everything Google's own JS mounts inside it (`.gm-style`, `canvas`, `img`), plus `isolation:isolate` (defeats a blend-mode-based "smart invert," a different mechanism than build 54's forced-dark-heuristic fix) and `color-scheme:light only` (a stronger signal than plain `light`). Dropped the one piece NOT kept — a forced `background:#fff` that would have hurt the loading/fallback placeholder's contrast for no anti-inversion benefit. Unlike build 73's pre-invert (helps XOR hurts depending on whether something really was inverting it), this one can only help or do nothing. See the Street View section below for the full writeup. Still fundamentally unverifiable from this sandbox (no Google-domain network access) — merge only after the owner confirms in a real browser. |
   - Suggested next fruits to rotate through:
-    🍒 CHERRY, 🥝 KIWI,
-    🍑 PEACH, 🍍 PINEAPPLE.
+    🥝 KIWI, 🍑 PEACH,
+    🍍 PINEAPPLE, 🥭 MANGO.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -2025,6 +2026,76 @@ first and follow it on every task in this repo.
     written, and a redraw of all 3 original real job files (figure counts
     70/99/161, unchanged) produces zero console errors beyond the
     pre-existing, already-documented map-tile network block.
+  - **Build 74 (🍒 CHERRY) — replaces build 73's speculative pre-invert,
+    still on `claude/streetview-color-test` only, still NOT merged:** the
+    owner uploaded a fix a DIFFERENT AI had produced against this same
+    repo (`index_streetview_color_fixed.html`) and asked to check whether
+    it actually resolves the color issue. Diffed it directly against the
+    real file first (`diff`, not a description) — unlike the earlier
+    pasted third-party suggestion (declined, see the build-72 entry
+    above), this one turned out to be a small, real, purely-additive CSS
+    diff with no fabricated/duplicated JS and nothing removed: ~20 new
+    lines of stylesheet plus a few extra inline properties on `#svPanoDiv`
+    itself, everything else byte-identical.
+  - **What it does differently from build 72/73's attempts:** rather than
+    a blind `filter:none` (build 72) or a blind pre-invert (build 73), it
+    neutralizes filter/blend-mode effects on `#svPanoDiv` **and everything
+    Google's own JS mounts inside it** — its `.gm-style` wrapper, any
+    `canvas`, any `img` — via a new stylesheet block
+    (`#svPanoDiv,#svPanoDiv *{filter:none!important;mix-blend-mode:
+    normal!important;forced-color-adjust:none!important}` plus a
+    `.gm-style`/`canvas`/`img`-specific rule with the same properties),
+    and adds `isolation:isolate` to give `#svPanoDiv` its own stacking
+    context — relevant because a `mix-blend-mode`-based "smart invert"
+    (some dark-mode implementations apply `mix-blend-mode:difference`
+    against a full-page overlay, a mechanism build 54's `color-scheme`/
+    `forced-color-adjust` fix was never aimed at, since that only covers
+    Chrome's own forced-dark heuristic) can't composite through an
+    isolated stacking context the same way. Also upgrades
+    `color-scheme:light` to **`color-scheme:light only`** — the `only`
+    keyword is a stronger signal per spec, telling the browser never to
+    render this element as dark even under forced-colors, not just
+    "prefer light."
+  - **One piece of the uploaded fix deliberately NOT kept:** it also set
+    `background:#fff!important` on `#svPanoDiv`. Checked what that does to
+    the "Loading Street View…" placeholder and the no-panorama fallback
+    link — both use `color:var(--mut)` (`#8a99b8`, a medium blue-gray)
+    inline on the div, chosen for contrast against the div's own dark
+    `#0a1426` background; forcing white would leave that same gray text
+    sitting on white with materially worse contrast for as long as the
+    placeholder/fallback is showing (which, per build 53, can be the
+    ~22s `ensureGMaps` timeout or longer on a bad connection — not just a
+    one-frame flash). Not needed for the actual anti-inversion mechanism
+    either (`filter`/`mix-blend-mode`/`isolation` are unrelated to the
+    container's own background color) — so it was dropped, keeping the
+    original `#0a1426` background, confirmed via computed style
+    (`backgroundColor: rgb(10,20,38)`, i.e. `#0a1426`, unchanged) and a
+    real screenshot showing the loading placeholder still reads clearly.
+  - **Real tradeoff, still disclosed honestly:** this REPLACES build 73's
+    filter (a live `google.maps.Map`/panorama mount will now render with
+    whatever colors Google's own imagery actually has, no correction
+    applied) rather than layering on top of it — the two are mutually
+    exclusive (one resets to neutral, the other actively inverts) so only
+    one can be live at a time, and this one was judged the more
+    defensible bet: it targets the SPECIFIC DOM structure Google Maps
+    actually mounts (`.gm-style`, `canvas`, `img`) instead of guessing at
+    a blanket transform, and it can only help or do nothing — unlike
+    build 73's pre-invert, it has no failure mode where it makes a
+    correctly-rendering photo wrong. Still fundamentally unverifiable
+    from this sandbox (same standing Google-domain network block as every
+    Street View build since 53) — needs the owner to check in a real
+    browser before merging anywhere.
+  - Verified everything checkable without live Google imagery: `node
+    --check` on the extracted script; the computed style on `#svPanoDiv`
+    shows every targeted property landing exactly as written
+    (`color-scheme:"light only"`, `filter:"none"`, `mix-blend-mode:
+    "normal"`, `isolation:"isolate"`, background unchanged at `#0a1426`)
+    across all 3 original real job files, unchanged figure counts
+    (70/99/161), zero new console errors; and a real-UI open of the
+    Street View modal (via `svOpenForPoint`) on a real point shows the
+    modal, header, New tab/Close buttons, and the (still-loading, since
+    this sandbox can't reach Google) placeholder all rendering normally
+    with the expected dark background and readable placeholder text.
 
 ## Point marker symbols (`drawPtSymbol`, build 55)
 
