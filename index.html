@@ -37,20 +37,24 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 #agmap{position:absolute;inset:0;z-index:0;display:none}
 #agmap .esri-view-surface{outline:none}
 /* Street View must render with Google's original imagery colors, without
-   breaking Google's OWN internal tile compositing. Build 74 also forced
-   mix-blend-mode:normal (and opacity:1) on every descendant inside
-   #svPanoDiv, including whatever internal layers the live panorama uses to
-   cross-fade/stitch tiles as you pan — that's almost certainly why orbiting
-   inside the panorama started going black (build 75 fix: new tiles loading
-   mid-pan need their own blend/fade, which the old blanket !important rule
-   couldn't help but override). isolation:isolate on the CONTAINER alone is
-   what actually blocks an ancestor's blend-mode-based invert trick from
-   compositing through (a different mechanism than Chrome's own forced-dark
-   heuristic, which build 54's color-scheme/forced-color-adjust already
-   covers) — it does that without touching a single one of Google's own
-   descendant elements, so there's nothing left here to fight their tile
-   renderer over. */
+   breaking Google's OWN internal tile compositing. Build 75 dropped every
+   descendant-targeting rule (isolation:isolate on the container alone
+   should have been enough to block an ANCESTOR's blend-mode invert), but
+   the owner reported the inversion came right back — meaning something
+   (a browser/extension "smart invert" heuristic) applies its own
+   counter-invert filter DIRECTLY to the panorama's own <canvas>/<img>
+   leaf elements, not via a blend coming from outside #svPanoDiv, so
+   isolation on the container can't intercept it — it has to be reset on
+   those exact elements. Build 74's mistake wasn't resetting canvas/img at
+   all, it was ALSO resetting the many plain <div> wrapper layers under
+   .gm-style that Google's own renderer blends/cross-fades tiles through
+   while panning — forcing THOSE to mix-blend-mode:normal is what broke
+   orbiting. This version resets filter/mix-blend-mode only on the actual
+   canvas/img leaf elements (where the real counter-invert lands), leaving
+   every generic wrapper <div> Google's tile compositing needs completely
+   untouched. */
 #svPanoDiv{color-scheme:light only!important;isolation:isolate;filter:none!important;forced-color-adjust:none!important}
+#svPanoDiv canvas,#svPanoDiv img{filter:none!important;mix-blend-mode:normal!important}
 .tools,.zbtns,.legend,.vex,.hud,.zwbox{z-index:2}
 .hud{position:absolute;left:12px;bottom:12px;font:600 11px var(--mono);color:var(--mut);background:rgba(7,11,22,.7);border:1px solid var(--rule);padding:6px 10px;border-radius:6px;pointer-events:none}
 .tools{position:absolute;left:12px;top:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
@@ -177,7 +181,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -442,7 +446,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:75};
+const VERSION={fruit:'🍑',name:'PEACH',build:76};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}

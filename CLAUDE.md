@@ -89,9 +89,10 @@ first and follow it on every task in this repo.
     | 73 | 🍓 STRAWBERRY | **STILL UNVERIFIED, same branch `claude/streetview-color-test` only — NOT merged.** Owner asked to try a pre-invert instead of a no-op: `#svPanoDiv`'s `filter` changed from build 72's inert `filter:none!important` to `filter:invert(1) hue-rotate(180deg)` — the standard "cancel out an external color inversion" trick, additive to (not replacing) the untouched build-54 `color-scheme`/`forced-color-adjust` fix. **Real tradeoff, not hidden:** this helps if something really is externally inverting the panorama (a forced-dark heuristic, a dark-mode extension in filter mode) but actively makes the photo wrong if nothing was inverting it in the owner's actual browser — unverifiable from this sandbox either way (still blocked from Google's domains), which is exactly why this stays on its own unmerged branch until the owner reports back what they actually see. Verified only what's checkable without live imagery: script still parses, the computed filter lands exactly as written, all 3 original real job files redraw with unchanged figure counts and zero new console errors. |
     | 74 | 🍒 CHERRY | **STILL UNVERIFIED, same branch `claude/streetview-color-test` only — NOT merged.** Owner asked to check a fix a DIFFERENT AI had produced against this repo (`index_streetview_color_fixed.html`) — diffed it directly against the real file (unlike the earlier pasted suggestion, this one was a real, small, purely-additive CSS diff, nothing fabricated or removed) and adopted the bulk of it, REPLACING build 73's speculative pre-invert: neutralizes `filter`/`mix-blend-mode`/`forced-color-adjust` on `#svPanoDiv` AND everything Google's own JS mounts inside it (`.gm-style`, `canvas`, `img`), plus `isolation:isolate` (defeats a blend-mode-based "smart invert," a different mechanism than build 54's forced-dark-heuristic fix) and `color-scheme:light only` (a stronger signal than plain `light`). Dropped the one piece NOT kept — a forced `background:#fff` that would have hurt the loading/fallback placeholder's contrast for no anti-inversion benefit. Unlike build 73's pre-invert (helps XOR hurts depending on whether something really was inverting it), this one can only help or do nothing. See the Street View section below for the full writeup. Still fundamentally unverifiable from this sandbox (no Google-domain network access) — merge only after the owner confirms in a real browser. |
     | 75 | 🥝 KIWI | **Real regression fix, same branch `claude/streetview-color-test` only — still NOT merged.** Owner confirmed build 74 fixed the colors but reported the live panorama going black while orbiting/panning. Root cause: build 74's `mix-blend-mode:normal!important`, forced onto every descendant of `#svPanoDiv` (not just the container), was almost certainly stomping on whatever blend mode Google's own renderer uses internally to cross-fade newly-loading tiles as the view moves — fine once settled, black mid-transition. Fix: the anti-inversion protection only ever needed `isolation:isolate` on the CONTAINER (that alone blocks an ancestor's blend-mode-based invert from compositing through) — removed both build-74 rules that reached into `#svPanoDiv`'s descendants (the universal `#svPanoDiv *{...}` rule and the `.gm-style`/`canvas`/`img`-specific one) and replaced them with one container-only rule, no `mix-blend-mode` anywhere. Verified nothing in our CSS touches descendants anymore (a synthetic child element's own `mix-blend-mode:screen` now survives, computed style confirms it's not forced to `normal`), figure counts unchanged (70/99/161) on all 3 files, zero new console errors, Street View modal still opens normally. Still needs the owner to confirm in a real browser that orbiting no longer goes black before this merges anywhere. |
+    | 76 | 🍑 PEACH | **Real color regression from build 75, fixed narrower — same branch `claude/streetview-color-test` only, still NOT merged.** Owner pulled build 75 (which dropped every descendant-targeting rule) and reported the inversion came back — a useful signal that something applies its counter-invert DIRECTLY to the panorama's own `canvas`/`img` elements, not as a blend from outside `#svPanoDiv` that `isolation:isolate` alone could block. Put back a `filter:none!important;mix-blend-mode:normal!important` reset, but scoped ONLY to `#svPanoDiv canvas,#svPanoDiv img` — not `.gm-style`, not `.gm-style>div`, not the universal `#svPanoDiv *` build 74 used — so the generic wrapper `<div>` layers Google's own tile cross-fade needs (the actual cause of build 74/75's orbit-goes-black) stay untouched while the two leaf element types that actually render pixels get their counter-invert cancelled. Verified the split holds: a synthetic plain `<div>` keeps its own `mix-blend-mode:screen`, while a synthetic `canvas`/`img` with an injected `filter:invert(1)`+`mix-blend-mode:screen` both correctly come back to `none`/`normal`. Figure counts unchanged (70/99/161), zero new console errors, modal opens normally. Owner needs to confirm BOTH correct colors AND smooth orbiting in a real browser before merging. |
   - Suggested next fruits to rotate through:
-    🍑 PEACH, 🍍 PINEAPPLE,
-    🥭 MANGO, 🍐 PEAR.
+    🍍 PINEAPPLE, 🥭 MANGO,
+    🍐 PEAR, 🍉 WATERMELON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -2149,6 +2150,53 @@ first and follow it on every task in this repo.
     (same standing Google-domain block) — the owner needs to confirm in
     their own browser that orbiting no longer goes black before this
     merges anywhere.
+  - **Build 76 (🍑 PEACH) — build 75 overcorrected, real color regression
+    reported, fixed narrower, still on `claude/streetview-color-test`
+    only, still NOT merged:** the owner pulled build 75 and reported the
+    inversion is BACK. That's a genuinely useful data point, not just
+    "still broken": it means build 74's descendant-level reset wasn't
+    purely redundant with the container's `isolation:isolate` after all —
+    something (a browser/extension "smart invert" heuristic) applies its
+    own counter-invert filter **directly to the panorama's own `<canvas>`/
+    `<img>` leaf elements**, not as a blend coming from OUTSIDE
+    `#svPanoDiv`. `isolation:isolate` on the container only blocks an
+    ANCESTOR's blend-mode effect from compositing INTO the isolated
+    subtree from outside it — it does nothing to stop an effect applied
+    directly to an element that's already inside that subtree, which is
+    exactly what build 75 left unguarded once it removed every
+    descendant-targeting rule.
+  - **The real distinction build 74 never made:** build 74's mistake
+    wasn't resetting `canvas`/`img` — that part was doing real work and
+    build 75 was wrong to remove it. The mistake was resetting `.gm-style`
+    and, worse, EVERY `.gm-style>div` and EVERY `#svPanoDiv *` alongside
+    it — the plain wrapper `<div>` layers Google's own renderer uses to
+    cross-fade/stitch tiles together while panning, which is what
+    actually broke orbiting. Fix: put back a `filter`/`mix-blend-mode`
+    reset scoped ONLY to `#svPanoDiv canvas,#svPanoDiv img` — the two leaf
+    element types that actually render pixels and are the plausible
+    target of a per-element counter-invert heuristic — while leaving every
+    generic `<div>` (`.gm-style` included) completely untouched, so
+    nothing in Google's own tile-blending layers gets interfered with.
+    The container-level rule from build 75 (`isolation:isolate;
+    filter:none!important;forced-color-adjust:none!important;
+    color-scheme:light only!important`) is unchanged — this build only
+    adds back the narrower leaf-element rule.
+  - Verified the split holds exactly as intended: appended 3 synthetic
+    elements inside `#svPanoDiv` — a plain `<div>` with its own
+    `mix-blend-mode:screen` (simulating a Google tile-wrapper layer), and
+    a `<canvas>`/`<img>` each with an injected `mix-blend-mode:screen` AND
+    `filter:invert(1)` (simulating a counter-invert landing directly on
+    them) — then read all 3 back via computed style. The plain `<div>`
+    correctly KEEPS `mix-blend-mode:screen` untouched (confirms orbiting
+    stays fixed); the `<canvas>` and `<img>` both correctly come back
+    `filter:"none"`/`mix-blend-mode:"normal"` (confirms the counter-invert
+    gets cancelled). Container-level properties unchanged from build 75.
+    Re-ran across all 3 original real job files: figure counts unchanged
+    (70/99/161), zero new console errors, Street View modal still opens
+    normally through the real UI. Still fundamentally unverifiable from
+    this sandbox (same standing Google-domain block) — needs the owner to
+    confirm BOTH things at once in a real browser (correct colors AND
+    smooth orbiting) before this merges anywhere.
 
 ## Point marker symbols (`drawPtSymbol`, build 55)
 
