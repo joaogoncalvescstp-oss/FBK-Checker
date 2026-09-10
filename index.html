@@ -203,6 +203,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — a point with its own curb code gets that code's std cross-section (overrides REF), points without a code derive the reveal from the nearest REF point's Z difference. RCFL (flow line) — always gets the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
+    <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
@@ -211,7 +212,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
   </div>
 
   <div class="main">
@@ -369,6 +370,22 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <div class="row">
       <button class="btn ghost" id="ugwReviewCancel">Cancel</button>
       <button class="btn gold" id="ugwReviewApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- un-knockdown report: what was reverted to a code vs left as baked H/V -->
+<div class="scrim" id="unkdReportScrim">
+  <div class="modal wide">
+    <h4>Un-Knockdown Report</h4>
+    <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
+      Points knocked down this session revert exactly. Any other baked H/V run
+      only converts back to a bare code when it matches ONE curb-code template
+      with no ambiguity — everything else stays untouched below.
+    </div>
+    <div id="unkdReportBody" style="max-height:56vh;overflow:auto"></div>
+    <div class="row">
+      <button class="btn gold" id="unkdReportClose">Close</button>
     </div>
   </div>
 </div>
@@ -551,7 +568,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍐',name:'PEAR',build:81};
+const VERSION={fruit:'🍉',name:'WATERMELON',build:82};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -692,7 +709,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -804,6 +821,73 @@ function applyKnockdown(){
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
   hud(`Knockdown applied to ${applied} pt(s)`);
 }
+
+// Un-Knockdown (build 82) — the structural inverse of applyKnockdown(), gated by the
+// exact same RBCB/RCFL marker precondition. Two tiers, most-precise first:
+//  1) a point knocked down THIS session (p.kdInfo, set above) restores its own literal
+//     pre-knockdown line — exact, including a REF-derived custom reveal a bare code
+//     alone could never reproduce.
+//  2) any other RBCB/RCFL point's baked H/V run converts back to a bare code ONLY when
+//     that exact run matches ONE curb-code template with no ambiguity (a few codes —
+//     RD/RDPRK, LD/LDPRK — share an identical template on purpose and can never be told
+//     apart from the baked text alone). Everything else — no match, an ambiguous match,
+//     a REF-derived reveal with no kdInfo to fall back on — is left completely untouched,
+//     never guessed at, and listed in the report so it's visible rather than silently lost.
+function revertKnockdown(){
+  if(!PTS.length){hud('load an FBK first');return;}
+  const hvRe=/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/;
+  const buildRevIndex=db=>{
+    const byVal={};
+    Object.keys(db).forEach(k=>{(byVal[db[k]]=byVal[db[k]]||[]).push(k);});
+    const idx={};
+    Object.keys(byVal).forEach(v=>{if(byVal[v].length===1)idx[v]=byVal[v][0];});   // only keep UNAMBIGUOUS templates
+    return idx;
+  };
+  const revBOC=buildRevIndex(CURB_BOC), revFL=buildRevIndex(CURB_FL);
+  const restored=[],converted=[],skipped=[];
+  PTS.forEach(p=>{
+    if(p.deleted)return;
+    if(p.kdInfo){restored.push({p,id:p.id,code:p.kdInfo.code,newDesc:p.kdInfo.orig});return;}
+    const isBOC=/\bRBCB\d*\b/.test(p.desc),isFL=/\bRCFL\d*\b/.test(p.desc);
+    if(!isBOC&&!isFL)return;                       // not a curb-code marker at all — out of scope, never reported
+    const m=hvRe.exec(p.desc);
+    if(!m)return;                                  // marker present but nothing baked here — nothing to revert
+    const run=m[0].trim().replace(/\s+/g,' ');
+    const code=(isFL?revFL:revBOC)[run];
+    if(!code){skipped.push({id:p.id,hv:run});return;}
+    const newDesc=(p.desc.slice(0,m.index)+' '+code+p.desc.slice(m.index+m[0].length)).replace(/\s+/g,' ').trim();
+    converted.push({p,id:p.id,code,hv:run,newDesc});
+  });
+  if(!restored.length&&!converted.length){
+    hud(skipped.length?`nothing safely revertible — ${skipped.length} pt(s) left untouched`:'no baked curb-code offsets found');
+    showUnKdReport(restored,converted,skipped);return;
+  }
+  saveState();
+  restored.forEach(r=>{logEdit('code',`un-knockdown pt ${r.id}: restored original ${r.code} line`);
+    r.p.desc=r.newDesc;r.p.code=(r.newDesc.split(/\s+/)[0]||'').toUpperCase();r.p.kdInfo=undefined;r.p.edited=true;});
+  converted.forEach(c=>{logEdit('code',`un-knockdown pt ${c.id}: H/V -> ${c.code}`);
+    c.p.desc=c.newDesc;c.p.code=c.code;c.p.edited=true;});
+  buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
+  showUnKdReport(restored,converted,skipped);
+  hud(`un-knockdown: ${restored.length+converted.length} pt(s) reverted, ${skipped.length} left untouched`);
+}
+function showUnKdReport(restored,converted,skipped){
+  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const section=(title,rows,empty)=>{
+    if(!rows.length)return `<h5 style="margin:10px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">${title} (0)</h5><div class="mut" style="font-size:11px">${empty}</div>`;
+    return `<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">${title} (${rows.length})</h5>
+      <table class="helpTbl"><tbody>${rows.join('')}</tbody></table>`;
+  };
+  const restoredRows=restored.map(r=>`<tr><td class="key">pt ${esc(r.id)}</td><td>restored original <b>${esc(r.code)}</b> line</td></tr>`);
+  const convertedRows=converted.map(c=>`<tr><td class="key">pt ${esc(c.id)}</td><td>${esc(c.hv||'')}&nbsp;→&nbsp;<b>${esc(c.code)}</b></td></tr>`);
+  const skippedRows=skipped.map(s=>`<tr><td class="key">pt ${esc(s.id)}</td><td class="mut">${esc(s.hv)}</td></tr>`);
+  $('unkdReportBody').innerHTML=
+    section('Restored — this session\'s own knockdown',restoredRows,'none')+
+    section('Converted — H/V matched one code exactly',convertedRows,'none')+
+    section('Left untouched — no unambiguous match',skippedRows,'none — every baked offset found was safely revertible');
+  $('unkdReportScrim').classList.add('show');
+}
+function closeUnKdReport(){$('unkdReportScrim').classList.remove('show');}
 
 /* Guy wire rotation: UGW (guy wire anchor) -> nearest pole/pedestal point
    (build 60, angle convention fixed build 61, pole-code set widened build 62).
@@ -1167,7 +1251,7 @@ function importCSV(text){
   buildLinework();
   if(wasEmpty){
     $('jobpill').textContent='CSV import';
-    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
     is3D=false;setMode('sel');fit();
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
@@ -2986,6 +3070,9 @@ $('dlBtn').onclick=exportFBK;
 $('dlRawBtn').onclick=()=>exportFBK(false);
 $('dlCsvBtn').onclick=exportCSV;
 $('kdBtn').onclick=applyKnockdown;
+$('unkdBtn').onclick=revertKnockdown;
+$('unkdReportClose').onclick=closeUnKdReport;
+$('unkdReportScrim').onclick=e=>{if(e.target===$('unkdReportScrim'))closeUnKdReport();};
 $('ugwCpnBtn').onclick=openUgwCpnReview;
 $('simplCogoBtn').onclick=()=>{if(!$('simplCogoBtn').disabled)openSimplCogoDialog();};
 $('undoBtn').onclick=performUndo;
@@ -3147,10 +3234,11 @@ $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new F
   rd.onload=()=>{importCSV(rd.result);e.target.value='';};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('helpScrim').classList.contains('show')){e.preventDefault();closeHelp();return;}
+  if(e.key==='Escape'&&$('unkdReportScrim').classList.contains('show')){e.preventDefault();closeUnKdReport();return;}
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');

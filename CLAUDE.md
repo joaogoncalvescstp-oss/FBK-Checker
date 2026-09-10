@@ -96,9 +96,10 @@ first and follow it on every task in this repo.
     | — | — | **ROOT CAUSE FOUND — builds 72-77's entire CSS chase was solving the wrong problem.** The owner finally pulled real browser console output, and it shows a hard Google Maps API failure: `"You must enable Billing on the Google Cloud Project"` — the API key's Google Cloud project has no billing enabled, so Street View can't actually load/render properly. NOT a CSS bug, never was, no CSS on our side can fix it. This retroactively explains every symptom chased across builds 72-77: without billing, the panorama falls back to unstable/broken rendering, and whichever CSS filter/blend-mode tweak happened to be active just changed how that already-broken output looked (sometimes "inverted," sometimes black) — never a real fix-vs-break tradeoff. The fix is entirely outside this repo: enable billing on the Google Cloud project at `console.cloud.google.com` (Maps includes a monthly free credit, but a payment method must be on file regardless). No further CSS pushed pending that — next step is retesting on the CLEAN `claude/street-view-linework` baseline (build 71, pre-chase) once billing is on; if that alone renders correctly, all of `claude/streetview-color-test` (builds 72-77) gets discarded rather than merged. See the Street View section below for the full writeup. |
     | 80 | 🥭 MANGO | owner: 3D orbit is hard to control on a large site (big distance between points), and asked to put the mouse **middle button** to use. Found 3 real bugs: the orbit pivot only ever moved on `fit()`/Go-to-point, so rotating far from it swept the view in a huge arc for a tiny drag; every zoom (wheel or +/−) silently re-centered the pivot to screen-middle (`refreshOrbitPivot()`), undoing any panning you'd just done; and middle-mouse-drag was a dead no-op in 3D (wrote to the unused `view.x/y` instead of `orbit.ox/oy`, then snapped the view on release). Fixed all three: `retargetOrbitPivot()` re-centers the pivot on whatever's under the cursor (a real point, or the ground plane at the pivot's elevation) at the start of every orbit drag, with zero visual jump — ⊡ Fit still resets to the whole-site pivot; `zoomOrbit()` replaces the recenter-on-pivot zoom with a proper zoom-about-cursor (matching the existing 2D behavior); middle-mouse-drag now actually pans `orbit.ox/oy` in 3D, with `preventDefault()` so the browser's native autoscroll cursor stops fighting it. See the dedicated section below for the full writeup and verification (numeric proof of the projection algebra, plus real headless-browser end-to-end tests against the actual `index.html` code paths — this repo has no sample `.fbk` on hand, so synthetic large-span point data was used instead). |
     | 81 | 🍐 PEAR | new **❓ Help** button (top toolbar, always enabled — works even with no file loaded) opens a reference modal with 4 tabs: **Getting Started** (load/import → view/edit → Knockdown/UGW→CPN → export, plus the 2D/3D/MAP/Labels view controls), **Tools** (every top-toolbar button, every canvas tool, the full keyboard-shortcut list, and mouse/touch gestures — all pulled together from text that already existed scattered across button `title=` attributes and the inspector's `.note` div, not re-invented), **Description-Key Codes** (B/E/CLS, BC/EC, PCC/PRC, OC, CIR, H/V, SO, RT/X/RECT, CPN/RPN, REF, PRISM — one row each, matching this file's own documented behavior for each), and **Curb Database** — every code in the app's actual `CURB_BOC`/`CURB_FL` objects (70 each) rendered as a card showing its real H/V step string, `CURB_KD`'s 12 knockdown-reveal values shown as a badge on the matching back-of-curb cards, plus a live filter box (`#helpCurbSearch`) — generated straight from those live JS objects (`curbCardsHTML`) rather than a hand-copied second list, so it can never drift out of sync with what Knockdown actually expands a code into. Modal styling reuses the existing `.modal`/`.scrim` pattern already used by every other dialog in the app; tab-switching is a small `setHelpTab()` toggling `.on` on one of 4 panes. Closes via **✕**, a backdrop click, or **Esc** — the letter-key tool shortcuts (`v`/`m`/`p`/`z`/`o`/`i`/`c`/`a`/`f`/`g`) are now also suppressed while the Help modal is open (added to the same guard the Go-to-point modal already used), so e.g. pressing **O** to read the "O = 3D orbit" shortcut row doesn't actually switch the canvas to orbit underneath the modal. Verified end-to-end through the real UI in a real headless browser: the button works with zero points loaded; all 4 tabs render (Tools: 14 toolbar rows / 11 canvas-tool rows / 14 key rows; Codes: 15 rows); the Curb Database tab's card counts (70 BOC, 70 FL, 12 KD-badged) match the real `CURB_BOC`/`CURB_FL`/`CURB_KD` object key counts exactly (cross-checked independently via a regex key-count over the raw source); typing "624" into the filter box correctly narrows the 70 BOC cards down to the 2 real matches (`L624`/`R624`) and clearing it restores all 70; Esc and backdrop-click both close it; pressing **O** while the modal is open leaves `mode` at its pre-open value instead of switching to orbit; and opening/closing the modal around a synthetic load+edit+`buildLinework()` cycle produced the correct figure count with zero console errors. |
+    | 82 | 🍉 WATERMELON | new **⏮ Un-Knockdown** button — the owner asked for a way to convert a baked H/V curb offset back to its code, leaving anything unrecognized alone. Built as the structural inverse of `applyKnockdown()`, gated by the same RBCB/RCFL marker precondition, with two tiers: (1) any point knocked down THIS session restores its own literal pre-knockdown line via `p.kdInfo` (already tracked since build 11's review-window toggle, just never used for a permanent revert before) — exact, including a REF-derived custom reveal a bare code alone could never reproduce; (2) any other RBCB/RCFL point's baked H/V run is reverse-matched against `CURB_BOC`/`CURB_FL` by exact template string, and converted back to the bare code ONLY when that string is unique to one code. Checked the databases directly: `RD`/`RDPRK` and `LD`/`LDPRK` share an identical template in BOTH tables, so those (and anything with no match at all) are deliberately left untouched rather than guessed at — matching this project's standing rule (build 40/47/49) against guessing at what field data doesn't disambiguate. Reports the outcome afterward in a 3-section modal (`#unkdReportScrim`) — restored / converted / left-untouched, each listing the point IDs (and, for the untouched section, the exact H/V text that didn't safely match) — so "left untouched" is visible, not silent. Verified end-to-end through the real UI in a real headless browser with a synthetic file exercising all 4 cases at once: a session-knocked-down explicit-code point restored byte-exactly; a session-knocked-down REF-derived point (custom reveal) restored byte-exactly (proving the two-tier design, since no bare-code reverse-match could ever have produced this); a point with no `kdInfo` carrying an exact, unambiguous `L612` template converted correctly to `RBCB L612`; a point carrying the ambiguous `RD`/`RDPRK` shared template stayed untouched; a point with a nonsense H/V run stayed untouched; the report modal listed all 5 correctly (2 restored / 1 converted / 2 untouched); Esc and a real button click both closed it; and running Un-Knockdown a second time on the now-reverted file was a confirmed no-op (idempotent). Also re-verified through real toolbar-button clicks (not poked state) alongside Knockdown and the Help modal in the same session with zero console errors. |
   - Suggested next fruits to rotate through:
-    🍉 WATERMELON, 🍎 APPLE,
-    🍇 GRAPE, 🍋 LEMON.
+    🍎 APPLE, 🍇 GRAPE,
+    🍋 LEMON, 🥭 MANGO.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -110,6 +111,81 @@ first and follow it on every task in this repo.
   cross-section (full reveal), but **only at points that carry their OWN curb
   code** in the description. A flow-line point with no code is left untouched —
   it does NOT inherit the last-seen code or a default. **Do NOT use REF for RCFL.**
+
+## Un-Knockdown (`revertKnockdown()`/`showUnKdReport()`, ⏮ button `#unkdBtn`, build 82)
+
+- The structural **inverse of Knockdown** — the owner asked for a way to
+  convert a baked H/V curb offset back to its code, explicitly leaving
+  anything it can't safely identify alone. Gated by the exact same
+  `RBCB`/`RCFL` marker precondition `applyKnockdown` itself requires
+  (`/\bRBCB\d*\b/`/`/\bRCFL\d*\b/`) — a point with neither marker is out of
+  scope entirely and never even scanned, let alone reported, since a bare
+  `H<v> V<v>` on some other point is a normal offset-line description-key
+  feature (see the description-key codes reference), not a knockdown
+  artifact.
+- **Two tiers, most-precise first:**
+  1. **Session restore.** Any point knocked down earlier in the CURRENT
+     session still carries `p.kdInfo={code,ref,v,orig}` — set by
+     `applyKnockdown` and, until now, only ever read by the build-11
+     Review/edit FBK window's `⏮ Show codes (before knockdown)` toggle for
+     DISPLAY purposes. Un-Knockdown reads the same field and, for these
+     points, just writes `p.desc=p.kdInfo.orig` back — the literal original
+     line, byte-exact, no reverse-lookup needed. This is the only path that
+     can correctly restore a **REF-derived** point (an uncoded RBCB point
+     whose reveal came from a nearby REF shot's own Z) — its baked V value
+     is a one-off number computed from that specific REF geometry, so no
+     bare code could ever reproduce it; `kdInfo.orig` (the plain, pre-bake
+     description, e.g. just `"RBCB"`) is the only thing that can.
+  2. **Reverse-DB-match.** Any other RBCB/RCFL point with a baked H/V run
+     and no `kdInfo` (loaded from a file that was already knocked down
+     before this session, or by another tool) gets its H/V run's exact text
+     (whitespace-normalized) looked up against `CURB_BOC`/`CURB_FL` — but
+     ONLY converts if that exact template string belongs to just ONE code.
+     Checked both databases directly: `RD`/`RDPRK` share the identical
+     template in `CURB_BOC` (`"H-0.5 V0.0"`) and in `CURB_FL`
+     (`"H-0.5 V0"`), and `LD`/`LDPRK` share theirs the same way in both —
+     these, and anything with no match at all, are deliberately left
+     untouched rather than guessed at, matching this project's standing
+     rule (build 40/47/49) against guessing at what the field data itself
+     doesn't disambiguate. `buildRevIndex(db)` builds this lookup by
+     grouping every code by its template value and keeping only the groups
+     of size 1.
+- **Reporting, not silence:** `showUnKdReport(restored,converted,skipped)`
+  always opens a 3-section modal (`#unkdReportScrim`) listing exactly which
+  points were restored (tier 1), which were converted (tier 2, with the
+  H/V text that matched and the code it became), and which were left
+  untouched (with the H/V text that DIDN'T safely match) — so "left
+  untouched" is something the owner can see and act on by hand if needed,
+  never a silent no-op. Shown even when nothing was revertible at all, as
+  long as at least one candidate point was scanned, so a run that finds
+  only unrecognized/ambiguous offsets still tells you what it found.
+- Closes via the **Close** button, a backdrop click, or **Esc** (added to
+  the same modal-guard pattern the Help modal (build 81) established, so
+  letter-key tool shortcuts don't leak through while it's open).
+- **A known, inherited limitation, not a new one:** if a point's
+  description was manually retyped after Knockdown baked it (without
+  re-running Knockdown), `p.kdInfo.orig` could be stale relative to the
+  point's current `p.desc` — restoring it would discard that later manual
+  edit. This is the exact same fragility the build-11 display toggle
+  already has and has always had; Un-Knockdown doesn't introduce it, just
+  inherits it by reusing the same field for a new purpose.
+- Verified end-to-end through the real UI in a real headless browser with
+  a synthetic file exercising all 4 cases at once: an explicit-code
+  session knockdown (`RBCB B L624` → baked → Un-Knockdown → back to
+  `RBCB B L624`, byte-exact); a REF-derived session knockdown (`RBCB` →
+  baked with a custom reveal → Un-Knockdown → back to plain `RBCB`,
+  byte-exact — the case a bare reverse-match could never handle); a point
+  with no `kdInfo` carrying the exact, unambiguous `L612` template
+  (converted correctly to `RBCB L612`); a point carrying the ambiguous
+  `RD`/`RDPRK` shared template (stayed untouched); a point with a nonsense
+  H/V run (stayed untouched). The report modal listed all 5 correctly (2
+  restored / 1 converted / 2 untouched, with the right text on each row);
+  Esc and a real click on Close both closed it; running Un-Knockdown a
+  SECOND time on the now-reverted file was a confirmed no-op (idempotent —
+  nothing left to revert). Re-verified through real toolbar-button clicks
+  (not poked state, `#kdBtn` → `#unkdBtn` → `#unkdReportClose`) alongside
+  the Help modal in the same session: `figures()` count came back correct
+  and zero console errors throughout.
 
 ## Guy wire rotation — UGW→CPN (`computeUgwPairs`/`applyUgwReview`/`bearingFromWest`, ⚙ button `#ugwCpnBtn`, build 60, angle fixed build 61, pole codes widened build 62, editable review popup build 69)
 
