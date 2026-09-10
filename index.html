@@ -212,7 +212,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
   </div>
 
   <div class="main">
@@ -274,7 +274,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <div class="scroll" id="insp">
         <div class="empty">Load an FBK, then click a point.<br><br>
           <b>SEL</b> edits the descriptor code that drives linework, or deletes a shot. <b>Drag a box</b> on empty canvas to select many points (Shift-drag adds; Delete removes).<br>
-          <b>3D</b> orbits the survey by elevation — inspect only; switch back to a 2D tool to edit. Orbiting re-centers on whatever you click, so a far corner of a large site orbits smoothly too; press <b>⊡ Fit</b> to recenter on the whole survey. Middle-mouse-drag pans.</div>
+          <b>3D</b> orbits the survey by elevation — click a point or line to edit its fields right here in the Inspector, same as 2D; only dragging to move a point or clicking to insert a new one still need a 2D tool. Orbiting re-centers on whatever you click, so a far corner of a large site orbits smoothly too; press <b>⊡ Fit</b> to recenter on the whole survey. Middle-mouse-drag pans.</div>
       </div>
       <div class="log">
         <h3>Edits <span class="n" id="logn">0</span></h3>
@@ -520,7 +520,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <h5>Views</h5>
       <ul>
         <li><b>Plan (2D)</b> is the default — pan/zoom/edit view, north-up.</li>
-        <li><b>3D (⟲ Orbit)</b> shows the survey by elevation for inspection only (no editing) — drag to orbit (it re-centers on whatever you click, so a far corner of a large site orbits smoothly instead of swinging wildly), wheel to zoom toward the cursor, Shift-drag <i>or</i> middle-mouse-drag to pan, and the <b>VERT EXAG</b> slider exaggerates elevation differences. <b>⊡ Fit</b> always resets to the whole-survey view.</li>
+        <li><b>3D (⟲ Orbit)</b> shows the survey by elevation — drag to orbit (it re-centers on whatever you click, so a far corner of a large site orbits smoothly instead of swinging wildly), wheel to zoom toward the cursor, Shift-drag <i>or</i> middle-mouse-drag to pan, and the <b>VERT EXAG</b> slider exaggerates elevation differences. <b>⊡ Fit</b> always resets to the whole-survey view. Clicking a point or line opens the same editable Inspector/figure editor as 2D — only dragging to move a point, and clicking to insert a brand-new one, still need a 2D tool.</li>
         <li><b>🗺 MAP</b> toggles an aerial imagery background (2D only) — county imagery with an Esri/USGS fallback chain.</li>
         <li><b>🏷 Labels</b> lets you choose whether each point shows its number, code, elevation (any combination) and at what text size.</li>
       </ul>
@@ -568,7 +568,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:82};
+const VERSION={fruit:'🍎',name:'APPLE',build:83};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2377,58 +2377,56 @@ function inspect(){const box=$('insp');
   const esc=s=>(s||'').replace(/"/g,'&quot;');
   if(p.kind==='ctrl'){const fs=figuresOfPoint(sel);
     const inserted=p.srcLine<0;
-    box.innerHTML=`<div class="field"><label>${fs.length?'Coded NEZ point — descriptor':'Control point — descriptor'}</label><input id="fDesc" value="${esc(p.desc)}" ${is3D?'disabled':''}></div>
-    <div class="field"><label>Pt #</label><input id="eId" value="${esc(p.id)}" ${is3D?'disabled':''}></div>
+    box.innerHTML=`<div class="field"><label>${fs.length?'Coded NEZ point — descriptor':'Control point — descriptor'}</label><input id="fDesc" value="${esc(p.desc)}"></div>
+    <div class="field"><label>Pt #</label><input id="eId" value="${esc(p.id)}"></div>
     <div class="field3">
-      <div class="field"><label>N</label><input id="eN" type="number" step="0.001" value="${p.N.toFixed(3)}" ${is3D?'disabled':''}></div>
-      <div class="field"><label>E</label><input id="eE" type="number" step="0.001" value="${p.E.toFixed(3)}" ${is3D?'disabled':''}></div>
-      <div class="field"><label>Z</label><input id="eZ" type="number" step="0.001" value="${p.Z.toFixed(3)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>N</label><input id="eN" type="number" step="0.001" value="${p.N.toFixed(3)}"></div>
+      <div class="field"><label>E</label><input id="eE" type="number" step="0.001" value="${p.E.toFixed(3)}"></div>
+      <div class="field"><label>Z</label><input id="eZ" type="number" step="0.001" value="${p.Z.toFixed(3)}"></div>
     </div>
     <div class="kv"><span class="k">source</span><span class="v">${inserted?'inserted (NEZ on export)':'NEZ line '+(p.srcLine+1)}</span></div>
     ${fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:''}
     ${connectTieHtml(sel)}
     <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
-    ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete'}</button></div>
-    <div class="note" style="padding:8px 0 0">Edits republish this NEZ record on export (coords, code &amp; point #).</div>`}`;
+    <div class="note" style="padding:8px 0 0">Edits republish this NEZ record on export (coords, code &amp; point #).${is3D?' Editable here in 3D too — dragging to move a point still needs a 2D tool.':''}</div>`;
     box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
     box.querySelectorAll('[data-act="zoomtie"]').forEach(b=>b.onclick=()=>{zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);});
     $('svBtn').onclick=()=>svOpenForPoint(sel);
-    if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
-      ['fDesc','eId','eN','eE','eZ'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
-      $('delBtn').onclick=()=>toggleDel(p);}
+    $('applyEdit').onclick=()=>applyPointEdit(p);
+    ['fDesc','eId','eN','eE','eZ'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
+    $('delBtn').onclick=()=>toggleDel(p);
     return;}
   box.innerHTML=`
-    <div class="field"><label>Descriptor / code</label><input id="fDesc" value="${esc(p.desc)}" ${is3D?'disabled':''}></div>
-    <div class="field"><label>Pt #</label><input id="eId" value="${esc(p.id)}" ${is3D?'disabled':''}></div>
+    <div class="field"><label>Descriptor / code</label><input id="fDesc" value="${esc(p.desc)}"></div>
+    <div class="field"><label>Pt #</label><input id="eId" value="${esc(p.id)}"></div>
     <div class="field3">
-      <div class="field"><label>N</label><input id="eN" type="number" step="0.001" value="${p.N.toFixed(3)}" ${is3D?'disabled':''}></div>
-      <div class="field"><label>E</label><input id="eE" type="number" step="0.001" value="${p.E.toFixed(3)}" ${is3D?'disabled':''}></div>
-      <div class="field"><label>Z</label><input id="eZ" type="number" step="0.001" value="${p.Z.toFixed(3)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>N</label><input id="eN" type="number" step="0.001" value="${p.N.toFixed(3)}"></div>
+      <div class="field"><label>E</label><input id="eE" type="number" step="0.001" value="${p.E.toFixed(3)}"></div>
+      <div class="field"><label>Z</label><input id="eZ" type="number" step="0.001" value="${p.Z.toFixed(3)}"></div>
     </div>
     <div class="field3">
-      <div class="field"><label>HA</label><input id="eHA" value="${deg2dms(p.ha)}" ${is3D?'disabled':''}></div>
-      <div class="field"><label>SD</label><input id="eSD" type="number" step="0.001" value="${p.sd.toFixed(3)}" ${is3D?'disabled':''}></div>
-      <div class="field"><label>ZA</label><input id="eZA" value="${deg2dms(p.za)}" ${is3D?'disabled':''}></div>
+      <div class="field"><label>HA</label><input id="eHA" value="${deg2dms(p.ha)}"></div>
+      <div class="field"><label>SD</label><input id="eSD" type="number" step="0.001" value="${p.sd.toFixed(3)}"></div>
+      <div class="field"><label>ZA</label><input id="eZA" value="${deg2dms(p.za)}"></div>
     </div>
-    <div class="field"><label>Rod HT${p.prism!==p.origPrism?' (edited)':''}</label><input id="eRod" type="number" step="0.001" value="${p.prism.toFixed(3)}" ${is3D?'disabled':''}></div>
+    <div class="field"><label>Rod HT${p.prism!==p.origPrism?' (edited)':''}</label><input id="eRod" type="number" step="0.001" value="${p.prism.toFixed(3)}"></div>
     <div class="kv"><span class="k">From STN</span><span class="v">${p.stn} (HI ${p.hi.toFixed(3)}) · ${p.face}</span></div>
     <div class="kv"><span class="k">src line</span><span class="v">${p.srcLine+1}</span></div>
     ${(()=>{const fs=figuresOfPoint(sel);return fs.length?`<div class="kv"><span class="k">on figures</span><span class="v">${fs.map(f=>`<span class="figtag" data-id="${f.id}">${f.code}</span>`).join(' ')}</span></div>`:'';})()}
     ${connectTieHtml(sel)}
     <button class="btn" id="svBtn" style="width:100%;justify-content:center;margin:7px 0">📷 Street View</button>
-    ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit codes or coordinates.</div>':`
     <div class="chgrp"><button class="btn gold" id="applyEdit">Apply edits</button>
       <button class="btn danger" id="delBtn">${p.deleted?'Restore':'Delete shot'}</button></div>
-    <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Edit <b>Rod HT</b> to correct a mis-recorded rod/prism height — HA/SD/ZA stay the same observation, only Z is recomputed; export brackets the corrected shot with <b>PRISM</b> lines so later shots on the same setup keep the original height. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.</div>
-    ${mode==='move'?'<div class="warnbox">Move active — dragging rewrites HA &amp; SD on line '+(p.srcLine+1)+'.</div>':''}`}`;
+    <div class="note" style="padding:8px 0 0">Edit N/E/Z to re-solve HA/SD/ZA (the shot stays a VA observation), or edit HA/SD/ZA directly. Edit <b>Rod HT</b> to correct a mis-recorded rod/prism height — HA/SD/ZA stay the same observation, only Z is recomputed; export brackets the corrected shot with <b>PRISM</b> lines so later shots on the same setup keep the original height. Multiple codes: space-separate, e.g. <b>RWLK2 RMONO B</b>.${is3D?' Editable here in 3D too — dragging to move a point still needs a 2D tool.':''}</div>
+    ${mode==='move'?'<div class="warnbox">Move active — dragging rewrites HA &amp; SD on line '+(p.srcLine+1)+'.</div>':''}`;
   box.querySelectorAll('.figtag').forEach(t=>t.onclick=()=>{selFig=t.dataset.id;sel=-1;inspectFig(getFig(selFig));draw();});
   box.querySelectorAll('[data-act="zoomtie"]').forEach(b=>b.onclick=()=>{zoomToPoint(+b.dataset.i);hud(`zoomed to pt ${PTS[+b.dataset.i].id}`);});
   $('svBtn').onclick=()=>svOpenForPoint(sel);
-  if(!is3D){$('applyEdit').onclick=()=>applyPointEdit(p);
-    ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA','eRod'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
-    $('delBtn').onclick=()=>toggleDel(p);}
+  $('applyEdit').onclick=()=>applyPointEdit(p);
+  ['fDesc','eId','eN','eE','eZ','eHA','eSD','eZA','eRod'].forEach(id=>$(id).onkeydown=e=>{if(e.key==='Enter')applyPointEdit(p);});
+  $('delBtn').onclick=()=>toggleDel(p);
 }
 /* Inspector for a box (marquee) selection of multiple points. */
 function inspectMulti(){const box=$('insp');const ids=[...selSet].filter(i=>PTS[i]);
@@ -2441,19 +2439,16 @@ function inspectMulti(){const box=$('insp');const ids=[...selSet].filter(i=>PTS[
     <div class="field"><label>Box selection</label>
       <div class="fighead"><span class="figname">${ids.length}</span>
         <span class="figmeta">points selected${delN?` · ${delN} already deleted`:''}</span></div></div>
-    ${is3D?'<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>':`
     <div class="chgrp">
       <button class="btn danger" id="mDel" ${liveN?'':'disabled'}>🗑 Delete (${liveN})</button>
       <button class="btn" id="mRestore" ${delN?'':'disabled'}>↺ Restore (${delN})</button>
     </div>
     <button class="btn" id="mClear" style="width:100%;justify-content:center;margin-top:7px">✕ Clear selection</button>
-    <div class="note" style="padding:8px 0 0">Drag a box on empty canvas in <b>SEL</b> to select points; <b>Shift-drag</b> adds to the selection. Delete archives every selected shot/point as <b>Deleted</b> on export.</div>`}
+    <div class="note" style="padding:8px 0 0">Drag a box on empty canvas in <b>SEL</b> to select points; <b>Shift-drag</b> adds to the selection. Delete archives every selected shot/point as <b>Deleted</b> on export.</div>
     <div class="vlist" style="margin-top:10px">${rows}${ids.length>80?`<div class="note">…and ${ids.length-80} more</div>`:''}</div>`;
-  if(!is3D){
-    $('mDel').onclick=()=>multiDelete(true);
-    $('mRestore').onclick=()=>multiDelete(false);
-    $('mClear').onclick=()=>{selSet.clear();sel=-1;selFig=null;inspect();draw();hud('selection cleared');};
-  }
+  $('mDel').onclick=()=>multiDelete(true);
+  $('mRestore').onclick=()=>multiDelete(false);
+  $('mClear').onclick=()=>{selSet.clear();sel=-1;selFig=null;inspect();draw();hud('selection cleared');};
 }
 function multiDelete(del){const ids=[...selSet].filter(i=>PTS[i]&&PTS[i].deleted!==del);
   if(!ids.length)return;
@@ -3160,7 +3155,7 @@ const HELP_CANVAS_TOOLS=[
   ['✥ MOVE','Drag a shot point to move it — rewrites its HA/SD from the new position (M).'],
   ['✋ PAN','Pan the view (space-drag also works with any tool active).'],
   ['⊕ WIN','Zoom window — drag a box to zoom to it, works in 2D or 3D (Z).'],
-  ['⟲ 3D','3D orbit view, inspect-only (O) — see Getting Started for the controls.'],
+  ['⟲ 3D','3D orbit view (O) — click a point or line to edit it right there, same as 2D; see Getting Started for the orbit/pan/zoom controls.'],
   ['↔ INV','Inverse — click two points to see the bearing/distance between them (I).'],
   ['◯ CIR','Draw a circle by center point + radius (C).'],
   ['⊙ CTR','Place a new point at the circumcircle center of 3 clicked points, or of an existing CIR-coded line\'s own first 3 vertices.'],

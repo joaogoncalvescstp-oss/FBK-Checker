@@ -97,9 +97,10 @@ first and follow it on every task in this repo.
     | 80 | 🥭 MANGO | owner: 3D orbit is hard to control on a large site (big distance between points), and asked to put the mouse **middle button** to use. Found 3 real bugs: the orbit pivot only ever moved on `fit()`/Go-to-point, so rotating far from it swept the view in a huge arc for a tiny drag; every zoom (wheel or +/−) silently re-centered the pivot to screen-middle (`refreshOrbitPivot()`), undoing any panning you'd just done; and middle-mouse-drag was a dead no-op in 3D (wrote to the unused `view.x/y` instead of `orbit.ox/oy`, then snapped the view on release). Fixed all three: `retargetOrbitPivot()` re-centers the pivot on whatever's under the cursor (a real point, or the ground plane at the pivot's elevation) at the start of every orbit drag, with zero visual jump — ⊡ Fit still resets to the whole-site pivot; `zoomOrbit()` replaces the recenter-on-pivot zoom with a proper zoom-about-cursor (matching the existing 2D behavior); middle-mouse-drag now actually pans `orbit.ox/oy` in 3D, with `preventDefault()` so the browser's native autoscroll cursor stops fighting it. See the dedicated section below for the full writeup and verification (numeric proof of the projection algebra, plus real headless-browser end-to-end tests against the actual `index.html` code paths — this repo has no sample `.fbk` on hand, so synthetic large-span point data was used instead). |
     | 81 | 🍐 PEAR | new **❓ Help** button (top toolbar, always enabled — works even with no file loaded) opens a reference modal with 4 tabs: **Getting Started** (load/import → view/edit → Knockdown/UGW→CPN → export, plus the 2D/3D/MAP/Labels view controls), **Tools** (every top-toolbar button, every canvas tool, the full keyboard-shortcut list, and mouse/touch gestures — all pulled together from text that already existed scattered across button `title=` attributes and the inspector's `.note` div, not re-invented), **Description-Key Codes** (B/E/CLS, BC/EC, PCC/PRC, OC, CIR, H/V, SO, RT/X/RECT, CPN/RPN, REF, PRISM — one row each, matching this file's own documented behavior for each), and **Curb Database** — every code in the app's actual `CURB_BOC`/`CURB_FL` objects (70 each) rendered as a card showing its real H/V step string, `CURB_KD`'s 12 knockdown-reveal values shown as a badge on the matching back-of-curb cards, plus a live filter box (`#helpCurbSearch`) — generated straight from those live JS objects (`curbCardsHTML`) rather than a hand-copied second list, so it can never drift out of sync with what Knockdown actually expands a code into. Modal styling reuses the existing `.modal`/`.scrim` pattern already used by every other dialog in the app; tab-switching is a small `setHelpTab()` toggling `.on` on one of 4 panes. Closes via **✕**, a backdrop click, or **Esc** — the letter-key tool shortcuts (`v`/`m`/`p`/`z`/`o`/`i`/`c`/`a`/`f`/`g`) are now also suppressed while the Help modal is open (added to the same guard the Go-to-point modal already used), so e.g. pressing **O** to read the "O = 3D orbit" shortcut row doesn't actually switch the canvas to orbit underneath the modal. Verified end-to-end through the real UI in a real headless browser: the button works with zero points loaded; all 4 tabs render (Tools: 14 toolbar rows / 11 canvas-tool rows / 14 key rows; Codes: 15 rows); the Curb Database tab's card counts (70 BOC, 70 FL, 12 KD-badged) match the real `CURB_BOC`/`CURB_FL`/`CURB_KD` object key counts exactly (cross-checked independently via a regex key-count over the raw source); typing "624" into the filter box correctly narrows the 70 BOC cards down to the 2 real matches (`L624`/`R624`) and clearing it restores all 70; Esc and backdrop-click both close it; pressing **O** while the modal is open leaves `mode` at its pre-open value instead of switching to orbit; and opening/closing the modal around a synthetic load+edit+`buildLinework()` cycle produced the correct figure count with zero console errors. |
     | 82 | 🍉 WATERMELON | new **⏮ Un-Knockdown** button — the owner asked for a way to convert a baked H/V curb offset back to its code, leaving anything unrecognized alone. Built as the structural inverse of `applyKnockdown()`, gated by the same RBCB/RCFL marker precondition, with two tiers: (1) any point knocked down THIS session restores its own literal pre-knockdown line via `p.kdInfo` (already tracked since build 11's review-window toggle, just never used for a permanent revert before) — exact, including a REF-derived custom reveal a bare code alone could never reproduce; (2) any other RBCB/RCFL point's baked H/V run is reverse-matched against `CURB_BOC`/`CURB_FL` by exact template string, and converted back to the bare code ONLY when that string is unique to one code. Checked the databases directly: `RD`/`RDPRK` and `LD`/`LDPRK` share an identical template in BOTH tables, so those (and anything with no match at all) are deliberately left untouched rather than guessed at — matching this project's standing rule (build 40/47/49) against guessing at what field data doesn't disambiguate. Reports the outcome afterward in a 3-section modal (`#unkdReportScrim`) — restored / converted / left-untouched, each listing the point IDs (and, for the untouched section, the exact H/V text that didn't safely match) — so "left untouched" is visible, not silent. Verified end-to-end through the real UI in a real headless browser with a synthetic file exercising all 4 cases at once: a session-knocked-down explicit-code point restored byte-exactly; a session-knocked-down REF-derived point (custom reveal) restored byte-exactly (proving the two-tier design, since no bare-code reverse-match could ever have produced this); a point with no `kdInfo` carrying an exact, unambiguous `L612` template converted correctly to `RBCB L612`; a point carrying the ambiguous `RD`/`RDPRK` shared template stayed untouched; a point with a nonsense H/V run stayed untouched; the report modal listed all 5 correctly (2 restored / 1 converted / 2 untouched); Esc and a real button click both closed it; and running Un-Knockdown a second time on the now-reverted file was a confirmed no-op (idempotent). Also re-verified through real toolbar-button clicks (not poked state) alongside Knockdown and the Help modal in the same session with zero console errors. |
+    | 83 | 🍎 APPLE | **3D view point/line editing unlocked** — the owner: "WHEN IN VIEW 3D AND SEL PION OR LINE MAKE ITT THE I CAN EDIT IN THAT VIEW." 3D orbit mode had been treated as strictly read-only in the single-point Inspector and the multi-select panel since the feature existed — `inspect()` disabled every field (`fDesc`/`eId`/`eN`/`eE`/`eZ`/`eHA`/`eSD`/`eZA`/`eRod`) with `${is3D?'disabled':''}` and swapped the Apply/Delete buttons for a dead `<div class="warnbox">3D inspect mode — switch to a 2D tool to edit.</div>`, and `inspectMulti()` did the same swap for its Delete/Restore/Clear buttons — none of that gating had a real technical reason behind it, since `applyPointEdit()`/`toggleDel()`/`multiDelete()` (the actual functions that mutate point data) never reference `is3D` at all and always operated purely on the point object passed in. Investigating **`inspectFig()`** (the figure/line editor) first showed it was ALREADY fully editable in 3D with no gating whatsoever — vertex reorder, remove, code edits, the "render as NEZ" checkbox, zoom-to-point, Street View, all worked identically in both views — so the real gap was narrower than the request first suggested: only the single-point and multi-select panels were blocking edits. Fix: removed every `${is3D?'disabled':''}` from both `inspect()` branches (control-point and shot-point), removed the `warnbox` ternary in favor of always rendering the Apply/Delete `chgrp` with a note that now reads "...${is3D?' Editable here in 3D too — dragging to move a point still needs a 2D tool.':''}" instead of blocking edits outright, and removed the `if(!is3D){...}` wrapper around the Apply/Delete/Enter-key handler wiring so it always runs; did the same for `inspectMulti()`'s Delete/Restore/Clear wiring. **What deliberately stays 2D-only, and why:** dragging a point to a new position (2D-only object-snap-driven drag, no 3D equivalent), and the three canvas-click "insert a brand-new point" flows (Insert point on line, Add Point (COGO) → Pick on canvas, ⊙ CTR circle-center picking) — all three depend on 2D-specific object-snap math (`snapPoint`/`pickSegmentForInsert`) with no valid 3D projection-inverse equivalent, exactly the same reasoning build 30 already used to keep those flows 2D-only for the Zoom-window tool. Editing an EXISTING point's own N/E/Z by typing a new value directly into the Inspector's fields, however, needs no canvas geometry at all — it's a plain textbox edit into `applyPointEdit()`, identical in both views — so there was no reason it had ever been disabled in 3D. Updated all three help surfaces that had documented the old restriction so none of them now say something the app itself no longer does: the Inspector's own empty-state note, the Help modal's **Getting Started** tab 3D bullet, and `HELP_CANVAS_TOOLS`'s `'⟲ 3D'` row (confirmed via grep that no "inspect only"/"3D inspect mode"/"switch to a 2D tool" text remains anywhere in the file). Verified end-to-end through a real headless browser two ways: (1) a poked-state sweep (`test_3dedit.js`) confirming every field's `disabled` property reads `false` in 3D for both a control point and a shot point, the Apply/Delete/Restore buttons are present with no `warnbox`, an edit typed into a 3D-rendered field and applied via the real Apply button actually changes `p.desc`/`p.E` on the underlying point object, deleting/restoring via the 3D Delete button actually flips `p.deleted`, the figure editor's reverse-order button is present in 3D (confirming `inspectFig` needed no changes), and a multi-select Delete click in 3D actually removes the expected count of points — all with zero console errors; (2) a real-UI sweep (`test_3dedit4.js`) that clicks the actual `#tOrbit` toolbar button to enter 3D, computes a real point's on-screen position via the app's own live `P3()` projection, drives real `page.mouse.move/down/up` events at that exact pixel (a single `page.mouse.click()` proved unreliable for the canvas's pointer handlers in earlier build-80 testing, so the same move/down/up sequence that worked there was reused here), types into the real `#fDesc` input, and clicks the real `#applyEdit`/`#delBtn` buttons — confirming the point's descriptor and deleted-state changed correctly through the actual UI in 3D, not just through poked JS state, mirroring the same edit already proven to work through the real UI in 2D in the same test run. |
   - Suggested next fruits to rotate through:
-    🍎 APPLE, 🍇 GRAPE,
-    🍋 LEMON, 🥭 MANGO.
+    🍇 GRAPE, 🍋 LEMON,
+    🥭 MANGO, 🍌 BANANA.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1863,6 +1864,133 @@ first and follow it on every task in this repo.
   parses (`node --check`) and that ordinary 2D pan/zoom/orbit-tool-select
   behavior is untouched (the 2D code paths in every changed function are
   the pre-existing `else` branches, unmodified).
+
+## 3D view editing — Inspector unlocked (`inspect`/`inspectMulti`, build 83)
+
+- The owner: "WHEN IN VIEW 3D AND SEL PION OR LINE MAKE ITT THE I CAN EDIT
+  IN THAT VIEW" — 3D orbit mode should let you edit a selected point or
+  line right there, not force a trip back to a 2D tool first.
+- **What was actually gating edits, and why most of it had no real reason
+  to:** `inspect()` (the single-point Inspector) rendered every field —
+  `fDesc`/`eId`/`eN`/`eE`/`eZ` for a control/coded-NEZ point, plus
+  `eHA`/`eSD`/`eZA`/`eRod` for a shot point — with `${is3D?'disabled':''}`
+  baked into the HTML string, and swapped the entire Apply/Delete button
+  group for a dead-end `<div class="warnbox">3D inspect mode — switch to a
+  2D tool to edit.</div>` whenever `is3D` was true; `inspectMulti()` did the
+  identical swap for its Delete/Restore/Clear buttons. None of this
+  reflected a real technical constraint — `applyPointEdit(p)`,
+  `toggleDel(p)`, and `multiDelete(bool)` (the actual functions that write
+  to point data) never read `is3D` anywhere in their own bodies; they just
+  take a point object (or the current `selSet`) and mutate it, identically
+  regardless of which view triggered the call. The `disabled`/`warnbox`
+  gating was purely a UI decision layered on top of already view-agnostic
+  logic, not something the underlying edit machinery required.
+- **Checked `inspectFig()` (the figure/line editor) before touching
+  anything, since it's the OTHER half of "point or line":** it turned out
+  to already be fully editable in 3D with zero gating anywhere — vertex
+  reorder (▲▼), remove (✕), per-vertex code edits, the "render as NEZ"
+  checkbox, zoom-to-point (⌖), and Street View (📷) all already worked
+  identically in both views, since `inspectFig` was never written with an
+  `is3D` check at all. So the real scope of this request was narrower than
+  it first read: only the single-point Inspector and the multi-select
+  panel needed unlocking, not the figure editor.
+- **Fix:** removed every `${is3D?'disabled':''}` from both branches of
+  `inspect()` (the `p.kind==='ctrl'` branch and the plain shot-point
+  branch) — `fDesc`, `eId`, `eN`, `eE`, `eZ`, `eHA`, `eSD`, `eZA`, `eRod`
+  are now always plain, always-enabled inputs regardless of view. Replaced
+  the `${is3D?warnbox:...}` ternary in both branches with the Apply/Delete
+  `chgrp` rendering unconditionally, and folded the old warning into the
+  trailing note instead of blocking the action entirely — the control-
+  point branch's note now reads `Edits republish this NEZ record on export
+  (coords, code & point #).${is3D?' Editable here in 3D too — dragging to
+  move a point still needs a 2D tool.':''}` (the shot-point branch's
+  equivalent note got the same treatment). Removed the `if(!is3D){...}`
+  wrapper that had gated wiring `$('applyEdit').onclick`, the
+  Enter-key-submits-on-any-field handler, and `$('delBtn').onclick` — all
+  three now always run. `inspectMulti()` got the same treatment: the
+  `${is3D?warnbox:...}` ternary around its Delete/Restore/Clear buttons is
+  gone (always rendered), and the `if(!is3D){...}` wrapper around wiring
+  `$('mDel')`/`$('mRestore')`/`$('mClear')` was removed so those three
+  always attach their handlers.
+- **What deliberately stays 2D-only, and why — not an oversight:**
+  1. **Dragging a point to a new position** — this is driven by 2D screen-
+     to-world math (`S2W`) with live object-snap under the cursor; the 3D
+     oblique projection (`P3`) has no such inverse (the same limitation
+     build 30's own zoom-window fix and build 80's orbit-pivot math both
+     already had to work around with screen-space-only formulas), so there
+     is no way to know where in 3D world space a screen drag should land a
+     point without inventing an assumption the app has no basis for.
+  2. **The three canvas-click "insert a brand-new point" flows** — Insert
+     point on line (`pickSegmentForInsert`), Add Point (COGO) → Pick on
+     canvas (`snapPoint`), and ⊙ CTR circle-center picking
+     (`startCircleCtrPick`) — all three depend on the same 2D-only object-
+     snap primitives (`snapPoint`/`collectSegments`/`collectOffsetSegments`,
+     explicitly documented elsewhere in this file as 2D-only, e.g. under
+     "Add Point (COGO) canvas pick + CAD snap") for locating an endpoint/
+     intersection/midpoint/nearest snap target. These already correctly
+     don't render their trigger buttons in 3D (per those sections' own
+     `!is3D` guards) — this build doesn't change that, since a canvas-
+     click-driven pick still has nowhere valid to resolve to in the oblique
+     3D projection.
+  - Both of these are the exact same "no world-space inverse for the
+    oblique 3D projection" limitation build 30 (Zoom window in 3D) already
+    documented and designed around — this build doesn't touch either of
+    them, it only unlocks the part of editing that never actually needed
+    canvas geometry at all: typing a new value into a field and applying it
+    is a plain textbox-to-object write (`applyPointEdit`), the same
+    operation in either view.
+- **Help surfaces updated so nothing still describes the old restriction:**
+  the Inspector's own empty-state note (shown before anything is selected)
+  changed from "3D orbits the survey by elevation — inspect only; switch
+  back to a 2D tool to edit." to "**3D** orbits the survey by elevation —
+  click a point or line to edit its fields right here in the Inspector,
+  same as 2D; only dragging to move a point or clicking to insert a new one
+  still need a 2D tool. Orbiting re-centers on whatever you click..."; the
+  Help modal's **Getting Started** tab 3D bullet dropped "for inspection
+  only (no editing)" and gained "Clicking a point or line opens the same
+  editable Inspector/figure editor as 2D — only dragging to move a point,
+  and clicking to insert a brand-new one, still need a 2D tool."; and
+  `HELP_CANVAS_TOOLS`'s `'⟲ 3D'` row was reworded to `'3D orbit view (O) —
+  click a point or line to edit it right there, same as 2D; see Getting
+  Started for the orbit/pan/zoom controls.'` — confirmed via a full-file
+  grep that no "inspect only" / "3D inspect mode" / "switch to a 2D tool"
+  text remains anywhere in `index.html` after these edits.
+- **Verified two ways in a real headless browser, both against the actual
+  live `index.html` code paths, not a reimplementation:**
+  1. **Poked-state sweep** — with `is3D=true` and a real point selected,
+     confirmed every field's `.disabled` property reads `false` for both a
+     control point and a shot point (`fDesc`/`eN`/`eHA`/`eRod` spot-checked
+     directly), the Apply/Delete buttons exist with no `warnbox` present;
+     editing `#fDesc` and clicking the real `#applyEdit` button actually
+     changed the underlying `PTS[i].desc` (verified `"RBCB B"` →
+     `"RBCB B RENAMED"`); editing `#eE` and applying it changed
+     `PTS[i].E` to the typed value on a real control point; clicking the
+     real `#delBtn` flipped `p.deleted` to `true`, and clicking it again
+     (now reading "Restore") flipped it back to `false`; confirmed
+     `inspectFig`'s own vertex-reorder button is present and enabled in 3D
+     (proving the figure editor needed no changes, consistent with the
+     investigation above); and a real click on the multi-select panel's
+     Delete button in 3D actually deleted the expected count (2) of
+     selected points. Zero console errors.
+  2. **Real-UI, real-click sweep** (`test_3dedit4.js`) — rather than poking
+     `is3D`/`sel` directly, this test clicked the real `#tOrbit` toolbar
+     button to actually enter 3D through the UI, computed a target point's
+     current on-screen pixel via the app's own live `P3(E,N,Z)` projection
+     (not a guess at screen coordinates), and drove real
+     `page.mouse.move()`/`.down()`/`.up()` events at that exact pixel — a
+     single `page.mouse.click()` had proven unreliable for this canvas's
+     pointer handlers in earlier build-80 testing (selection silently
+     never happened), so the same move/down/up sequence already proven
+     reliable there was reused. Confirmed the real click actually selected
+     the target point (`sel` changed to the right index) with the real
+     `#fDesc` input now present and enabled; typed a new value into it via
+     `page.fill()`, clicked the real `#applyEdit` button, and confirmed
+     `PTS[i].desc` updated to the typed text; then clicked the real
+     `#delBtn` and confirmed `PTS[i].deleted` flipped to `true` — all
+     through actual DOM interaction, immediately after the same test had
+     already proven the identical edit flow works through the real UI in
+     2D on a different point in the same run, showing the two views now
+     behave identically for this purpose. Zero console errors.
 
 ## Rod height (prism) — view + correct (`origPrism`, build 31)
 
