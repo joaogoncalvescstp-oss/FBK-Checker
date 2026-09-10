@@ -95,9 +95,10 @@ first and follow it on every task in this repo.
     | 79 | 🍋 LEMON | owner: **"it works now"** (billing fix confirmed, build 78's overlay confirmed working) — **"add invert color filter when click full[ ]screen in the viewer."** Google's Street View panorama has its own native fullscreen control (never explicitly disabled — `svPano.setOptions` never sets `fullscreenControl`, so it defaults on), and clicking it puts the browser into the real Fullscreen API, not just a bigger CSS box. That matters because the Fullscreen API only paints DESCENDANTS of whatever element `requestFullscreen()` was called on — build 78's `#svInvertOverlay` is a SIBLING of `#svPanoDiv` (deliberately, so it never fights Google's own style updates), so once the panorama went fullscreen the overlay would simply stop rendering even though nothing about its own `.on` state changed — it was still "on," just outside the part of the DOM the browser was now painting. Fix: `svSyncOverlayFullscreen()`, wired to both `fullscreenchange` and `webkitfullscreenchange` on `document`. On entering fullscreen, it checks whether `document.fullscreenElement` (or the webkit-prefixed equivalent) IS `#svPanoDiv`, is a descendant of it, or is an ancestor containing it — covers all 3 ways Google's own fullscreen control might target the DOM (fullscreening `#svPanoDiv` directly, or an internal wrapper it creates inside/around it) without needing to know which one Google actually does — and if so, reparents the overlay `<div>` directly INTO that fullscreen element (`appendChild`, a safe no-op if it's already there) and switches it from `position:absolute` to `position:fixed` (so its `inset:0` covers the real fullscreen viewport, not `#svPanoWrap`'s now-irrelevant box) with a max z-index so it stacks above whatever Google renders inside the fullscreen element. Exiting fullscreen reparents it straight back into `#svPanoWrap` at `position:absolute`, identical to build 78's baseline. `pointer-events:none` (unchanged since build 78) means the overlay never blocks the native exit-fullscreen control or dragging to look around, in or out of fullscreen. Verified in a real headless browser: since headless Chromium's real `requestFullscreen()` needs a genuine user gesture/flags this sandbox doesn't reliably provide, the app's OWN `svSyncOverlayFullscreen` function was exercised directly against a mocked `document.fullscreenElement` (the same technique used to isolate exactly the code path this build actually changed) — confirmed the overlay starts as a sibling of `#svPanoDiv` inside `#svPanoWrap` at `position:absolute`; entering fullscreen with `fsEl===#svPanoDiv` correctly reparents it into `#svPanoDiv` at `position:fixed` with the max z-index, `.on` state untouched; entering fullscreen with `fsEl` = a synthetic child element INSIDE `#svPanoDiv` (simulating an internal Google wrapper) correctly reparents it into THAT element instead; exiting fullscreen (`fullscreenElement=null`) correctly moves it back into `#svPanoWrap` at `position:absolute`; the Invert colors checkbox still toggles correctly (real click, both directions) after a full enter/exit fullscreen cycle, confirming the reparenting doesn't break the existing build-78 toggle wiring. Script parses, zero console errors beyond the pre-existing Google-domain network block. Still on `claude/streetview-color-test` only, still not merged — the one thing genuinely unverifiable from this sandbox is the REAL Fullscreen API firing `fullscreenchange` when the owner actually clicks Google's native fullscreen button (as opposed to the mocked-property test above, which proves the handler logic is correct but not that the browser calls it at the right moment) — the owner should confirm the invert stays visible and correctly positioned after clicking fullscreen in their real browser. |
     | — | — | **ROOT CAUSE FOUND — builds 72-77's entire CSS chase was solving the wrong problem.** The owner finally pulled real browser console output, and it shows a hard Google Maps API failure: `"You must enable Billing on the Google Cloud Project"` — the API key's Google Cloud project has no billing enabled, so Street View can't actually load/render properly. NOT a CSS bug, never was, no CSS on our side can fix it. This retroactively explains every symptom chased across builds 72-77: without billing, the panorama falls back to unstable/broken rendering, and whichever CSS filter/blend-mode tweak happened to be active just changed how that already-broken output looked (sometimes "inverted," sometimes black) — never a real fix-vs-break tradeoff. The fix is entirely outside this repo: enable billing on the Google Cloud project at `console.cloud.google.com` (Maps includes a monthly free credit, but a payment method must be on file regardless). No further CSS pushed pending that — next step is retesting on the CLEAN `claude/street-view-linework` baseline (build 71, pre-chase) once billing is on; if that alone renders correctly, all of `claude/streetview-color-test` (builds 72-77) gets discarded rather than merged. See the Street View section below for the full writeup. |
     | 80 | 🥭 MANGO | owner: 3D orbit is hard to control on a large site (big distance between points), and asked to put the mouse **middle button** to use. Found 3 real bugs: the orbit pivot only ever moved on `fit()`/Go-to-point, so rotating far from it swept the view in a huge arc for a tiny drag; every zoom (wheel or +/−) silently re-centered the pivot to screen-middle (`refreshOrbitPivot()`), undoing any panning you'd just done; and middle-mouse-drag was a dead no-op in 3D (wrote to the unused `view.x/y` instead of `orbit.ox/oy`, then snapped the view on release). Fixed all three: `retargetOrbitPivot()` re-centers the pivot on whatever's under the cursor (a real point, or the ground plane at the pivot's elevation) at the start of every orbit drag, with zero visual jump — ⊡ Fit still resets to the whole-site pivot; `zoomOrbit()` replaces the recenter-on-pivot zoom with a proper zoom-about-cursor (matching the existing 2D behavior); middle-mouse-drag now actually pans `orbit.ox/oy` in 3D, with `preventDefault()` so the browser's native autoscroll cursor stops fighting it. See the dedicated section below for the full writeup and verification (numeric proof of the projection algebra, plus real headless-browser end-to-end tests against the actual `index.html` code paths — this repo has no sample `.fbk` on hand, so synthetic large-span point data was used instead). |
+    | 81 | 🍐 PEAR | new **❓ Help** button (top toolbar, always enabled — works even with no file loaded) opens a reference modal with 4 tabs: **Getting Started** (load/import → view/edit → Knockdown/UGW→CPN → export, plus the 2D/3D/MAP/Labels view controls), **Tools** (every top-toolbar button, every canvas tool, the full keyboard-shortcut list, and mouse/touch gestures — all pulled together from text that already existed scattered across button `title=` attributes and the inspector's `.note` div, not re-invented), **Description-Key Codes** (B/E/CLS, BC/EC, PCC/PRC, OC, CIR, H/V, SO, RT/X/RECT, CPN/RPN, REF, PRISM — one row each, matching this file's own documented behavior for each), and **Curb Database** — every code in the app's actual `CURB_BOC`/`CURB_FL` objects (70 each) rendered as a card showing its real H/V step string, `CURB_KD`'s 12 knockdown-reveal values shown as a badge on the matching back-of-curb cards, plus a live filter box (`#helpCurbSearch`) — generated straight from those live JS objects (`curbCardsHTML`) rather than a hand-copied second list, so it can never drift out of sync with what Knockdown actually expands a code into. Modal styling reuses the existing `.modal`/`.scrim` pattern already used by every other dialog in the app; tab-switching is a small `setHelpTab()` toggling `.on` on one of 4 panes. Closes via **✕**, a backdrop click, or **Esc** — the letter-key tool shortcuts (`v`/`m`/`p`/`z`/`o`/`i`/`c`/`a`/`f`/`g`) are now also suppressed while the Help modal is open (added to the same guard the Go-to-point modal already used), so e.g. pressing **O** to read the "O = 3D orbit" shortcut row doesn't actually switch the canvas to orbit underneath the modal. Verified end-to-end through the real UI in a real headless browser: the button works with zero points loaded; all 4 tabs render (Tools: 14 toolbar rows / 11 canvas-tool rows / 14 key rows; Codes: 15 rows); the Curb Database tab's card counts (70 BOC, 70 FL, 12 KD-badged) match the real `CURB_BOC`/`CURB_FL`/`CURB_KD` object key counts exactly (cross-checked independently via a regex key-count over the raw source); typing "624" into the filter box correctly narrows the 70 BOC cards down to the 2 real matches (`L624`/`R624`) and clearing it restores all 70; Esc and backdrop-click both close it; pressing **O** while the modal is open leaves `mode` at its pre-open value instead of switching to orbit; and opening/closing the modal around a synthetic load+edit+`buildLinework()` cycle produced the correct figure count with zero console errors. |
   - Suggested next fruits to rotate through:
-    🍐 PEAR, 🍉 WATERMELON,
-    🍎 APPLE, 🍇 GRAPE.
+    🍉 WATERMELON, 🍎 APPLE,
+    🍇 GRAPE, 🍋 LEMON.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -2621,6 +2622,100 @@ first and follow it on every task in this repo.
   all-three / none) through both `draw2D()` and `draw3D()`: figure counts
   unchanged (70/99/161/36/43), zero console errors beyond the
   pre-existing, already-documented map-tile network block on any file.
+
+## Help & Reference modal (`openHelp`/`renderHelpTables`/`curbCardsHTML`, build 81, ❓ Help button)
+
+- The owner asked for a help menu covering how to use the app, what each
+  tool does, and a list of the curb data — this had never existed; the only
+  documentation was scattered across button `title=` attributes, the
+  inspector's `.note` div, and this file (which the owner never sees inside
+  the app itself).
+- **`#helpBtn`**, top toolbar — deliberately **never `disabled`**, unlike
+  almost every other toolbar button (Fit/Export/Knockdown/etc. all require a
+  file loaded first) — so a brand-new user can open Help before loading
+  anything at all.
+- **4 tabs** (`.helpTab`/`.helpPane`, toggled by `setHelpTab(name)` — sets
+  `.on` on the matching button/pane, plain CSS `display:none` otherwise, no
+  framework):
+  - **Getting Started** — the load/import → inspect/edit → bulk-tool
+    (Knockdown/UGW→CPN) → export workflow, plus a short rundown of the 2D/
+    3D/MAP/Labels view controls (including build 80's orbit-pivot-retargets-
+    on-click and middle-drag-pans behavior, so this doesn't go stale the
+    next time orbit navigation changes — update this tab alongside any
+    future 3D nav change).
+  - **Tools** — 4 tables built at open-time by `renderHelpTables()` from 4
+    plain arrays (`HELP_TOOLBAR`, `HELP_CANVAS_TOOLS`, `HELP_KEYS`, plus the
+    hardcoded mouse/touch table): the top toolbar's buttons, the left
+    canvas-tool column's buttons, every keyboard shortcut the app's own
+    `keydown` handlers actually implement (`v/m/p/z/o/i/c/a/f/g`, Ctrl+Z/Y,
+    Del/Backspace, Esc), and mouse/touch gestures (left/middle/shift-drag,
+    wheel, pinch, Del, Esc). These arrays are hand-written summaries of
+    behavior that already exists elsewhere in the code (button `title=`
+    text, the `keydown` handlers, the `.note`/`#orbHint` text) — **keep them
+    in sync**: if a shortcut or tool's behavior changes, update its row here
+    too, the same discipline this file's other sections already expect.
+  - **Description-Key Codes** (`HELP_CODES`) — one row per line code this
+    app parses (`B`/`E`/`CLS`, `BC..EC`, `PCC`/`PRC`, `OC`, `CIR`, `H<v>
+    V<v>`, `SO`, `RT<v>`, `X<v>`, `RECT<v>`, `CPN<n>`/`RPN<n>`, `REF`,
+    `PRISM<v>`) — summarizing the behavior already fully documented in this
+    file's own dedicated sections (BC..EC curve linework, OC tangent-arc,
+    SO stop-offset, RT/X/RECT, CPN/RPN, Knockdown's REF workflow, Rod
+    height's PRISM bracketing) so a user doesn't have to dig through this
+    whole file to find the one line they need.
+  - **Curb Database** — the actual reason this needed live data instead of
+    a written table: `curbCardsHTML(db,kd)` reads the app's real
+    `CURB_BOC`/`CURB_FL` objects directly (`Object.keys(db).sort().map(...)`)
+    and renders one card per code showing its real `H`/`V` step string
+    exactly as `expandCurb` would consume it — so this list **cannot drift
+    out of sync** with what Knockdown actually does, the way a hand-typed
+    second copy of the database eventually would once someone edits
+    `CURB_BOC`/`CURB_FL` and forgets the docs. Back-of-curb cards also show
+    a `KD <value>` badge when that code has a `CURB_KD` knockdown-reveal
+    entry (12 of the 70 codes). `#helpCurbSearch` live-filters the cards by
+    code substring (case-insensitive) via plain `style.display` toggling —
+    no rebuild, just show/hide. `renderCurbData()` only builds the ~140
+    cards once (`helpCurbBuilt` guard), not on every modal open, since the
+    underlying data never changes at runtime.
+- **Styling** reuses the exact same `.scrim`/`.modal` pattern every other
+  dialog in the app already uses (`Go to point`, `Add Point (COGO)`, the
+  FBK code editor, etc.) — a new `.modal.help` width variant
+  (`min(860px,94vw)`) and a small set of `.helpTab`/`.helpPane`/`.helpTbl`/
+  `.curbCard` rules, nothing structurally new. Closes via **✕**
+  (`#helpCloseBtn`), a backdrop click (`$('helpScrim').onclick`, the same
+  "click === the scrim element itself" pattern every other modal uses), or
+  **Esc**.
+- **A real interaction bug caught before shipping:** the app's main
+  `keydown` handler maps bare letters to tool switches (`o`→3D orbit,
+  `v`→SEL, etc.) whenever focus isn't in an `<input>` — the Help modal has
+  no inputs except the curb search box, so pressing a letter key while
+  reading the Tools tab (e.g. actually typing "O" while looking at the "O =
+  3D orbit" row) would have silently switched the canvas's tool/view
+  underneath the modal. Fixed by adding `$('helpScrim').classList.contains
+  ('show')` to the same early-return guard the Go-to-point modal
+  (`$('scrim')`) already used, and adding a dedicated `Escape` check (before
+  that guard, so Esc still closes Help even though the guard would
+  otherwise swallow it) that calls `closeHelp()`. Undo/redo (`Ctrl+Z`/
+  `Ctrl+Y`) are deliberately NOT blocked while Help is open — same as every
+  other modal — since undoing/redoing the underlying point data doesn't
+  interact with the modal at all.
+- Verified end-to-end through the real UI in a real headless browser: the
+  button is clickable with zero points loaded (`PTS.length===0`, confirming
+  it's genuinely never `disabled`); opening it shows the modal with
+  **Getting Started** active by default; switching to **Tools** renders 14
+  toolbar rows / 11 canvas-tool rows / 14 keyboard-shortcut rows; **Codes**
+  renders 15 rows; **Curb Database** renders exactly 70 BOC cards and 70 FL
+  cards, with exactly 12 BOC cards carrying a `KD` badge — all 3 counts
+  independently cross-checked against a regex key-count over the raw
+  `CURB_BOC`/`CURB_FL`/`CURB_KD` object-literal source, not just re-reading
+  the same JS object the app itself uses; typing `624` into the curb search
+  box narrows the 70 BOC cards to the 2 real matches (`L624`/`R624`) and
+  clearing the box restores all 70; **Esc** and a backdrop click both close
+  the modal; reopening it and pressing **O** leaves the app's `mode`
+  variable at its pre-open value (confirmed it does NOT switch to `'orbit'`
+  the way it would with the modal closed); and a full synthetic
+  load→edit→`buildLinework()` cycle performed around an open/close of the
+  Help modal produced the correct figure count with zero console errors
+  beyond the pre-existing, already-documented map-tile network block.
 
 ## Project layout
 

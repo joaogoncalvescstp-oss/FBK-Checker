@@ -148,6 +148,30 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .modal .hint{font:11px var(--mono);color:var(--mut);margin-top:8px;min-height:14px}
 .modal .row{display:flex;gap:8px;margin-top:14px}
 .modal .row .btn{flex:1;justify-content:center}
+/* help modal */
+.modal.help{width:min(860px,94vw)}
+.helpTabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--rule);padding-bottom:12px}
+.helpTab{background:transparent;color:var(--mut);border:1px solid var(--rule);padding:6px 12px;border-radius:6px;font:600 11px var(--mono);letter-spacing:.05em;cursor:pointer;text-transform:uppercase}
+.helpTab:hover{color:var(--ink);border-color:var(--gold-dim)}
+.helpTab.on{background:var(--gold);color:#1b1300;border-color:var(--gold)}
+.helpPane{display:none;max-height:min(64vh,560px);overflow:auto;padding-right:6px}
+.helpPane.on{display:block}
+.helpPane h5{font:700 11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin:16px 0 6px}
+.helpPane h5:first-child{margin-top:0}
+.helpPane p,.helpPane li{font-size:12px;line-height:1.6;color:var(--ink)}
+.helpPane ul{padding-left:18px;margin:4px 0 10px}
+.helpPane .mut{color:var(--mut)}
+.helpTbl{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11.5px}
+.helpTbl th{text-align:left;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:4px 8px;border-bottom:1px solid var(--rule)}
+.helpTbl td{padding:5px 8px;border-bottom:1px dotted var(--rule);vertical-align:top;font:12px/1.5 var(--mono)}
+.helpTbl td.key{color:var(--gold);font-weight:700;white-space:nowrap}
+.helpSearch{width:100%;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:8px 10px;font:12px var(--mono);text-align:left;letter-spacing:0;margin-bottom:10px}
+.helpSearch:focus{outline:none;border-color:var(--gold)}
+.curbGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px}
+.curbCard{background:var(--panel2);border:1px solid var(--rule);border-radius:6px;padding:7px 9px}
+.curbCard .cc-code{color:var(--gold);font:700 12px var(--mono)}
+.curbCard .cc-kd{color:var(--pass);font:600 10px var(--mono);float:right}
+.curbCard .cc-steps{color:var(--mut);font:11px var(--mono);margin-top:3px;word-break:break-word}
 .sideToggle{display:none}
 .sideScrim{display:none}
 .sideClose{display:none}
@@ -185,8 +209,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
+    <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
   </div>
 
   <div class="main">
@@ -450,6 +475,75 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   </div>
 </div>
 
+<!-- help & reference -->
+<div class="scrim" id="helpScrim">
+  <div class="modal help">
+    <h4 style="display:flex;align-items:center;justify-content:space-between">
+      <span>Help &amp; Reference</span>
+      <button class="sideClose" id="helpCloseBtn" style="display:inline-flex" title="Close">✕</button>
+    </h4>
+    <div class="helpTabs">
+      <button class="helpTab" data-pane="helpStart">Getting Started</button>
+      <button class="helpTab" data-pane="helpTools">Tools</button>
+      <button class="helpTab" data-pane="helpCodes">Description-Key Codes</button>
+      <button class="helpTab" data-pane="helpCurb">Curb Database</button>
+    </div>
+
+    <div class="helpPane" id="helpStart">
+      <h5>Quick start</h5>
+      <ul>
+        <li><b>↥ Load FBK</b> a field book text file (or <b>↥ Import CSV</b> a comma-delimited PNEZD file — point#, N, E, Z, description). You can layer more than one import onto what's already loaded.</li>
+        <li>The canvas shows every point as a dot and draws linework for any figure code that has a <b>B</b> (begin) somewhere in the file — codes with no B stay plain, unconnected points.</li>
+        <li>Click a point (in <b>SEL</b>) to open the Inspector on the right — edit its N/E/Z, HA/SD/ZA, rod height, or descriptor code there; edits reflect live on the canvas and in <b>Review/edit FBK code</b> (the <span class="figtag" style="cursor:default">CODE</span> tag on a selected line).</li>
+        <li>Click a <i>line</i> (not a point) to open the figure editor — reorder vertices, jump/zoom to one, insert a point on the line, walk it in Street View, or render it as plain NEZ coordinates on export.</li>
+        <li><b>⚙ Knockdown</b> bakes curb codes (see the Curb Database tab) into real H/V offset coordinates. <b>🧭 UGW→CPN</b> pairs guy wires to their nearest pole with an editable review before applying — both are one-click bulk operations, run them once your points look right.</li>
+        <li>When you're done, <b>↓ Export FBK</b> writes a field-book file back out (or <b>↓ Export (codes)</b> to keep the original curb-code names instead of baked offsets, or <b>↓ Export CSV</b> for a plain PNEZD coordinate file).</li>
+        <li><b>↶ Undo</b> / <b>↷ Redo</b> (Ctrl+Z / Ctrl+Y) cover every edit — point moves, code changes, deletes, Knockdown, UGW→CPN, and inserts.</li>
+      </ul>
+      <h5>Views</h5>
+      <ul>
+        <li><b>Plan (2D)</b> is the default — pan/zoom/edit view, north-up.</li>
+        <li><b>3D (⟲ Orbit)</b> shows the survey by elevation for inspection only (no editing) — drag to orbit (it re-centers on whatever you click, so a far corner of a large site orbits smoothly instead of swinging wildly), wheel to zoom toward the cursor, Shift-drag <i>or</i> middle-mouse-drag to pan, and the <b>VERT EXAG</b> slider exaggerates elevation differences. <b>⊡ Fit</b> always resets to the whole-survey view.</li>
+        <li><b>🗺 MAP</b> toggles an aerial imagery background (2D only) — county imagery with an Esri/USGS fallback chain.</li>
+        <li><b>🏷 Labels</b> lets you choose whether each point shows its number, code, elevation (any combination) and at what text size.</li>
+      </ul>
+    </div>
+
+    <div class="helpPane" id="helpTools">
+      <h5>Top toolbar</h5>
+      <table class="helpTbl"><tbody id="helpToolbarTbl"></tbody></table>
+      <h5>Canvas tools (left column)</h5>
+      <table class="helpTbl"><tbody id="helpCanvasTbl"></tbody></table>
+      <h5>Keyboard shortcuts</h5>
+      <table class="helpTbl"><tbody id="helpKeysTbl"></tbody></table>
+      <h5>Mouse &amp; touch</h5>
+      <table class="helpTbl"><tbody>
+        <tr><td class="key">Left drag</td><td>Tool-dependent: box-select in SEL, orbit in 3D, pan in PAN, box-zoom in WIN.</td></tr>
+        <tr><td class="key">Middle drag</td><td>Pan, in either the 2D or 3D view, regardless of the active tool.</td></tr>
+        <tr><td class="key">Shift-drag</td><td>Pan while in 3D orbit (an alternative to middle-drag); Shift/Ctrl-drag in SEL adds to the current box selection.</td></tr>
+        <tr><td class="key">Wheel</td><td>Zoom toward the cursor (2D and 3D alike).</td></tr>
+        <tr><td class="key">Touch</td><td>Drag pans, pinch zooms, one finger orbits in 3D.</td></tr>
+        <tr><td class="key">Del / Backspace</td><td>Delete the current box (multi-)selection.</td></tr>
+        <tr><td class="key">Esc</td><td>Cancel whatever pick/pan/insert is in progress, or clear a box selection.</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="helpPane" id="helpCodes">
+      <p class="mut">These tokens go in a point's descriptor (after the figure code), space- or glue-separated, e.g. <code>RBCB B BC R624</code>. Case-insensitive.</p>
+      <table class="helpTbl"><tbody id="helpCodesTbl"></tbody></table>
+    </div>
+
+    <div class="helpPane" id="helpCurb">
+      <p class="mut">The built-in curb cross-section template database — what <b>⚙ Knockdown</b> expands a curb code into (H = horizontal offset from the coded point, V = vertical offset; a code repeats through several H/V pairs, one per cross-section break). KD is the knockdown reveal <b>⚙ Knockdown</b> uses for RBCB points with no code of their own, derived from the nearest REF point.</p>
+      <input class="helpSearch" id="helpCurbSearch" placeholder="filter by code, e.g. 624 or L618…">
+      <h5>Back-of-Curb (RBCB) <span class="mut" id="curbBocCount"></span></h5>
+      <div class="curbGrid" id="curbBocGrid"></div>
+      <h5>Flow-Line (RCFL) <span class="mut" id="curbFlCount"></span></h5>
+      <div class="curbGrid" id="curbFlGrid"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -457,7 +551,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥭',name:'MANGO',build:80};
+const VERSION={fruit:'🍐',name:'PEAR',build:81};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2956,15 +3050,107 @@ $('lblNumChk').onchange=e=>{labelShow.num=e.target.checked;draw();};
 $('lblCodeChk').onchange=e=>{labelShow.code=e.target.checked;draw();};
 $('lblElevChk').onchange=e=>{labelShow.elev=e.target.checked;draw();};
 $('lblSizeR').oninput=e=>{labelSize=+e.target.value;$('lblSizeV').textContent=labelSize+'px';draw();};
+
+/* ---------- help & reference (build 81) ---------- */
+const HELP_TOOLBAR=[
+  ['⌖ Go to point','Jump/zoom to a point by number (G).'],
+  ['↥ Load FBK','Load a field-book .fbk/.txt file.'],
+  ['↥ Import CSV','Import a comma-delimited PNEZD file (point#, N, E, Z, description) — a header row is auto-detected, points are appended to whatever is loaded.'],
+  ['⊡ Fit','Frame the whole survey (F).'],
+  ['↻ Refresh','Force a full rebuild of the linework and curb offset lanes from the current point data — use if the drawing (especially the green offset lines) looks stale after an edit.'],
+  ['↶ Undo / ↷ Redo','Step edit history back/forward (Ctrl+Z / Ctrl+Y) — covers point moves, code edits, deletes, Knockdown, UGW→CPN, and inserts.'],
+  ['⚙ Knockdown','Bake curb codes into real H/V offset coordinates. <b>RBCB</b> (back of curb) — a point with its own code gets that code\'s cross-section; a point with no code derives the reveal from the nearest <b>REF</b> point. <b>RCFL</b> (flow line) — only applies at points that carry their own curb code.'],
+  ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
+  ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
+  ['↓ Export FBK','Write the current points/edits back out as a field-book file.'],
+  ['↓ Export (codes)','Same export, but keeps the original curb-code names instead of the baked Knockdown offsets.'],
+  ['↓ Export CSV','Write every non-deleted point as a comma-delimited PNEZD file — round-trips with Import CSV.'],
+  ['🏷 Labels','Choose which of Point #, Code, Elevation show next to each point on the canvas, and their text size.'],
+  ['☰ Inspector','(narrow screens only) opens the Inspector as a slide-in drawer.'],
+];
+const HELP_CANVAS_TOOLS=[
+  ['▦ SEL','Select / edit (V). Click a point to inspect/edit it, click a line to open its figure editor, drag on empty canvas to box-select many points (Shift/Ctrl-drag adds).'],
+  ['✥ MOVE','Drag a shot point to move it — rewrites its HA/SD from the new position (M).'],
+  ['✋ PAN','Pan the view (space-drag also works with any tool active).'],
+  ['⊕ WIN','Zoom window — drag a box to zoom to it, works in 2D or 3D (Z).'],
+  ['⟲ 3D','3D orbit view, inspect-only (O) — see Getting Started for the controls.'],
+  ['↔ INV','Inverse — click two points to see the bearing/distance between them (I).'],
+  ['◯ CIR','Draw a circle by center point + radius (C).'],
+  ['⊙ CTR','Place a new point at the circumcircle center of 3 clicked points, or of an existing CIR-coded line\'s own first 3 vertices.'],
+  ['➤ DIR','Toggle direction arrows on the linework (A).'],
+  ['🗺 MAP','Toggle the aerial imagery background (2D only).'],
+  ['＋ / －','Zoom in / out, centered on the current view.'],
+];
+const HELP_KEYS=[
+  ['V','Select tool'],['M','Move tool'],['P','Pan tool'],['Z','Zoom window tool'],
+  ['O','3D orbit'],['I','Inverse tool'],['C','Draw circle'],['A','Toggle direction arrows'],
+  ['F','Fit to the whole survey'],['G','Go to point #'],
+  ['Ctrl+Z','Undo'],['Ctrl+Y or Ctrl+Shift+Z','Redo'],
+  ['Delete / Backspace','Delete the box-selected points'],['Esc','Cancel a pick/insert in progress, or clear a box selection'],
+];
+const HELP_CODES=[
+  ['B','Begin a figure/line at this point.'],
+  ['E / CLS','End the figure at this point (E), or close it back to its own start (CLS).'],
+  ['BC … EC <span class="mut">(PC/PT aliases)</span>','Marks a curve span — fits a true best-fit constant-radius arc through every shot between BC and EC, falling back to a smooth spline if the points don\'t sit on one circle.'],
+  ['PCC / PRC','Put on an interior point of a BC..EC run to start a new independently-fit radius there (a compound or reverse curve) without ending the run.'],
+  ['OC <span class="mut">(POC)</span>','Rounds a corner between two straight tangent runs with a smooth arc tangent to both, passing through the coded point.'],
+  ['CIR / CIRCLE','Draws the full circle through 3 points — the one figure code that doesn\'t need a B; a 3-point CIR cluster implicitly begins and auto-closes its own circle.'],
+  ['H&lt;value&gt; V&lt;value&gt;','Parallel curb/edge offset line at that horizontal and vertical distance from the base line — persists along the run until changed or stopped by SO.'],
+  ['SO','Stops the current H/V offset line after this point (the base line keeps going); a later H/V restarts the offset.'],
+  ['RT&lt;value&gt;','Right-turn jog: turns 90° off the current travel direction and draws a perpendicular segment (sign = right/left of travel). Several RT/X values can chain on one point.'],
+  ['X&lt;value&gt;','Extends the current segment straight through this point by value.'],
+  ['RECT&lt;value&gt;','Closes an RT jog — or a plain 3-shot L with no RT at all — into a full closed rectangle.'],
+  ['CPN&lt;n&gt;','Connect-to-point — ties this point with its own single connector line directly to previously-shot point n (used when beginning a feature).'],
+  ['RPN&lt;n&gt;','Recall-point-number — the same kind of tie as CPN, used when ending a feature.'],
+  ['REF','Marks a reference point Knockdown uses to derive a nearby uncoded RBCB point\'s reveal (back-of-curb workflow only — never used for RCFL).'],
+  ['PRISM&lt;value&gt;','A standalone line (not a descriptor token) setting the rod/prism height for every following shot on the current setup, until the next PRISM line.'],
+];
+function renderHelpTables(){
+  const row=(a,b)=>`<tr><td class="key">${a}</td><td>${b}</td></tr>`;
+  $('helpToolbarTbl').innerHTML=HELP_TOOLBAR.map(r=>row(r[0],r[1])).join('');
+  $('helpCanvasTbl').innerHTML=HELP_CANVAS_TOOLS.map(r=>row(r[0],r[1])).join('');
+  $('helpKeysTbl').innerHTML=HELP_KEYS.map(r=>row(r[0],r[1])).join('');
+  $('helpCodesTbl').innerHTML=HELP_CODES.map(r=>row(r[0],r[1])).join('');
+}
+function curbCardsHTML(db,kd){
+  return Object.keys(db).sort().map(code=>{
+    const rev=(kd&&kd[code]!=null)?`<span class="cc-kd">KD ${kd[code]}</span>`:'';
+    return `<div class="curbCard" data-code="${code.toLowerCase()}"><span class="cc-code">${code}</span>${rev}<div class="cc-steps">${db[code]}</div></div>`;
+  }).join('');
+}
+let helpCurbBuilt=false;
+function renderCurbData(){
+  if(helpCurbBuilt)return;helpCurbBuilt=true;               // static data — build the (100+ card) grid once, not every time Help opens
+  $('curbBocGrid').innerHTML=curbCardsHTML(CURB_BOC,CURB_KD);
+  $('curbFlGrid').innerHTML=curbCardsHTML(CURB_FL,null);
+  $('curbBocCount').textContent=`(${Object.keys(CURB_BOC).length} codes)`;
+  $('curbFlCount').textContent=`(${Object.keys(CURB_FL).length} codes)`;
+}
+$('helpCurbSearch').oninput=e=>{
+  const q=e.target.value.trim().toLowerCase();
+  document.querySelectorAll('.curbCard').forEach(c=>{c.style.display=(!q||c.dataset.code.includes(q))?'':'none';});
+};
+function setHelpTab(name){
+  document.querySelectorAll('.helpTab').forEach(b=>b.classList.toggle('on',b.dataset.pane===name));
+  document.querySelectorAll('.helpPane').forEach(p=>p.classList.toggle('on',p.id===name));
+}
+function openHelp(){renderHelpTables();renderCurbData();setHelpTab('helpStart');$('helpScrim').classList.add('show');}
+function closeHelp(){$('helpScrim').classList.remove('show');}
+$('helpBtn').onclick=openHelp;
+$('helpCloseBtn').onclick=closeHelp;
+$('helpScrim').onclick=e=>{if(e.target===$('helpScrim'))closeHelp();};
+document.querySelectorAll('.helpTab').forEach(b=>b.onclick=()=>setHelpTab(b.dataset.pane));
+
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
 $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{importCSV(rd.result);e.target.value='';};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&$('helpScrim').classList.contains('show')){e.preventDefault();closeHelp();return;}
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
