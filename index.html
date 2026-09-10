@@ -212,7 +212,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -568,7 +568,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍎',name:'APPLE',build:83};
+const VERSION={fruit:'🍇',name:'GRAPE',build:84};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -671,22 +671,40 @@ function updateUndoRedoButtons(){
   $('redoBtn').disabled=redoStack.length===0;
 }
 
+/* ---------- REF-hide: comment a pure REF shot out of the exported file ----------
+   A REF point exists only to give Knockdown a reveal to measure from — CAD never
+   needs to see it as a real point. exportFBK prefixes a pure REF shot's line with
+   REF_HIDE so any FBK/CAD reader (which only recognizes known keyword lines, same
+   assumption the existing "Deleted <stamp>" archive marker already relies on)
+   silently skips it, while this app still tokenizes right through the marker on
+   the next load — see parse()'s deHide() — so the point keeps working for
+   Knockdown exactly as if it were never hidden. A REF point that also carries
+   another code (a "multi-code shot" — CAD needs it for that other purpose) is
+   never touched: isPureRefDesc requires the description to be nothing BUT the
+   bare REF token. */
+const REF_HIDE='-- ';
+function isPureRefDesc(desc){
+  const t=(desc||'').trim().split(/\s+/).filter(Boolean);
+  return t.length===1 && /^REF\d*$/i.test(t[0]);
+}
+
 /* ---------- parse + reduce ---------- */
 function parse(text){
   RAW=text.split(/\r?\n/); PTS=[]; const ctrl={};
-  RAW.forEach((ln,idx)=>{const t=ln.trim().split(/\s+/);
-    if(t[0]==='NEZ'){const m=ln.match(/"([^"]*)"/);
+  const deHide=ln=>ln.startsWith(REF_HIDE)?{txt:ln.slice(REF_HIDE.length),hidden:true}:{txt:ln,hidden:false};
+  RAW.forEach((ln,idx)=>{const {txt,hidden}=deHide(ln);const t=txt.trim().split(/\s+/);
+    if(t[0]==='NEZ'){const m=txt.match(/"([^"]*)"/);
       ctrl[t[1]]={N:+t[2],E:+t[3],Z:+t[4],desc:m?m[1]:''};
-      PTS.push({id:t[1],code:'CP',desc:m?m[1]:'',N:+t[2],E:+t[3],Z:+t[4],srcLine:idx,kind:'ctrl',deleted:false});}});
+      PTS.push({id:t[1],code:'CP',desc:m?m[1]:'',N:+t[2],E:+t[3],Z:+t[4],srcLine:idx,kind:'ctrl',deleted:false,refHidden:hidden});}});
   // station coords come from NEZ control OR from a point that was shot earlier (e.g. MAG setups);
   // resolve setups in repeated passes so a reduced point can serve as a later station.
   const known={};for(const id in ctrl)known[id]={N:ctrl[id].N,E:ctrl[id].E,Z:ctrl[id].Z};
   const resolved=new Set();let added=true,guard=0;
   while(added&&guard++<12){added=false;
     let stn=null,hi=0,ori=null,prism=0;
-    RAW.forEach((ln,idx)=>{const t=ln.trim().split(/\s+/);if(!t[0])return;
+    RAW.forEach((ln,idx)=>{const {txt,hidden}=deHide(ln);const t=txt.trim().split(/\s+/);if(!t[0])return;
       if(t[0]==='STN'){stn={id:t[1]};hi=+t[2];ori=null;}
-      else if(ln.startsWith('Used last station')){}
+      else if(txt.startsWith('Used last station')){}
       else if(t[0]==='PRISM'&&t.length===2){const p=+t[1];if(!isNaN(p))prism=p;}
       else if(t[0]==='BS'&&stn){const bs=t[1],circ=t.length>2?dms2deg(+t[2]):0;
         const S=known[stn.id],B=known[bs];
@@ -695,14 +713,14 @@ function parse(text){
         if(!/^[0-9]/.test(t[2])){resolved.add(idx);return;}   // check/temp shots ("CHK IN", "Temp") have a quoted note, no pt # — QA only, not stored points
         if(resolved.has(idx))return;
         if(ori===null)return;const S=known[stn.id];if(!S)return;
-        const m=ln.match(/"([^"]*)"/);const desc=m?m[1]:'';
+        const m=txt.match(/"([^"]*)"/);const desc=m?m[1]:'';
         let ha=dms2deg(+t[3]);const sd=+t[4];let za=dms2deg(+t[5]);
         if(!isFinite(ha)||!isFinite(sd)||!isFinite(za)){resolved.add(idx);return;}   // malformed numerics — skip rather than poison bounds with NaN
         if(t[0]==='F2'&&za>180){za=360-za;ha=(ha+180)%360;}
         const az=(ori+ha)%360,hd=sd*Math.sin(za*Math.PI/180),vd=sd*Math.cos(za*Math.PI/180);
         const N=S.N+hd*Math.cos(az*Math.PI/180),E=S.E+hd*Math.sin(az*Math.PI/180),Z=S.Z+vd+hi-prism;
         PTS.push({id:t[2],code:(desc.split(/\s+/)[0]||'').toUpperCase(),desc,N,E,Z,srcLine:idx,kind:'shot',
-          stn:stn.id,hi,ori,ha,sd,za,prism,origPrism:prism,sN:S.N,sE:S.E,sZ:S.Z,face:t[0],deleted:false,edited:false});
+          stn:stn.id,hi,ori,ha,sd,za,prism,origPrism:prism,sN:S.N,sE:S.E,sZ:S.Z,face:t[0],deleted:false,edited:false,refHidden:hidden});
         resolved.add(idx);added=true;
         if(!known[t[2]])known[t[2]]={N,E,Z};        // this point can now anchor a later setup
       }});
@@ -2707,10 +2725,18 @@ function logEdit(type,msg){log.push({type,msg});$('logn').textContent=log.length
 function flagDirty(){$('dlBtn').classList.add('gold');$('dlRawBtn').classList.add('gold');}
 function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
   let ln=RAW[p.srcLine];if(ln===undefined)return ln;
-  const t=ln.split(/\s+/);
+  // strip/restore the REF_HIDE comment marker around the edit so an edited-but-
+  // still-hidden REF point (Rod HT/N/E/Z corrections, etc.) keeps tokenizing
+  // correctly (t[1]==='VA' would otherwise miss, shifted by the marker token)
+  // and stays hidden from CAD afterward.
+  const hidden=ln.startsWith(REF_HIDE);
+  const body=hidden?ln.slice(REF_HIDE.length):ln;
+  const t=body.split(/\s+/);
+  let out;
   if(t[1]==='VA'){t[2]=p.id;t[3]=deg2dms(p.ha);t[4]=p.sd.toFixed(3);t[5]=deg2dms(p.za);
-    return t.slice(0,6).join(' ')+' "'+p.desc+'"';}
-  return ln.replace(/"([^"]*)"/,`"${p.desc}"`);}
+    out=t.slice(0,6).join(' ')+' "'+p.desc+'"';}
+  else out=body.replace(/"([^"]*)"/,`"${p.desc}"`);
+  return hidden?REF_HIDE+out:out;}
 function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Boolean);
   return toks.some(t=>t.toUpperCase()===code)?desc:(desc?desc+' ':'')+code;}   // ensure the line carries the figure code
 /* The FBK line for a point as it stands now (edits applied). Inserted points have
@@ -2832,6 +2858,27 @@ function exportFBK(expandCodes=true){
     const at=anchor.srcLine+1;
     (nezBefore[at]=nezBefore[at]||[]).push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);
     nezDone.add(p.id);});
+  // 2d. REF-hide — comment out a pure REF shot's line (see REF_HIDE above) so CAD
+  //     never sees it, while this app keeps reading it fine on the next load. Runs
+  //     last among the per-line content steps so it judges purity off whatever
+  //     description actually ends up in the line (e.g. 2b can graft a figure code
+  //     onto a REF point pulled into linework — that's the "multi-code shot" case
+  //     and must stay visible, even though the point's own p.desc is still "REF").
+  //     A previously-hidden REF point that picked up another code this session gets
+  //     its marker removed again for the same reason, in the other direction.
+  const refHiddenIds=[], refShownIds=[];
+  PTS.forEach(p=>{
+    if(p.deleted||p.srcLine<0||deletedAfter.has(p.srcLine))return;
+    if(!/^REF\d*$/i.test(((p.desc||'').trim().split(/\s+/)[0])||''))return;   // not a REF point at all — untouched
+    const line=editedContent[p.srcLine]!==undefined?editedContent[p.srcLine]:RAW[p.srcLine];
+    if(line===undefined)return;
+    const hidden=line.startsWith(REF_HIDE);
+    const body=hidden?line.slice(REF_HIDE.length):line;
+    const m=body.match(/"([^"]*)"/);
+    const pure=m?isPureRefDesc(m[1]):false;
+    if(pure&&!hidden){editedContent[p.srcLine]=REF_HIDE+body;refHiddenIds.push(p.id);}
+    else if(!pure&&hidden){editedContent[p.srcLine]=body;refShownIds.push(p.id);}
+  });
   // 3. assemble
   const result=[];
   for(let L=0;L<RAW.length;L++){
@@ -2845,14 +2892,18 @@ function exportFBK(expandCodes=true){
   Object.values(nezBefore).forEach(arr=>arr.forEach(s=>{const m=s.match(/^NEZ\s+(\S+)/);if(m)alreadyNEZ.add(m[1]);}));
   PTS.forEach(p=>{if(p.deleted||p.srcLine>=0)return;if(nezDone.has(p.id)||alreadyNEZ.has(p.id))return;
     const d=expandCodes?expandDescForExport(p.desc):p.desc;
-    result.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);});
+    const line=`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`;
+    if(isPureRefDesc(d)){result.push(REF_HIDE+line);refHiddenIds.push(p.id);}
+    else result.push(line);});
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
   logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?'':' (codes unapplied)'}`);
   if(permuted.length)logEdit('code',`reordered in-setup: ${[...new Set(permuted)].join(', ')}`);
   if(nezed.length)logEdit('mv',`cross-setup → NEZ: ${nezed.join(', ')} (originals archived as Deleted)`);
   if(shared.size)logEdit('del',`shared pts NEZ-moved, check other figures: ${[...shared].join(', ')}`);
-  if(rodEdits.length)logEdit('code',`rod HT corrected: ${rodEdits.join(', ')} — bracketed with PRISM lines`);}
+  if(rodEdits.length)logEdit('code',`rod HT corrected: ${rodEdits.join(', ')} — bracketed with PRISM lines`);
+  if(refHiddenIds.length)logEdit('code',`REF shot(s) commented out for CAD, still usable by the app: ${refHiddenIds.join(', ')}`);
+  if(refShownIds.length)logEdit('code',`REF shot(s) un-commented (now multi-code, kept visible to CAD): ${refShownIds.join(', ')}`);}
 
 /* Export every non-deleted point as a comma-delimited PNEZD file: point number,
    Northing, Easting, Elevation (Z), Description. Round-trips with importCSV. */
