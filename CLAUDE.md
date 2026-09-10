@@ -94,9 +94,10 @@ first and follow it on every task in this repo.
     | 78 | 🍊 ORANGE | owner, after the billing root-cause was found and documented: "go back on the Street View branch and add a filter on top, independent from the app, and invert color[s] during view[ing] Street View." Rather than a 5th round of setting `filter`/`mix-blend-mode` directly ON `#svPanoDiv` or its descendants (builds 74-77's whole approach, which repeatedly fought Google's own dynamic style updates on those exact elements and caused the orbit/marker black-outs), this build removes ALL of that direct manipulation and replaces it with a genuinely separate element: `#svInvertOverlay`, a plain sibling `<div>` (never a child — `#svPanoDiv` is wrapped in a new `#svPanoWrap`, and the overlay sits alongside it, absolutely positioned to cover it) using `mix-blend-mode:difference` against a white background, the standard blend-mode trick for inverting whatever renders underneath without ever touching a single property on the thing being inverted or anything inside it. A new **Invert colors** checkbox in the Street View modal's header (`#svInvertChk`) toggles it — `svInvertOn` (default `true`, per the request) persists across modal opens/closes for the session, re-synced every time `openSvModal` runs (`syncSvInvertOverlay()`). Since the overlay never touches `#svPanoDiv`, it can't be wiped out by Google's own `Map`/`getStreetView()` setup or `innerHTML` fallback-swap, and can't fight Google's internal style updates the way builds 74-77 did — it's compositing on top, not competing for the same properties. Build 54's real, independently-confirmed `color-scheme:light only`/`forced-color-adjust:none` fix on `#svPanoDiv` itself (a genuinely different, unrelated problem — Chrome's forced-dark-mode heuristic) is kept untouched. Verified through the real UI in a real headless browser: overlay/checkbox/wrapper all present in the DOM; opening the modal (via the actual `openSvModal` call path) correctly syncs the overlay to `display:block`/`mix-blend-mode:difference` and the checkbox to checked; a real click unchecks both the checkbox and the overlay's `on` class; a second real click re-checks both; closing and reopening the modal for a different point correctly preserves the ON state; `#svPanoDiv`'s own computed style now shows plain browser defaults (`filter:none`, `mix-blend-mode:normal` — no longer FORCED by our CSS) alongside the still-present `color-scheme:light only`; zero console errors beyond the pre-existing, already-documented Google-domain network block. This is still on `claude/streetview-color-test` only, still not merged — same standing caveat as every build since 72: the owner needs to actually look at Street View in a real browser (now hopefully with billing enabled) and say whether inversion is even still wanted, since the root cause turned out to be billing, not color handling — this build makes inversion a deliberate, toggleable, non-invasive OPTION rather than another forced guess. |
     | 79 | 🍋 LEMON | owner: **"it works now"** (billing fix confirmed, build 78's overlay confirmed working) — **"add invert color filter when click full[ ]screen in the viewer."** Google's Street View panorama has its own native fullscreen control (never explicitly disabled — `svPano.setOptions` never sets `fullscreenControl`, so it defaults on), and clicking it puts the browser into the real Fullscreen API, not just a bigger CSS box. That matters because the Fullscreen API only paints DESCENDANTS of whatever element `requestFullscreen()` was called on — build 78's `#svInvertOverlay` is a SIBLING of `#svPanoDiv` (deliberately, so it never fights Google's own style updates), so once the panorama went fullscreen the overlay would simply stop rendering even though nothing about its own `.on` state changed — it was still "on," just outside the part of the DOM the browser was now painting. Fix: `svSyncOverlayFullscreen()`, wired to both `fullscreenchange` and `webkitfullscreenchange` on `document`. On entering fullscreen, it checks whether `document.fullscreenElement` (or the webkit-prefixed equivalent) IS `#svPanoDiv`, is a descendant of it, or is an ancestor containing it — covers all 3 ways Google's own fullscreen control might target the DOM (fullscreening `#svPanoDiv` directly, or an internal wrapper it creates inside/around it) without needing to know which one Google actually does — and if so, reparents the overlay `<div>` directly INTO that fullscreen element (`appendChild`, a safe no-op if it's already there) and switches it from `position:absolute` to `position:fixed` (so its `inset:0` covers the real fullscreen viewport, not `#svPanoWrap`'s now-irrelevant box) with a max z-index so it stacks above whatever Google renders inside the fullscreen element. Exiting fullscreen reparents it straight back into `#svPanoWrap` at `position:absolute`, identical to build 78's baseline. `pointer-events:none` (unchanged since build 78) means the overlay never blocks the native exit-fullscreen control or dragging to look around, in or out of fullscreen. Verified in a real headless browser: since headless Chromium's real `requestFullscreen()` needs a genuine user gesture/flags this sandbox doesn't reliably provide, the app's OWN `svSyncOverlayFullscreen` function was exercised directly against a mocked `document.fullscreenElement` (the same technique used to isolate exactly the code path this build actually changed) — confirmed the overlay starts as a sibling of `#svPanoDiv` inside `#svPanoWrap` at `position:absolute`; entering fullscreen with `fsEl===#svPanoDiv` correctly reparents it into `#svPanoDiv` at `position:fixed` with the max z-index, `.on` state untouched; entering fullscreen with `fsEl` = a synthetic child element INSIDE `#svPanoDiv` (simulating an internal Google wrapper) correctly reparents it into THAT element instead; exiting fullscreen (`fullscreenElement=null`) correctly moves it back into `#svPanoWrap` at `position:absolute`; the Invert colors checkbox still toggles correctly (real click, both directions) after a full enter/exit fullscreen cycle, confirming the reparenting doesn't break the existing build-78 toggle wiring. Script parses, zero console errors beyond the pre-existing Google-domain network block. Still on `claude/streetview-color-test` only, still not merged — the one thing genuinely unverifiable from this sandbox is the REAL Fullscreen API firing `fullscreenchange` when the owner actually clicks Google's native fullscreen button (as opposed to the mocked-property test above, which proves the handler logic is correct but not that the browser calls it at the right moment) — the owner should confirm the invert stays visible and correctly positioned after clicking fullscreen in their real browser. |
     | — | — | **ROOT CAUSE FOUND — builds 72-77's entire CSS chase was solving the wrong problem.** The owner finally pulled real browser console output, and it shows a hard Google Maps API failure: `"You must enable Billing on the Google Cloud Project"` — the API key's Google Cloud project has no billing enabled, so Street View can't actually load/render properly. NOT a CSS bug, never was, no CSS on our side can fix it. This retroactively explains every symptom chased across builds 72-77: without billing, the panorama falls back to unstable/broken rendering, and whichever CSS filter/blend-mode tweak happened to be active just changed how that already-broken output looked (sometimes "inverted," sometimes black) — never a real fix-vs-break tradeoff. The fix is entirely outside this repo: enable billing on the Google Cloud project at `console.cloud.google.com` (Maps includes a monthly free credit, but a payment method must be on file regardless). No further CSS pushed pending that — next step is retesting on the CLEAN `claude/street-view-linework` baseline (build 71, pre-chase) once billing is on; if that alone renders correctly, all of `claude/streetview-color-test` (builds 72-77) gets discarded rather than merged. See the Street View section below for the full writeup. |
+    | 80 | 🥭 MANGO | owner: 3D orbit is hard to control on a large site (big distance between points), and asked to put the mouse **middle button** to use. Found 3 real bugs: the orbit pivot only ever moved on `fit()`/Go-to-point, so rotating far from it swept the view in a huge arc for a tiny drag; every zoom (wheel or +/−) silently re-centered the pivot to screen-middle (`refreshOrbitPivot()`), undoing any panning you'd just done; and middle-mouse-drag was a dead no-op in 3D (wrote to the unused `view.x/y` instead of `orbit.ox/oy`, then snapped the view on release). Fixed all three: `retargetOrbitPivot()` re-centers the pivot on whatever's under the cursor (a real point, or the ground plane at the pivot's elevation) at the start of every orbit drag, with zero visual jump — ⊡ Fit still resets to the whole-site pivot; `zoomOrbit()` replaces the recenter-on-pivot zoom with a proper zoom-about-cursor (matching the existing 2D behavior); middle-mouse-drag now actually pans `orbit.ox/oy` in 3D, with `preventDefault()` so the browser's native autoscroll cursor stops fighting it. See the dedicated section below for the full writeup and verification (numeric proof of the projection algebra, plus real headless-browser end-to-end tests against the actual `index.html` code paths — this repo has no sample `.fbk` on hand, so synthetic large-span point data was used instead). |
   - Suggested next fruits to rotate through:
-    🥭 MANGO, 🍐 PEAR,
-    🍉 WATERMELON, 🍎 APPLE.
+    🍐 PEAR, 🍉 WATERMELON,
+    🍎 APPLE, 🍇 GRAPE.
 
 ## Knockdown behavior (⚙ button → `applyKnockdown()`)
 
@@ -1671,6 +1672,120 @@ first and follow it on every task in this repo.
 - Cursor and the 3D hint text (`#orbHint`) now key off `mode==='zoom'` before
   `is3D`, so the cursor shows `zoom-in` and the hint reads "drag a box to
   zoom…" instead of the orbit-drag hint while the tool is active in 3D.
+
+## 3D orbit navigation — pivot retargeting, zoom-about-cursor, middle-mouse pan (`retargetOrbitPivot`/`zoomOrbit`, build 80)
+
+- The owner: orbiting is hard to control when there's a large distance
+  between points (a real job site spans hundreds of feet), and asked for the
+  mouse **middle button** to actually be put to use. Three real bugs, all in
+  the same area of the pointer-handling code, combined to cause this:
+  1. **The orbit pivot (`orbit.cx/cy/cz`) was set once by `fit()`/`⌖ Go to
+     point` and then never moved again** until you called `fit()` again.
+     Rotation genuinely happens *around* that fixed world point — so once
+     you'd zoomed into a corner of a large site far from the pivot, even a
+     tiny mouse drag swept that corner across a huge arc on screen (the
+     farther a point sits from the pivot, and the more you've zoomed in
+     — i.e. the larger `orbit.s` — the more its screen position moves for a
+     given rotation). That's the literal mechanism behind "hard to orbit
+     with a large distance between points."
+  2. **Every zoom (wheel, or the +/− buttons) silently re-centered the
+     pivot to the exact middle of the screen** via `refreshOrbitPivot()`
+     (`orbit.ox=w/2-center[0]`, discarding whatever `orbit.ox/oy` pan
+     offset was already there). So panning over to a distant part of the
+     site with shift-drag, then scrolling to zoom in on it, would snap the
+     view straight back to being centered on the old pivot — undoing the
+     pan you'd just done and forcing you to redo it, over and over.
+  3. **Middle-mouse-button drag was a dead no-op in 3D.** Its `pointerdown`
+     handler ran BEFORE the `is3D` check and always stored `view.x/y` as
+     the drag anchor — but the 3D projection (`P3`) never reads `view.x/y`
+     at all (it uses `orbit.ox/oy`), so nothing visibly moved during the
+     drag; then on release, `if(drag.pan&&is3D)refreshOrbitPivot()` would
+     even snap the view back to center on the pivot, an unrelated jump on
+     top of the button already doing nothing useful.
+- **Fix 1 — retarget the pivot at the start of every orbit drag
+  (`retargetOrbitPivot(sx,sy,pt)`):** unless Shift is held (Shift-drag is
+  still a plain pan, untouched), `pointerdown`'s `is3D` branch now calls
+  this before starting the drag. If a real point is under the cursor (the
+  same `pick()` already used to select it for the inspector), that point's
+  own `E,N,Z` becomes the new pivot. Otherwise the cursor is unprojected
+  onto the **horizontal plane at the pivot's own current elevation**
+  (inverting just the rotation step of `P3`, assuming `z1=0`: `x1=(sx-w/2-
+  orbit.ox)/orbit.s`, `y1=-(sy-h/2-orbit.oy)/(orbit.s·sin(el))`, then
+  `e=x1·cos(az)-y1·sin(az)`, `n=x1·sin(az)+y1·cos(az)` — the rotation
+  matrix `P3` applies is orthonormal, so its inverse is just its
+  transpose). Either way, since the new pivot's own projection is trivially
+  `(w/2+ox, h/2+oy)` (its own `e,n,u` are all zero by construction), setting
+  `orbit.ox=sx-w/2` and `orbit.oy=sy-h/2` lands it exactly under the cursor
+  with **zero visual jump** at the moment of retarget — confirmed
+  algebraically and numerically. Every orbit drag now rotates around
+  whatever you actually clicked or pointed at, near or far from the site's
+  overall centroid — **⊡ Fit** (or `F`) still resets to the whole-model
+  pivot on demand, unchanged.
+- **Fix 2 — zoom about the cursor instead of snapping to the pivot
+  (`zoomOrbit(f,sx,sy)`):** replaces the old `orbit.s*=f;
+  refreshOrbitPivot()` pattern in both the wheel handler (about the cursor)
+  and the `zIn`/`zOut` buttons (about the viewport center, `w/2,h/2`).
+  Since only `orbit.s` changes (rotation is untouched), the projected
+  screen offsets of any fixed world content scale linearly with `orbit.s`
+  around the current `ox,oy` — so `dx=sx-w/2-orbit.ox` (and `dy`) computed
+  BEFORE the scale change, then `orbit.ox=sx-w/2-dx*f` (same for `oy`)
+  AFTER it, keeps whatever's under the cursor pinned to that exact screen
+  position through the zoom — the same principle as the 2D wheel handler's
+  existing `view.x=sx-wx*view.s`, just derived for the oblique 3D affine
+  form instead of `S2W`'s true inverse. This is a strict improvement over
+  the old recenter-on-pivot behavior: it can only keep the view where you
+  already had it (or center it, for the toolbar buttons), never yank it
+  back to some other point.
+  `refreshOrbitPivot()` itself is now dead code (nothing called it besides
+  the wheel handler, the zoom buttons, and the middle-mouse-pan cleanup
+  below, all three replaced) and was deleted rather than left unused.
+- **Fix 3 — middle-mouse-button drag actually pans the 3D view:** the
+  `pointerdown` middle-button branch now checks `is3D` and stores
+  `orbit.ox/oy` as the drag anchor when true (`view.x/y` otherwise,
+  unchanged for 2D); the matching `pointermove` handler for `drag.pan` now
+  branches the same way, updating `orbit.ox/oy` during the drag instead of
+  the unused `view.x/y`. The `endInteract` cleanup that used to call
+  `refreshOrbitPivot()` after a middle-mouse pan (undoing the very pan that
+  had — before this fix — not even visibly happened) is gone; nothing needs
+  to run after a pan that already updated the right variables live.
+  `e.preventDefault()` was added to the middle-button `pointerdown` branch
+  too — without it, the browser's own native middle-click autoscroll cursor
+  was starting at the same time as our drag and competing with it, which
+  is itself part of why "using the middle button" felt broken.
+- The `#orbHint` text (both its static HTML default and `setMode`'s dynamic
+  version) and the 3D inspector note were updated to mention that orbiting
+  re-centers on click and that middle-drag pans, alongside the existing
+  shift-drag pan.
+- **Verified two ways.** First, a standalone reimplementation of the
+  exact projection/retarget/zoom formulas (`P3`, `retargetOrbitPivot`,
+  `zoomOrbit`) confirmed numerically: retargeting onto a real point causes
+  **zero** screen movement of that point; a 0.3 rad rotation immediately
+  after retargeting leaves the (now-pivot) point's screen position
+  completely unmoved, since it IS the pivot (rotating around a point
+  doesn't move that point); retargeting onto empty ground (no point picked)
+  correctly re-projects back to the exact cursor pixel; and `zoomOrbit`
+  keeps a world point's screen position fixed to sub-millipixel precision
+  through a 1.8× scale change. Second, and more importantly, this was
+  re-verified **end-to-end through the real, running `index.html`** in a
+  real headless browser (Chromium via Playwright) — no synthetic
+  reimplementation this time — using synthetic point data spanning a large
+  area (since this repo has no sample `.fbk` job file checked in to load a
+  real one from): switching to 3D and dragging to orbit starting exactly on
+  a real point snapped `orbit.cx/cy/cz` to that point's exact real
+  coordinates with **zero** visual jump (the point's own `P3()` screen
+  position was byte-identical before and after retarget), and the
+  subsequent drag moved `az`/`el` by exactly the drag-distance formula
+  (`0.008`/`0.006` rad/px, matching the pre-existing, unchanged rotation
+  math); a middle-mouse-button drag panned `orbit.ox/oy` by **exactly** the
+  mouse's own screen-space delta (previously a complete no-op — confirmed
+  broken on the pre-build-80 code path before fixing it); and a real mouse
+  wheel event over a specific point changed `orbit.s` by the expected
+  ×1.12 factor while leaving that point's screen position unchanged to
+  within a fraction of a pixel (a small floating-point/DPR rounding
+  residual, not a formula error). Also confirmed the inline script still
+  parses (`node --check`) and that ordinary 2D pan/zoom/orbit-tool-select
+  behavior is untouched (the 2D code paths in every changed function are
+  the pre-existing `else` branches, unmodified).
 
 ## Rod height (prism) — view + correct (`origPrism`, build 31)
 

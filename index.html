@@ -186,7 +186,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
   </div>
 
   <div class="main">
@@ -237,7 +237,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       </div>
       <div class="vex" id="vex">
         <span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
-        <span id="vexV">3×</span><span style="color:var(--gold-dim)">·</span><span id="orbHint">drag orbit · wheel zoom · shift-drag pan</span>
+        <span id="vexV">3×</span><span style="color:var(--gold-dim)">·</span><span id="orbHint">drag orbit (re-centers on click) · wheel zoom · shift-drag or middle-drag pan</span>
       </div>
       <div class="hud" id="hud">load a .fbk to begin</div>
     </div>
@@ -248,7 +248,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <div class="scroll" id="insp">
         <div class="empty">Load an FBK, then click a point.<br><br>
           <b>SEL</b> edits the descriptor code that drives linework, or deletes a shot. <b>Drag a box</b> on empty canvas to select many points (Shift-drag adds; Delete removes).<br>
-          <b>3D</b> orbits the survey by elevation — inspect only; switch back to a 2D tool to edit.</div>
+          <b>3D</b> orbits the survey by elevation — inspect only; switch back to a 2D tool to edit. Orbiting re-centers on whatever you click, so a far corner of a large site orbits smoothly too; press <b>⊡ Fit</b> to recenter on the whole survey. Middle-mouse-drag pans.</div>
       </div>
       <div class="log">
         <h3>Edits <span class="n" id="logn">0</span></h3>
@@ -457,7 +457,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍋',name:'LEMON',build:79};
+const VERSION={fruit:'🥭',name:'MANGO',build:80};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1857,9 +1857,6 @@ function bounds(shotsOnly){const live=PTS.filter(p=>!p.deleted&&isFinite(p.N)&&i
   live.forEach(p=>{b.minN=Math.min(b.minN,p.N);b.maxN=Math.max(b.maxN,p.N);
     b.minE=Math.min(b.minE,p.E);b.maxE=Math.max(b.maxE,p.E);
     b.minZ=Math.min(b.minZ,p.Z);b.maxZ=Math.max(b.maxZ,p.Z);});return b;}
-function refreshOrbitPivot(){if(!is3D)return;const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
-  const center=P3(orbit.cx,orbit.cy,orbit.cz);
-  orbit.ox=w/2-center[0];orbit.oy=h/2-center[1];}
 function fit(){
   let b=bounds(true);if(b.minN>b.maxN)b=bounds(false);   // frame the surveyed topo; distant control monuments stay drawn but don't dwarf the data
   if(b.minN>b.maxN)return;
@@ -1883,6 +1880,36 @@ function P3(E,N,Z){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
   const sx=x1*orbit.s + w/2 + orbit.ox;
   const sy=-(y1*sE+z1*cE)*orbit.s + h/2 + orbit.oy;
   const depth=y1*cE+z1*sE; return [sx,sy,depth];}
+
+// Build 80 — re-target the orbit pivot to whatever's under the cursor (a real point, or the ground
+// plane at the pivot's own elevation when nothing's picked) at the START of every orbit drag. A
+// big job site's pivot used to sit fixed at the whole-model centroid forever (set once by fit()),
+// so once you zoomed into a far corner, rotating swept that corner across the screen in a huge arc
+// for a small mouse move — "hard to orbit" on a large site. Re-centering on click/drag-start makes
+// every orbit rotate around whatever you're actually looking at, near or far, without disturbing
+// the current view (the math below picks ox/oy so nothing visually jumps at the moment of retarget).
+// ⊡ Fit still recenters on the whole survey when you want the old whole-site pivot back.
+function retargetOrbitPivot(sx,sy,pt){
+  const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  let E,N,Z;
+  if(pt){E=pt.E;N=pt.N;Z=pt.Z;}
+  else{                                                    // unproject the cursor onto the horizontal plane at the pivot's current elevation
+    const cA=Math.cos(orbit.az),sA=Math.sin(orbit.az),sE=Math.sin(orbit.el);
+    const x1=(sx-w/2-orbit.ox)/orbit.s, y1=-(sy-h/2-orbit.oy)/(orbit.s*sE);   // z1=0 (assumed on-plane)
+    E=x1*cA-y1*sA+orbit.cx; N=x1*sA+y1*cA+orbit.cy; Z=orbit.cz;
+  }
+  orbit.cx=E;orbit.cy=N;orbit.cz=Z;
+  orbit.ox=sx-w/2;orbit.oy=sy-h/2;                          // the new pivot IS the point under the cursor → e=n=u=0 → it projects to (sx,sy) exactly
+}
+// Zoom (wheel or +/-) about a screen point without disturbing the pivot — keeps whatever's under
+// the cursor (or the viewport center, for the +/- buttons) visually fixed while the scale changes,
+// instead of the old behavior of silently re-centering the whole view on the pivot on every zoom
+// (which undid any panning you'd just done to frame a distant part of the site).
+function zoomOrbit(f,sx,sy){
+  const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  const dx=sx-w/2-orbit.ox, dy=sy-h/2-orbit.oy;
+  orbit.s*=f;orbit.ox=sx-w/2-dx*f;orbit.oy=sy-h/2-dy*f;
+}
 
 /* ---------- draw ---------- */
 function resize(){const r=cv.parentElement.getBoundingClientRect();
@@ -2688,8 +2715,9 @@ let drag=null, zw=null;
 const pointers=new Map(); let pinch=null;
 cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   pointers.set(e.pointerId,{sx,sy});
-  if(e.button===1&&pointers.size===1){                    // middle mouse button pan
-    drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
+  if(e.button===1&&pointers.size===1){                    // middle mouse button pan — works in both 2D and 3D
+    e.preventDefault();
+    drag=is3D?{pan:true,sx,sy,x0:orbit.ox,y0:orbit.oy}:{pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(pointers.size===2){                                   // begin pinch
     drag=null;if(zw){$('zwbox').style.display='none';zw=null;}
     const p=[...pointers.values()];
@@ -2717,8 +2745,10 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     endCogoPick(snap);return;}
   if(is3D){
     if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
+    const i=pick(sx,sy);
+    if(!e.shiftKey)retargetOrbitPivot(sx,sy,i>=0?PTS[i]:null);   // rotate around whatever's under the cursor, not a fixed far-off pivot
     drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey};
-    const i=pick(sx,sy);if(i>=0){sel=i;selFig=null;inspect();draw();}
+    if(i>=0){sel=i;selFig=null;inspect();draw();}
     else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}}return;}
   if(addPt){const i=pick(sx,sy);const f=getFig(addPt.figId);
     if(i<0||!f){addPt=null;hud('add-point cancelled');if(f)inspectFig(f);draw();return;}
@@ -2781,7 +2811,8 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   if(!drag)return;
   if(drag.orbit){if(drag.shift){orbit.ox=drag.ox+(sx-drag.sx);orbit.oy=drag.oy+(sy-drag.sy);}
     else{orbit.az=drag.az+(sx-drag.sx)*0.008;orbit.el=Math.max(0.12,Math.min(1.55,drag.el-(sy-drag.sy)*0.006));}draw();}
-  else if(drag.pan){view.x=drag.x0+(sx-drag.sx);view.y=drag.y0+(sy-drag.sy);draw();}
+  else if(drag.pan){if(is3D){orbit.ox=drag.x0+(sx-drag.sx);orbit.oy=drag.y0+(sy-drag.sy);}
+    else{view.x=drag.x0+(sx-drag.sx);view.y=drag.y0+(sy-drag.sy);}draw();}
   else if(drag.move){const[E,N]=S2W(sx,sy);const p=PTS[drag.i];p.E=E;p.N=N;buildLinework();draw();}});
 function endInteract(e){const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   if(zw){$('zwbox').style.display='none';const dx=Math.abs(zw.x1-zw.x0),dy=Math.abs(zw.y1-zw.y0);
@@ -2811,18 +2842,18 @@ function endInteract(e){const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,s
     }
     drag=null;return;}
   if(drag&&drag.move){const[E,N]=S2W(sx,sy);moveTo(PTS[drag.i],E,N);inspect();}
-  if(drag&&drag.pan&&is3D)refreshOrbitPivot();drag=null;}
+  drag=null;}
 cv.addEventListener('pointerup',e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;
   if(pointers.size===0)endInteract(e);});
 cv.addEventListener('pointercancel',e=>{pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;
   if(pointers.size===0){drag=null;zw=null;$('zwbox').style.display='none';}});
 cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   const f=e.deltaY<0?1.12:1/1.12;
-  if(is3D){orbit.s*=f;refreshOrbitPivot();}else{const[wx,wy]=S2W(sx,sy);view.s*=f;view.x=sx-wx*view.s;view.y=sy+wy*view.s;}draw();},{passive:false});
+  if(is3D){zoomOrbit(f,sx,sy);}else{const[wx,wy]=S2W(sx,sy);view.s*=f;view.x=sx-wx*view.s;view.y=sy+wy*view.s;}draw();},{passive:false});
 
 /* ---------- zoom buttons ---------- */
 function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
-  if(is3D){orbit.s*=f;refreshOrbitPivot();}else{const[wx,wy]=S2W(w/2,h/2);view.s*=f;view.x=w/2-wx*view.s;view.y=h/2+wy*view.s;}draw();}
+  if(is3D){zoomOrbit(f,w/2,h/2);}else{const[wx,wy]=S2W(w/2,h/2);view.s*=f;view.x=w/2-wx*view.s;view.y=h/2+wy*view.s;}draw();}
 
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
@@ -2835,7 +2866,7 @@ function setMode(m){
   $('vex').classList.toggle('show',is3D);
   $('legend').style.display=is3D?'none':'';
   if(is3D){const d=$('agmap');if(d)d.style.display='none';}   // 3D canvas is transparent — don't leak the aerial behind it
-  if(is3D)$('orbHint').textContent=mode==='zoom'?'drag a box to zoom · wheel zoom · shift-drag pan':'drag orbit · wheel zoom · shift-drag pan';
+  if(is3D)$('orbHint').textContent=mode==='zoom'?'drag a box to zoom · wheel zoom · shift-drag or middle-drag pan':'drag orbit (re-centers on click) · wheel zoom · shift-drag or middle-drag pan';
   cv.style.cursor=m==='zoom'?'zoom-in':is3D?'grab':m==='pan'?'grab':m==='move'?'move':'crosshair';
   if(is3D!==wasOrbit)fit();else draw();
   if(m==='inv')inspectInverse();else if(sel>=0)inspect();
