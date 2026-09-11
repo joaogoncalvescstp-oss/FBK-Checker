@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -588,7 +588,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:87};
+const VERSION={fruit:'🍇',name:'GRAPE',build:88};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -798,7 +798,20 @@ const CURB_KD={L612:0.06,R612:0.06,L624:0.12,R624:0.12,LPARK:0.06,RPARK:0.06,L60
        a REF choice — see the doc note above).
    A marker segment that already carries an explicit H/V template is skipped
    ON ITS OWN, not the whole point — so a point with one already-knocked
-   segment and one still-bare segment only bakes the bare one.                */
+   segment and one still-bare segment only bakes the bare one.
+   Build 88 fixed a real "flips the offset to the wrong side" bug in the
+   fallback a bare (no-own-code) segment uses: it used to inherit whatever
+   curb code was last seen ANYWHERE earlier in the whole file, in plain file
+   order — but a real job reuses the same unnumbered "RBCB" marker for many
+   unrelated curb runs scattered across a site, so that scan could walk past
+   an older, unrelated run's code and hand it to a bare point that's actually
+   the first shot of a brand-new run on the OPPOSITE side of the curb (L vs R
+   templates are horizontally mirrored, so the wrong side's code doesn't just
+   get the depth wrong — it flips the whole offset to the wrong side). Now
+   each bare segment borrows the code from whichever explicitly-coded segment
+   of the SAME exact marker key (e.g. "RBCB" vs "RBCB1") is NEAREST to it by
+   point-index distance, searched in both directions — not just the most
+   recent one seen going backward. See the Knockdown section of CLAUDE.md.   */
 function applyKnockdown(){
   if(!PTS.length){hud('load an FBK first');return;}
   const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
@@ -814,16 +827,57 @@ function applyKnockdown(){
     return db[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
   };
 
-  let lastCode=null,neededRef=false;
-  const pointWork=[];   // [{p,toks,segs:[...]}] — one entry per point that carries at least one processable marker segment
-  PTS.forEach(p=>{
+  // Pass 1 — index every marker segment's OWN explicit curb code by exact
+  // marker KEY (the literal token, e.g. "RBCB" vs "RBCB1" vs "RCFL2" — these
+  // are separate figure instances and never share a code) and point INDEX, so
+  // a bare (no-own-code) segment can borrow the code from whichever explicitly
+  // coded segment of the SAME marker key is NEAREST to it by point-index
+  // distance (searched in both directions), instead of "whichever code was
+  // last seen anywhere earlier in the whole file." Build 88 fix: a real job
+  // file reuses the same unnumbered "RBCB" marker for dozens of unrelated
+  // curb runs scattered across the whole site — a purely-backward, file-order
+  // "last code wins" scan can walk straight past an older, unrelated run's
+  // L/R code (left over from a totally different corner) and silently apply
+  // it to a bare point that's actually the FIRST shot of a brand-new run,
+  // whose own explicit code only gets stated a point or two LATER in the same
+  // run. Since CURB_BOC's L/R templates are horizontally mirrored (L uses
+  // positive H offsets, R uses negative), picking the wrong side's code
+  // doesn't just get the depth wrong — it flips the whole offset onto the
+  // opposite side of the curb. Confirmed against a real job file: point 3604
+  // ("RBCB RDRC", no B, no own code) sits right after an unrelated L624 run
+  // elsewhere in the file, but its own run's next two points (3605/3606)
+  // explicitly state "R624" — the old backward-only scan handed 3604 the
+  // stale L624 instead of the R024/R624 its own run actually uses.
+  const markerCodes={};   // key -> [{pi,code}], built in point-index order
+  PTS.forEach((p,pi)=>{
     if(p.deleted)return;
     const toks=p.desc.split(/\s+/);
-    // keep the "last curb code seen anywhere in the file" tracker current on
-    // EVERY point (not just RBCB/RCFL ones), same as always — this is what
-    // lets a later bare RBCB point with no REF in range fall back to the most
-    // recently stated code instead of the hardcoded R612 default.
-    toks.forEach(t=>{const T=t.toUpperCase();if(CURB_BOC[T]||CURB_FL[T])lastCode=T;});
+    const markerIdxs=[];
+    toks.forEach((t,i)=>{if(/^(RBCB|RCFL)\d*$/.test(t.toUpperCase()))markerIdxs.push(i);});
+    markerIdxs.forEach((mi,k)=>{
+      const start=mi,end=(k+1<markerIdxs.length?markerIdxs[k+1]:toks.length)-1;
+      const marker=/^RBCB/.test(toks[mi].toUpperCase())?'BOC':'FL';
+      const db=marker==='BOC'?CURB_BOC:CURB_FL;
+      let code=null;
+      for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T])code=T;}
+      if(!code)return;
+      const key=toks[mi].toUpperCase();
+      (markerCodes[key]=markerCodes[key]||[]).push({pi,code});
+    });
+  });
+  const nearestMarkerCode=(key,pi)=>{
+    const list=markerCodes[key];
+    if(!list||!list.length)return null;
+    let best=null,bd=Infinity;
+    list.forEach(e=>{const d=Math.abs(e.pi-pi);if(d<bd){bd=d;best=e.code;}});
+    return best;
+  };
+
+  let neededRef=false;
+  const pointWork=[];   // [{p,toks,segs:[...]}] — one entry per point that carries at least one processable marker segment
+  PTS.forEach((p,pi)=>{
+    if(p.deleted)return;
+    const toks=p.desc.split(/\s+/);
     const markerIdxs=[];
     toks.forEach((t,i)=>{if(/^(RBCB|RCFL)\d*$/.test(t.toUpperCase()))markerIdxs.push(i);});
     if(!markerIdxs.length)return;
@@ -837,7 +891,8 @@ function applyKnockdown(){
       for(let i=start;i<end;i++)if(hPat.test(toks[i])&&vPat.test(toks[i+1]))return;   // this segment already baked — skip it, not the whole point
       let codeTokIdx=null,code=null;
       for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T]){codeTokIdx=i;code=T;}}   // last matching code token WITHIN this segment wins
-      const activeCode=code||lastCode||'R612';
+      const key=toks[mi].toUpperCase();
+      const activeCode=code||nearestMarkerCode(key,pi)||'R612';
       if(!db[activeCode])return;                 // no template for this code in the chosen DB
       if(marker==='FL'){
         // flow-line shot → only bake when THIS segment carries its own curb
