@@ -202,7 +202,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="refreshBtn" disabled title="Force a full redraw — rebuild the linework and curb offset lanes from the current point data. Use this if the drawing (especially the green offset lines) looks stale after a line edit.">↻ Refresh</button>
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
-    <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — a point with its own curb code gets that code's std cross-section (overrides REF), points without a code derive the reveal from the nearest REF point's Z difference. RCFL (flow line) — always gets the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
+    <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — each marker in a point's description (a point can carry more than one, e.g. ending one run and beginning another) is knocked down on its own. A marker with its own curb code AND a REF point nearby asks which reveal to use (REF or standard); with no REF nearby it's the code's std cross-section; with no code at all it derives the reveal from the nearest REF point's Z difference. RCFL (flow line) — always the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
     <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
@@ -212,7 +212,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
   </div>
 
   <div class="main">
@@ -370,6 +370,25 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <div class="row">
       <button class="btn ghost" id="ugwReviewCancel">Cancel</button>
       <button class="btn gold" id="ugwReviewApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- Knockdown REF-vs-Standard review: a point's curb-code segment has a REF
+     point in range too — ask which reveal to bake instead of always
+     silently overriding REF with the code's standard cross-section -->
+<div class="scrim" id="kdReviewScrim">
+  <div class="modal wide">
+    <h4>Knockdown — REF or Standard?</h4>
+    <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
+      Each point below carries its own curb code AND has a REF point within
+      range — pick which reveal to bake for it. Every other point (no
+      ambiguity) knocks down normally alongside these once you Apply.
+    </div>
+    <div id="kdReviewList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
+    <div class="row">
+      <button class="btn ghost" id="kdReviewCancel">Cancel</button>
+      <button class="btn gold" id="kdReviewApply">Apply</button>
     </div>
   </div>
 </div>
@@ -568,7 +587,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍋',name:'LEMON',build:85};
+const VERSION={fruit:'🥭',name:'MANGO',build:86};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -752,92 +771,185 @@ function expandCurb(desc){
    to the curb face. Used to set the final V of the curb cross-section.        */
 const CURB_KD={L612:0.06,R612:0.06,L624:0.12,R624:0.12,LPARK:0.06,RPARK:0.06,L606:0.03,R606:0.03,LD418:0.09,RD418:0.09,L618:0.09,R618:0.09};
 
-/* For each RBCB point: if the point carries its OWN curb code, expand it to the
-   std DB cross-section (full reveal) — the point-level code always wins and
-   overrides any REF-derived reveal. Otherwise (no code at the point) find the
-   nearest REF point (first code token === REF), take v = thisPoint.Z - REF.Z,
-   and rebuild the LAST known curb code as an H/V cross-section whose curb-face
-   drop is (v-0.012) and back-of-curb drop is (v-0.012+kd). The curb code token
-   is replaced in place by the literal H/V template, so it draws and exports
-   without re-expansion.                                                        */
+/* Knockdown scans each RBCB/RCFL MARKER in a point's description independently
+   — a single point can carry more than one marker segment (e.g. a corner
+   point ending one run and beginning another in the same description, like
+   "RBCB3 E R606 RBCB1 B BC R624") — and each marker's own curb code, if any,
+   applies only to ITS OWN segment (that marker's tokens up to the next marker
+   or the end of the description), never to the whole description and never
+   just "whichever code token happens to appear last." Build 86 fixed this:
+   the old point-level scan kept only a single "last matching code token
+   anywhere in the description" and a single isBOC/isFL flag for the whole
+   point, so a multi-coded point like the one above silently knocked down
+   only R624 (the last code found) and dropped R606 entirely — never baked,
+   never reported missing.
+     RBCB (rod on back of curb) → Back-of-Curb DB.
+       - a segment with its OWN curb code AND a REF point within range now
+         ASKS the user (build 86) which reveal to bake — the code's std
+         cross-section, or the REF-derived one — instead of always silently
+         overriding REF; with no REF in range it's still an automatic std
+         bake, same as always.
+       - a segment with no code of its own → REF-derived reveal (nearest
+         REF's Z difference), same as always. REF is a back-of-curb-only
+         workflow.
+     RCFL (rod on flow line) → Flow-Line DB, only at a segment that carries
+       its OWN curb code (never inherits, never REF-derived, never offered
+       a REF choice — see the doc note above).
+   A marker segment that already carries an explicit H/V template is skipped
+   ON ITS OWN, not the whole point — so a point with one already-knocked
+   segment and one still-bare segment only bakes the bare one.                */
 function applyKnockdown(){
   if(!PTS.length){hud('load an FBK first');return;}
   const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
   const refs=PTS.filter(p=>!p.deleted&&/^REF\d*$/.test(refToken(p.desc)));
-  let applied=0,lastCode=null,neededRef=false;
-  const changes=[];
-  // iterate through points in order to track persistent curb codes
+  const maxSearchRadius=1.2;
+  const nearestRef=p=>{let best=null,bd=Infinity;
+    refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
+    return best?{ref:best,d:bd}:null;};
+  const hPat=/^H-?\d+\.?\d*$/, vPat=/^V-?\d+\.?\d*$/;
+  const refKdTmpl=(db,activeCode,v)=>{
+    const kd=CURB_KD[activeCode]||0;
+    const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
+    return db[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
+  };
+
+  let lastCode=null,neededRef=false;
+  const pointWork=[];   // [{p,toks,segs:[...]}] — one entry per point that carries at least one processable marker segment
   PTS.forEach(p=>{
     if(p.deleted)return;
-    // update persistent code state from current description (both DBs share code names)
-    let code=null;
-    p.desc.split(/\s+/).forEach(t=>{const T=t.toUpperCase();if(CURB_BOC[T]||CURB_FL[T])code=T;});
-    if(code)lastCode=code;
-    // pick the marker: RBCB (rod on back of curb) → Back-of-Curb DB with the
-    // REF-derived reveal; RCFL (rod on flow line) → Flow-Line DB std template.
-    const isBOC=/\bRBCB\d*\b/.test(p.desc), isFL=/\bRCFL\d*\b/.test(p.desc);
-    if(!isBOC&&!isFL)return;
-    // if point already has explicit H/V template values, skip
-    if(/\sH-?\d+\.?\d*\s+V-?\d+\.?\d*/.test(p.desc))return;
-    const db=isBOC?CURB_BOC:CURB_FL, marker=isBOC?'RBCB':'RCFL';
-    const activeCode=code||lastCode||'R612';  // use current, last, or default
-    if(!db[activeCode])return;                // no template for this code in the chosen DB
-    let tmpl,v,refId;
-    if(isFL){
-      // flow-line shot → only bake the std Flow-Line cross-section when THIS
-      // point carries its OWN curb code. No code on the point → leave it alone
-      // (do NOT inherit the last-seen code or the default). REF reveal
-      // derivation is a back-of-curb-only workflow.
-      if(!code)return;
-      tmpl=db[code];v=0;refId='fl';
-    }else if(code){
-      // explicit curb code AT this point → always use the std DB cross-section
-      // (full reveal). The point-level code wins: it overrides the REF-derived
-      // reveal even when a REF shot is in range. No REF needed.
-      tmpl=db[code];v=0;refId='std';
-    }else{
-      // no code at this point → derive the reveal from the nearest REF shot.
-      // nearest REF by horizontal (N/E) distance, within 1.2 feet radius
-      let best=null,bd=Infinity;
-      const maxSearchRadius=1.2;
-      refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
-      if(!best){neededRef=true;return;}
-      v=p.Z-best.Z;refId=best.id;
-      const kd=CURB_KD[activeCode]||0;
-      const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
-      tmpl=db[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
-    }
-    // Replace the LAST occurrence of the bare code name with its cross-section.
-    // The curb code is shorthand the H/V template fully supersedes, so the bare
-    // token is dropped (the RBCB/RCFL marker and other codes are kept).
-    let re=new RegExp('\\b'+activeCode+'\\b(?![\\s\\S]*\\b'+activeCode+'\\b)');
-    let newDesc=p.desc.replace(re, tmpl);
-    // if code name not found, try replacing the existing expanded template pattern
-    if(newDesc===p.desc){
-      const oldTmpl=db[activeCode].replace(/\s+/g,'\\s+');
-      re=new RegExp(oldTmpl+'(?![\\s\\S]*'+oldTmpl+')');
-      newDesc=p.desc.replace(re,tmpl);}
-    // if still no match, remove any H/V templates and insert after the marker
-    if(newDesc===p.desc){
-      // remove any H/V offset sequences: H[val] V[val] patterns
-      let cleaned=p.desc.replace(/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/g,'').trim();
-      // insert new template right after the marker code
-      re=new RegExp('\\b'+marker+'\\d*\\b');
-      newDesc=cleaned.replace(re,(m)=>m+' '+tmpl);
-    }
-    changes.push({p,newDesc,activeCode,v,ref:refId});
+    const toks=p.desc.split(/\s+/);
+    // keep the "last curb code seen anywhere in the file" tracker current on
+    // EVERY point (not just RBCB/RCFL ones), same as always — this is what
+    // lets a later bare RBCB point with no REF in range fall back to the most
+    // recently stated code instead of the hardcoded R612 default.
+    toks.forEach(t=>{const T=t.toUpperCase();if(CURB_BOC[T]||CURB_FL[T])lastCode=T;});
+    const markerIdxs=[];
+    toks.forEach((t,i)=>{if(/^(RBCB|RCFL)\d*$/.test(t.toUpperCase()))markerIdxs.push(i);});
+    if(!markerIdxs.length)return;
+    const segs=[];
+    markerIdxs.forEach((mi,k)=>{
+      // this marker's own segment: its tokens up to (not including) the next
+      // marker, or the end of the description if it's the last one
+      const start=mi,end=(k+1<markerIdxs.length?markerIdxs[k+1]:toks.length)-1;
+      const marker=/^RBCB/.test(toks[mi].toUpperCase())?'BOC':'FL';
+      const db=marker==='BOC'?CURB_BOC:CURB_FL;
+      for(let i=start;i<end;i++)if(hPat.test(toks[i])&&vPat.test(toks[i+1]))return;   // this segment already baked — skip it, not the whole point
+      let codeTokIdx=null,code=null;
+      for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T]){codeTokIdx=i;code=T;}}   // last matching code token WITHIN this segment wins
+      const activeCode=code||lastCode||'R612';
+      if(!db[activeCode])return;                 // no template for this code in the chosen DB
+      if(marker==='FL'){
+        // flow-line shot → only bake when THIS segment carries its own curb
+        // code — never inherits, never REF-derived (REF is back-of-curb-only).
+        if(!code)return;
+        segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:db[activeCode],v:0,refLabel:'flow line'});
+        return;
+      }
+      if(code){
+        // this BOC segment carries its own code — if a REF is in range,
+        // that's an ambiguous case (build 86): let the user pick REF or
+        // Standard instead of silently always overriding REF with std.
+        const near=nearestRef(p);
+        if(near){
+          const v=p.Z-near.ref.Z;
+          segs.push({start,end,codeTokIdx,activeCode,kind:'ambig',choice:'std',
+            stdTmpl:db[activeCode],refTmpl:refKdTmpl(db,activeCode,v),refPoint:near.ref,v});
+        }else{
+          segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:db[activeCode],v:0,refLabel:'std code'});
+        }
+        return;
+      }
+      // no code on this segment → derive the reveal from the nearest REF shot
+      const near=nearestRef(p);
+      if(!near){neededRef=true;return;}
+      const v=p.Z-near.ref.Z;
+      segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:refKdTmpl(db,activeCode,v),v,refLabel:'REF '+near.ref.id});
+    });
+    if(segs.length)pointWork.push({p,toks,segs});
   });
-  if(!changes.length){hud(neededRef?'no REF point in range for RBCB pt(s)':'no RBCB/RCFL curb codes to knock down');return;}
+
+  if(!pointWork.length){hud(neededRef?'no REF point in range for RBCB pt(s)':'no RBCB/RCFL curb codes to knock down');return;}
+
+  const ambigList=[];
+  pointWork.forEach((pw,pwIdx)=>pw.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig')ambigList.push({pwIdx,segIdx,p:pw.p,seg});}));
+  if(ambigList.length){openKdReview(pointWork,ambigList);return;}
+  commitKnockdown(pointWork);
+}
+function segTmpl(s){return s.kind==='ambig'?(s.choice==='ref'?s.refTmpl:s.stdTmpl):s.tmpl;}
+function segLogLabel(s){
+  if(s.kind==='ambig')return s.choice==='ref'?`v=${s.v.toFixed(3)} (REF ${s.refPoint.id})`:'std code';
+  return s.refLabel+(s.v?` v=${s.v.toFixed(3)}`:'');
+}
+// Bakes every resolved (and, for 'ambig' segments, chosen) segment into its
+// point's description — replacing the segment's own code token with the H/V
+// template (or, for a bare no-code segment, inserting right after the marker,
+// same 2 placements the pre-build-86 single-segment version already used).
+// Segments on the same point are spliced right-to-left so earlier segments'
+// token indices stay valid across each splice.
+function commitKnockdown(pointWork){
   saveState();
-  changes.forEach(({p,newDesc,activeCode,v,ref})=>{
-    logEdit('code',`knockdown pt ${p.id}: ${activeCode} ${ref==='std'?'std code':ref==='fl'?'flow line':'v='+v.toFixed(3)+' (REF '+ref+')'}`);
+  let applied=0;
+  pointWork.forEach(({p,toks,segs})=>{
+    [...segs].sort((a,b)=>b.start-a.start).forEach(s=>{
+      const tmplToks=segTmpl(s).split(/\s+/);
+      if(s.codeTokIdx!=null)toks.splice(s.codeTokIdx,1,...tmplToks);
+      else toks.splice(s.start+1,0,...tmplToks);
+    });
+    const newDesc=toks.join(' ');
+    segs.forEach(s=>logEdit('code',`knockdown pt ${p.id}: ${s.activeCode} ${segLogLabel(s)}`));
     // remember the pre-knockdown description so the line-code review can toggle
-    // back to the original curb code (before the offset was baked in).
-    p.kdInfo={code:activeCode,ref,v,orig:p.desc};
+    // back to the original curb code(s) (before the offset was baked in).
+    p.kdInfo={code:segs.map(s=>s.activeCode).join(', '),orig:p.desc};
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
-    applied++;});
+    applied++;
+  });
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
   hud(`Knockdown applied to ${applied} pt(s)`);
+}
+// Build 86 — REF-vs-Standard review: opened only when at least one segment is
+// ambiguous (its own curb code AND a REF point in range). Every other,
+// unambiguous segment on ANY point still bakes automatically once Apply is
+// hit — this modal only exists to let the user override the ambiguous ones;
+// Cancel aborts the WHOLE run (nothing is applied until Apply), same "nothing
+// written until confirmed" contract the UGW→CPN review popup already uses.
+let kdReviewCtx=null;   // {pointWork,ambigList} while the modal is open
+function openKdReview(pointWork,ambigList){
+  kdReviewCtx={pointWork,ambigList};
+  renderKdReviewList();
+  $('kdReviewScrim').classList.add('show');
+  hud(`${ambigList.length} pt(s) have both a curb code and a nearby REF — choose REF or Standard for each, then Apply`);
+}
+function renderKdReviewList(){
+  if(!kdReviewCtx)return;
+  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  $('kdReviewList').innerHTML=kdReviewCtx.ambigList.map((row,idx)=>{
+    const s=row.seg,dist=Math.hypot(s.refPoint.N-row.p.N,s.refPoint.E-row.p.E);
+    return `<div class="vrow">
+      <div class="vhd"><span class="vpt">pt ${esc(row.p.id)} — ${esc(s.activeCode)}</span></div>
+      <div class="fbk" style="display:flex;flex-direction:column;gap:4px;font-size:11px;padding:6px 9px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="kdChoice_${idx}" value="std" ${s.choice==='std'?'checked':''}>
+          <span><b>Standard</b> — ${esc(s.activeCode)} std cross-section</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="kdChoice_${idx}" value="ref" ${s.choice==='ref'?'checked':''}>
+          <span><b>REF ${esc(s.refPoint.id)}</b> — v=${s.v.toFixed(3)} (${dist.toFixed(2)} ft away)</span>
+        </label>
+      </div>
+    </div>`;
+  }).join('');
+  $('kdReviewList').querySelectorAll('input[type=radio]').forEach(inp=>inp.onchange=()=>{
+    if(!inp.checked)return;
+    const idx=+inp.name.slice('kdChoice_'.length);
+    kdReviewCtx.ambigList[idx].seg.choice=inp.value;
+  });
+}
+function closeKdReview(){kdReviewCtx=null;$('kdReviewScrim').classList.remove('show');}
+function applyKdReview(){
+  if(!kdReviewCtx)return;
+  const {pointWork}=kdReviewCtx;
+  closeKdReview();
+  commitKnockdown(pointWork);
 }
 
 // Un-Knockdown (build 82) — the structural inverse of applyKnockdown(), gated by the
@@ -3147,6 +3259,9 @@ $('dlCsvBtn').onclick=exportCSV;
 $('kdBtn').onclick=applyKnockdown;
 $('unkdBtn').onclick=revertKnockdown;
 $('unkdReportClose').onclick=closeUnKdReport;
+$('kdReviewApply').onclick=applyKdReview;
+$('kdReviewCancel').onclick=closeKdReview;
+$('kdReviewScrim').onclick=e=>{if(e.target===$('kdReviewScrim'))closeKdReview();};
 $('unkdReportScrim').onclick=e=>{if(e.target===$('unkdReportScrim'))closeUnKdReport();};
 $('ugwCpnBtn').onclick=openUgwCpnReview;
 $('simplCogoBtn').onclick=()=>{if(!$('simplCogoBtn').disabled)openSimplCogoDialog();};
@@ -3310,10 +3425,11 @@ $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new F
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('helpScrim').classList.contains('show')){e.preventDefault();closeHelp();return;}
   if(e.key==='Escape'&&$('unkdReportScrim').classList.contains('show')){e.preventDefault();closeUnKdReport();return;}
+  if(e.key==='Escape'&&$('kdReviewScrim').classList.contains('show')){e.preventDefault();closeKdReview();return;}
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
