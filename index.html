@@ -212,7 +212,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
   </div>
 
   <div class="main">
@@ -568,7 +568,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:84};
+const VERSION={fruit:'🍋',name:'LEMON',build:85};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2828,12 +2828,34 @@ function exportFBK(expandCodes=true){
       nezed.push(f.code+'·'+verts.length);
     }
   }
-  // 2b. added points — existing pts pulled into a figure, placed in line order
+  // 2b. added points — existing pts pulled into a figure, placed in line order.
+  //     Walk `ord` (the figure's real, final left-to-right vertex order) instead of
+  //     figExtra's own insertion order, and anchor each added point on the NEAREST
+  //     REAL (file-backed, srcLine>=0) neighbor — an immediate neighbor can itself be
+  //     another added/inserted point (srcLine=-1, no file position of its own), and
+  //     the old code anchored blindly on whichever neighbor happened to be adjacent:
+  //     `next.srcLine` when a synthetic `next` sat right in front of a real point
+  //     further on evaluated to -1 (`nezBefore[-1]`, a key the line-by-line assembly
+  //     loop — `for(let L=0;L<RAW.length;L++)` — never visits, silently dropping the
+  //     point from the export entirely, worse than just landing on the wrong line).
+  //     Anchoring on the nearest REAL predecessor (`prev.srcLine+1`, immediately
+  //     following its own line, nothing else interposed) also fixes the "between the
+  //     two points" complaint itself: the old `next.srcLine` placement could land the
+  //     new bare-code line deep inside a large gap of unrelated file content between
+  //     the two real points (normal for real field data — see CLAUDE.md build 47) —
+  //     if a DIFFERENT, still-open run of the SAME code happened to sit anywhere in
+  //     that gap, the new point would silently extend THAT run instead of the one it
+  //     was actually inserted into.
   for(const id in figExtra){if(nezForced.has(id))continue;const f=getFig(id);if(!f)continue;
     const ord=f.verts.filter(v=>PTS[v.i]&&!PTS[v.i].deleted);
-    (figExtra[id]||[]).forEach(x=>{const A=PTS[x.i];if(!A||A.deleted)return;
-      const pos=ord.findIndex(v=>v.i===x.i);if(pos<0)return;
-      const prev=pos>0?PTS[ord[pos-1].i]:null,next=pos<ord.length-1?PTS[ord[pos+1].i]:null;
+    const addedSet=new Set((figExtra[id]||[]).map(x=>x.i));
+    ord.forEach((v,pos)=>{
+      if(!addedSet.has(v.i))return;
+      const A=PTS[v.i];if(!A||A.deleted)return;
+      let pi=pos-1;while(pi>=0&&PTS[ord[pi].i].srcLine<0)pi--;
+      const prev=pi>=0?PTS[ord[pi].i]:null;
+      let ni=pos+1;while(ni<ord.length&&PTS[ord[ni].i].srcLine<0)ni++;
+      const next=ni<ord.length?PTS[ord[ni].i]:null;
       const d=addCodeToDesc(A.desc,f.code);
       const neighborStn=(prev&&prev.kind==='shot'&&prev.stn)||(next&&next.kind==='shot'&&next.stn)||null;
       const inOrder=(!prev||prev.srcLine<A.srcLine)&&(!next||A.srcLine<next.srcLine);
@@ -2842,10 +2864,17 @@ function exportFBK(expandCodes=true){
       }else if(neighborStn&&A.stn===neighborStn&&inOrder){   // same setup, already in file order → just add the code in place
         editedContent[A.srcLine]=lineWithDesc(A,d);permuted.push(f.code+'+'+A.id);
       }else{                                          // outside the setup → NEZ record in line position, archive original
-        const anchorLine=next?next.srcLine:(prev?prev.srcLine+1:A.srcLine);
-        (nezBefore[anchorLine]=nezBefore[anchorLine]||[]).push(`NEZ ${A.id} ${A.N.toFixed(3)} ${A.E.toFixed(3)} ${A.Z.toFixed(3)} "${d}"`);
-        deletedAfter.add(A.srcLine);if(figuresOfPoint(x.i).length>1)shared.add(A.id);
-        nezed.push(f.code+'+'+A.id);}
+        const anchorLine=prev?prev.srcLine+1:(next?next.srcLine:null);
+        if(anchorLine==null){                          // no real, file-backed neighbor on EITHER side (e.g. an entirely COGO-built line) — never drop it, let 3b's end-of-file safety net emit it
+          if(A.srcLine>=0)deletedAfter.add(A.srcLine);
+        }else{
+          (nezBefore[anchorLine]=nezBefore[anchorLine]||[]).push(`NEZ ${A.id} ${A.N.toFixed(3)} ${A.E.toFixed(3)} ${A.Z.toFixed(3)} "${d}"`);
+          if(A.srcLine>=0)deletedAfter.add(A.srcLine);
+          nezDone.add(A.id);
+          if(figuresOfPoint(v.i).length>1)shared.add(A.id);
+          nezed.push(f.code+'+'+A.id);
+        }
+      }
     });
   }
   // 2c. standalone points with an explicit "place after this point" anchor (e.g. a
