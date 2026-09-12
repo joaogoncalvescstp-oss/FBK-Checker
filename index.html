@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍐 PEAR</span>
   </div>
 
   <div class="main">
@@ -397,6 +397,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <span class="mut" style="font-size:10px">for selected:</span>
       <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSetRefBtn" disabled title="Sets every SELECTED row that has a REF choice to REF">Set REF</button>
       <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSetStdBtn" disabled title="Sets every SELECTED row that has a Standard choice to Standard">Set Standard</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSetLeftBtn" disabled title="Sets every SELECTED row with an unknown L/R side to Left">Set Left</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSetRightBtn" disabled title="Sets every SELECTED row with an unknown L/R side to Right">Set Right</button>
     </div>
     <div id="kdReviewList" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
     <div class="row">
@@ -600,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥭',name:'MANGO',build:91};
+const VERSION={fruit:'🍐',name:'PEAR',build:92};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -934,7 +936,7 @@ function applyKnockdown(){
       let codeTokIdx=null,code=null;
       for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T]){codeTokIdx=i;code=T;}}   // last matching code token WITHIN this segment wins
       const key=toks[mi].toUpperCase();
-      let activeCode,sideConflict=null;
+      let activeCode,sideConflict=null,noSide=false;
       if(code){
         activeCode=code;
       }else{
@@ -945,6 +947,20 @@ function applyKnockdown(){
           // rather than silently picking one (build 89).
           sideConflict={fwd,near};
           activeCode=near.code;  // default choice: nearest declared — empirically the safer guess (a bare point with no code of its own is far more likely to be the START of a run whose own code is stated a shot or two later, than a genuine continuation of a stale, distant, unrelated run) — still just a pre-checked default, the point of flagging is that the user decides
+        }else if(!fwd&&!near){
+          // Build 92 — neither direction found ANY explicit declaration of this
+          // exact marker key ANYWHERE in the whole file, so there is nothing to
+          // borrow a side from at all — the old code silently fell back to a
+          // single hardcoded 'R612', which is only right for whichever half of
+          // these bare points actually needed the R side. In a real combined
+          // multi-site file (several unrelated job sites concatenated into one
+          // FBK) the unnumbered "RBCB"/"RCFL" marker can appear on dozens of
+          // physically unrelated curb runs across DIFFERENT sites with no
+          // explicit code stated for it ANYWHERE — so every one of them landed
+          // on the identical L/R side regardless of which side the real curb
+          // was actually on. Flag it instead of guessing.
+          noSide=true;
+          activeCode='R612';   // legacy default side/family, kept only as the pre-checked default choice below
         }else{
           activeCode=(fwd&&fwd.code)||(near&&near.code)||'R612';
         }
@@ -979,7 +995,20 @@ function applyKnockdown(){
       const near=nearestRef(p);
       if(!near){neededRef=true;return;}
       const v=p.Z-near.ref.Z;
-      if(sideConflict){
+      if(noSide){
+        // Build 92 — no explicit code for this marker key exists ANYWHERE in
+        // the file, so the L/R side is genuinely unknown rather than merely
+        // disagreeing between two candidates (that's sideConflict, above) —
+        // ask which side instead of silently baking the hardcoded default.
+        const mirrorCode=activeCode[0]==='L'?'R'+activeCode.slice(1):'L'+activeCode.slice(1);
+        const rCode=activeCode[0]==='R'?activeCode:mirrorCode, lCode=activeCode[0]==='L'?activeCode:mirrorCode;
+        if(db[lCode]&&db[rCode]){
+          segs.push({start,end,codeTokIdx,activeCode,kind:'noSide',choice:'R',v,refPoint:near.ref,
+            lCode,rCode,lTmpl:refKdTmpl(db,lCode,v),rTmpl:refKdTmpl(db,rCode,v)});
+        }else{
+          segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:refKdTmpl(db,activeCode,v),v,refLabel:'REF '+near.ref.id});
+        }
+      }else if(sideConflict){
         segs.push({start,end,codeTokIdx,activeCode,kind:'sideConflict',choice:'near',v,refPoint:near.ref,
           fwdCode:sideConflict.fwd.code,fwdPt:PTS[sideConflict.fwd.pi].id,fwdTmpl:refKdTmpl(db,sideConflict.fwd.code,v),
           nearCode:sideConflict.near.code,nearPt:PTS[sideConflict.near.pi].id,nearTmpl:refKdTmpl(db,sideConflict.near.code,v)});
@@ -993,21 +1022,25 @@ function applyKnockdown(){
   if(!pointWork.length){hud(neededRef?'no REF point in range for RBCB pt(s)':'no RBCB/RCFL curb codes to knock down');return;}
 
   const ambigList=[];
-  pointWork.forEach((pw,pwIdx)=>pw.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig'||seg.kind==='sideConflict')ambigList.push({pwIdx,segIdx,p:pw.p,seg});}));
+  pointWork.forEach((pw,pwIdx)=>pw.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig'||seg.kind==='sideConflict'||seg.kind==='noSide')ambigList.push({pwIdx,segIdx,p:pw.p,seg});}));
   if(ambigList.length){openKdReview(pointWork,ambigList);return;}
   commitKnockdown(pointWork);
 }
 function segTmpl(s){
   if(s.kind==='ambig')return s.choice==='ref'?s.refTmpl:s.stdTmpl;
   if(s.kind==='sideConflict')return s.choice==='near'?s.nearTmpl:s.fwdTmpl;
+  if(s.kind==='noSide')return s.choice==='L'?s.lTmpl:s.rTmpl;
   return s.tmpl;
 }
 function segActiveCode(s){                          // the code actually baked, after any user choice — for kdInfo/logging
-  return s.kind==='sideConflict'?(s.choice==='near'?s.nearCode:s.fwdCode):s.activeCode;
+  if(s.kind==='sideConflict')return s.choice==='near'?s.nearCode:s.fwdCode;
+  if(s.kind==='noSide')return s.choice==='L'?s.lCode:s.rCode;
+  return s.activeCode;
 }
 function segLogLabel(s){
   if(s.kind==='ambig')return s.choice==='ref'?`v=${s.v.toFixed(3)} (REF ${s.refPoint.id})`:'std code';
   if(s.kind==='sideConflict')return `v=${s.v.toFixed(3)} (REF ${s.refPoint.id}, side conflict — carried:${s.fwdCode} pt${s.fwdPt} vs nearest:${s.nearCode} pt${s.nearPt} — used ${segActiveCode(s)})`;
+  if(s.kind==='noSide')return `v=${s.v.toFixed(3)} (REF ${s.refPoint.id}, no code anywhere for this marker — L/R unknown — used ${segActiveCode(s)})`;
   return s.refLabel+(s.v?` v=${s.v.toFixed(3)}`:'');
 }
 // Bakes every resolved (and, for 'ambig' segments, chosen) segment into its
@@ -1047,7 +1080,7 @@ function openKdReview(pointWork,ambigList){
   kdReviewCtx={pointWork,ambigList,selected:new Set(),lastIdx:null};
   renderKdReviewList();
   $('kdReviewScrim').classList.add('show');
-  hud(`${ambigList.length} pt(s) need review (REF/Standard or an L/R side conflict) — choose for each, then Apply`);
+  hud(`${ambigList.length} pt(s) need review (REF/Standard, an L/R side conflict, or an unknown side) — choose for each, then Apply`);
 }
 // Build 90 — ctrl/shift bulk-select across review rows, so a real job file with
 // many ambiguous points (e.g. 70+ REF-vs-Standard rows) can be resolved a whole
@@ -1073,6 +1106,26 @@ function renderKdReviewList(){
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="radio" name="kdChoice_${idx}" value="near" ${s.choice==='near'?'checked':''}>
             <span><b>Nearest declared: ${esc(s.nearCode)}</b> — pt ${esc(s.nearPt)}</span>
+          </label>
+        </div>
+      </div>`;
+    }
+    if(s.kind==='noSide'){
+      // Build 92 — genuinely no explicit code anywhere for this marker key, so
+      // there's nothing to carry forward or borrow nearest — the L/R side is
+      // simply unknown. Defaults to Right (the old, silent, always-R612 fallback
+      // behavior) so nothing changes for anyone who doesn't touch this row, but
+      // it's now visible and overridable per-row or in bulk instead of guessed.
+      return `<div class="vrow">
+        <div class="vhd">${chk}<span class="vpt">pt ${esc(row.p.id)} — no code anywhere for this marker, L/R unknown</span>${lineTag}</div>
+        <div class="fbk" style="display:flex;flex-direction:column;gap:4px;font-size:11px;padding:6px 9px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="kdChoice_${idx}" value="L" ${s.choice==='L'?'checked':''}>
+            <span><b>Left</b> — ${esc(s.lCode)} v=${s.v.toFixed(3)}</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="kdChoice_${idx}" value="R" ${s.choice==='R'?'checked':''}>
+            <span><b>Right</b> — ${esc(s.rCode)} v=${s.v.toFixed(3)}</span>
           </label>
         </div>
       </div>`;
@@ -1115,15 +1168,19 @@ function syncKdReviewToolbar(){
   const n=kdReviewCtx?kdReviewCtx.selected.size:0;
   if($('kdSetRefBtn'))$('kdSetRefBtn').disabled=n===0;
   if($('kdSetStdBtn'))$('kdSetStdBtn').disabled=n===0;
+  if($('kdSetLeftBtn'))$('kdSetLeftBtn').disabled=n===0;
+  if($('kdSetRightBtn'))$('kdSetRightBtn').disabled=n===0;
 }
 function kdReviewSelectAll(){if(kdReviewCtx){kdReviewCtx.ambigList.forEach((_,i)=>kdReviewCtx.selected.add(i));renderKdReviewList();}}
 function kdReviewClearSel(){if(kdReviewCtx){kdReviewCtx.selected.clear();renderKdReviewList();}}
-// Only 'ambig' (REF-vs-Standard) rows have a std/ref choice at all — a sideConflict
-// row in the selection is silently skipped, not an error, since "REF"/"Standard"
-// doesn't apply to a carried-forward-vs-nearest-declared choice.
+// Only 'ambig' (REF-vs-Standard) rows have a std/ref choice at all — a selected
+// sideConflict or noSide row is silently skipped, not an error, since "REF"/
+// "Standard" doesn't apply to a carried-forward-vs-nearest-declared choice, or
+// to a plain unknown-L/R-side choice.
 function kdReviewSetChoice(val){
   if(!kdReviewCtx)return;
-  kdReviewCtx.selected.forEach(i=>{const seg=kdReviewCtx.ambigList[i].seg;if(seg.kind==='ambig')seg.choice=val;});
+  const wantKind=(val==='L'||val==='R')?'noSide':'ambig';
+  kdReviewCtx.selected.forEach(i=>{const seg=kdReviewCtx.ambigList[i].seg;if(seg.kind===wantKind)seg.choice=val;});
   renderKdReviewList();
 }
 function closeKdReview(){kdReviewCtx=null;$('kdReviewScrim').classList.remove('show');}
@@ -3609,6 +3666,8 @@ $('kdSelAllBtn').onclick=kdReviewSelectAll;
 $('kdSelNoneBtn').onclick=kdReviewClearSel;
 $('kdSetRefBtn').onclick=()=>kdReviewSetChoice('ref');
 $('kdSetStdBtn').onclick=()=>kdReviewSetChoice('std');
+$('kdSetLeftBtn').onclick=()=>kdReviewSetChoice('L');
+$('kdSetRightBtn').onclick=()=>kdReviewSetChoice('R');
 $('kdReviewScrim').onclick=e=>{if(e.target===$('kdReviewScrim'))closeKdReview();};
 $('unkdReportScrim').onclick=e=>{if(e.target===$('unkdReportScrim'))closeUnKdReport();};
 $('ugwCpnBtn').onclick=openUgwCpnReview;
