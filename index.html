@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
   </div>
 
   <div class="main">
@@ -602,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:94};
+const VERSION={fruit:'🍎',name:'APPLE',build:95};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2821,19 +2821,26 @@ function offsetPerCont(all,stepsAt,stopAt,startK){   // per-vertex active templa
     if(stopAt[k])active=null;}
   return {per,cont,changed};}
 function spanAdj(cont,k){return {hasPrev:!!cont[k],hasNext:k+1<cont.length&&!!cont[k+1]};}
-function laneOffsetArrays(all,per,cont,changed,L){   // one lane's per-vertex offset points, plus an OLD-value end-cap wherever a new callout changes the offset mid-run with no SO (build 94)
+function laneOffsetArrays(all,per,cont,changed,L){   // one lane's per-vertex offset points, plus an OLD-value end-cap wherever a callout changes THIS LANE's own offset mid-run with no SO (build 94), including a lane a shorter callout drops or a longer one re-adds (build 95)
   const op=[],contPrev=[],oldCap=[];
   per.forEach((s,k)=>{
-    if(!(s&&L<s.length)){op.push(null);contPrev.push(false);oldCap.push(null);return;}
     const{hasPrev,hasNext}=spanAdj(cont,k);
-    if(changed[k]&&hasPrev){                          // a new H/V callout right at this point, no SO — close the OLD lane here (old value), open a fresh one here (new value), no connecting jog between the two
-      const prevTmpl=per[k-1],oldStep=prevTmpl&&L<prevTmpl.length?prevTmpl[L]:null;
-      oldCap.push(oldStep?offsetAt(all,k,oldStep.h,oldStep.v,true,false):null);
-      op.push(offsetAt(all,k,s[L].h,s[L].v,false,hasNext));
+    const prevTmpl=k>0?per[k-1]:null,prevStep=prevTmpl&&L<prevTmpl.length?prevTmpl[L]:null;
+    const curStep=s&&L<s.length?s[L]:null;
+    // `changed[k]` (whole-template) just gates whether there's anything to even compare — the
+    // actual break decision is per-LANE: this exact lane keeps flowing continuously whenever its
+    // own h/v is unchanged, even if a callout at k added/dropped a DIFFERENT lane (e.g. 3 offsets
+    // -> 2) — only a lane whose own value genuinely differs, or that appears/disappears here,
+    // gets an end-cap/fresh-start (build 95's real-file "3rd offset line ends, or waits for the
+    // next 3-offset callout and rejoins" report — see the SO section's writeup for the full case).
+    const laneChanged=changed[k]&&hasPrev&&!(prevStep&&curStep&&prevStep.h===curStep.h&&prevStep.v===curStep.v);
+    oldCap.push((laneChanged&&prevStep)?offsetAt(all,k,prevStep.h,prevStep.v,true,false):null);
+    if(!curStep){op.push(null);contPrev.push(false);return;}
+    if(laneChanged){                                  // a new/returning value for THIS lane, no SO — open a fresh lane here, no connecting jog back into whatever was there before
+      op.push(offsetAt(all,k,curStep.h,curStep.v,false,hasNext));
       contPrev.push(false);
     }else{
-      oldCap.push(null);
-      op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));
+      op.push(offsetAt(all,k,curStep.h,curStep.v,hasPrev,hasNext));
       contPrev.push(hasPrev);
     }});
   return {op,contPrev,oldCap};}
