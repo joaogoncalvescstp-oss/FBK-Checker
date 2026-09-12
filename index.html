@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -602,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:96};
+const VERSION={fruit:'🍒',name:'CHERRY',build:97};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2829,12 +2829,17 @@ function laneOffsetArrays(all,per,cont,changed,L){   // one lane's per-vertex of
     const prevTmpl=k>0?per[k-1]:null,prevStep=prevTmpl&&L<prevTmpl.length?prevTmpl[L]:null;
     const curStep=s&&L<s.length?s[L]:null;
     // `changed[k]` (whole-template) just gates whether there's anything to even compare — the
-    // actual break decision is per-LANE: this exact lane keeps flowing continuously whenever its
-    // own h/v is unchanged, even if a callout at k added/dropped a DIFFERENT lane (e.g. 3 offsets
-    // -> 2) — only a lane whose own value genuinely differs, or that appears/disappears here,
-    // gets an end-cap/fresh-start (build 95's real-file "3rd offset line ends, or waits for the
-    // next 3-offset callout and rejoins" report — see the SO section's writeup for the full case).
-    const laneChanged=changed[k]&&hasPrev&&!(prevStep&&curStep&&prevStep.h===curStep.h&&prevStep.v===curStep.v);
+    // actual break decision is per-LANE, and per-lane is decided by H ALONE (build 97): H is
+    // which physical offset distance/lane this is; V is just that lane's own vertical reveal AT
+    // this one point, and a real curb's reveal legitimately varies — sometimes by a lot — from
+    // shot to shot along one continuous run (an explicit crew-typed H/V restated with a new V but
+    // the same H, or, even more so, Knockdown's own REF-derived reveal, which computes a genuinely
+    // unique V from each point's own nearby REF geometry — see the Knockdown/REF section). Neither
+    // is "a new lane," so a same-H/different-V restatement must keep flowing, not break. A lane
+    // whose own H genuinely differs, or that appears/disappears here, still gets an end-cap/
+    // fresh-start (build 95's real-file "3rd offset line ends, or waits for the next 3-offset
+    // callout and rejoins" report — see the SO section's writeup for the full case).
+    const laneChanged=changed[k]&&hasPrev&&!(prevStep&&curStep&&prevStep.h===curStep.h);
     oldCap.push((laneChanged&&prevStep)?offsetAt(all,k,prevStep.h,prevStep.v,true,false):null);
     if(!curStep){op.push(null);contPrev.push(false);return;}
     if(laneChanged){                                  // a new/returning value for THIS lane, no SO — open a fresh lane here, no connecting jog back into whatever was there before
