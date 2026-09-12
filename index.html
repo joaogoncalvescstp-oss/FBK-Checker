@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -602,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍎',name:'APPLE',build:95};
+const VERSION={fruit:'🍌',name:'BANANA',build:96};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1910,10 +1910,11 @@ function collectOffsetSegments(){const segs=[];
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     for(let L=0;L<lanes;L++){const{op,contPrev,oldCap}=laneOffsetArrays(all,per,cont,changed,L);
       let prev=null;
-      op.forEach((o,k)=>{if(!o){prev=null;return;}
-        if(prev&&oldCap[k]){const A=W2S(prev.E,prev.N),B=W2S(oldCap[k].E,oldCap[k].N);   // close the OLD lane exactly at a new-callout point (old value) instead of jogging to the new one
+      op.forEach((o,k)=>{
+        if(prev&&oldCap[k]){const A=W2S(prev.E,prev.N),B=W2S(oldCap[k].E,oldCap[k].N);   // close the OLD lane exactly at a new-callout point (old value) instead of jogging to the new one — must run even when this lane has NO new point here (o===null), e.g. a callout that drops this lane entirely (build 95)
           segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:oldCap[k].E,bN:oldCap[k].N,bZ:oldCap[k].Z,label:f.code+' offset'});}
-        else if(prev&&contPrev[k]){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);   // SO stop / a fresh restart breaks the chain even when physically adjacent
+        if(!o){prev=null;return;}
+        if(prev&&contPrev[k]){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);   // SO stop / a fresh restart breaks the chain even when physically adjacent
           segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:o.E,bN:o.N,bZ:o.Z,label:f.code+' offset'});}
         prev=o;});}});
   return segs;}
@@ -2882,8 +2883,8 @@ function drawOffsets(proj){ctx.save();
     for(let L=0;L<lanes;L++){const{op,contPrev,oldCap}=laneOffsetArrays(all,per,cont,changed,L);
       ctx.beginPath();let started=false,k=0;
       while(k<op.length){
+        if(started&&oldCap[k]){const sp=proj(oldCap[k].E,oldCap[k].N,oldCap[k].Z);ctx.lineTo(sp[0],sp[1]);}   // a new callout at k: finish the OLD lane exactly here (old value) before breaking to the new one — must run even when this lane has NO new point here (op[k]===null), e.g. a callout that drops this lane entirely (build 95)
         if(!op[k]){started=false;k++;continue;}
-        if(started&&oldCap[k]){const sp=proj(oldCap[k].E,oldCap[k].N,oldCap[k].Z);ctx.lineTo(sp[0],sp[1]);}   // a new callout at k: finish the OLD lane exactly here (old value) before breaking to the new one
         if(!started||!contPrev[k]){                        // SO stop / a fresh template restart breaks the drawn line even when the two points are physically adjacent — "disabled" means a real gap, not just a corrected corner angle
           const s0=proj(op[k].E,op[k].N,op[k].Z);ctx.moveTo(s0[0],s0[1]);started=true;k++;continue;}
         if(bcAt[k-1]){                                     // base line starts a BC..EC run here → curve this lane the same way, through its own offset points
