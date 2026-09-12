@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -380,11 +380,15 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
      silently overriding REF with the code's standard cross-section -->
 <div class="scrim" id="kdReviewScrim">
   <div class="modal wide">
-    <h4>Knockdown — REF or Standard?</h4>
+    <h4>Knockdown — Review Needed</h4>
     <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
-      Each point below carries its own curb code AND has a REF point within
-      range — pick which reveal to bake for it. Every other point (no
-      ambiguity) knocks down normally alongside these once you Apply.
+      Each point below needs a decision before it can be knocked down: either
+      it carries its own curb code AND has a REF point within range (pick
+      Standard or REF), or it has NO code of its own and the code carried
+      forward from an earlier point disagrees, side (L/R), with the nearest
+      declared code (pick which one is actually right for this point). Every
+      other point (no ambiguity) knocks down normally alongside these once you
+      Apply.
     </div>
     <div id="kdReviewList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
     <div class="row">
@@ -588,7 +592,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:88};
+const VERSION={fruit:'🍑',name:'PEACH',build:89};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -807,11 +811,23 @@ const CURB_KD={L612:0.06,R612:0.06,L624:0.12,R624:0.12,LPARK:0.06,RPARK:0.06,L60
    an older, unrelated run's code and hand it to a bare point that's actually
    the first shot of a brand-new run on the OPPOSITE side of the curb (L vs R
    templates are horizontally mirrored, so the wrong side's code doesn't just
-   get the depth wrong — it flips the whole offset to the wrong side). Now
-   each bare segment borrows the code from whichever explicitly-coded segment
-   of the SAME exact marker key (e.g. "RBCB" vs "RBCB1") is NEAREST to it by
-   point-index distance, searched in both directions — not just the most
-   recent one seen going backward. See the Knockdown section of CLAUDE.md.   */
+   get the depth wrong — it flips the whole offset to the wrong side). Build
+   88 fixed this by borrowing from whichever explicitly-coded segment of the
+   SAME exact marker key is NEAREST by point-index distance, in either
+   direction — but the owner kept seeing flips after that shipped, because
+   "nearest wins" is still just a silent guess: it can still be wrong, it
+   just guesses right more often. Build 89 stops guessing silently: for a
+   bare segment it now computes BOTH the code CARRIED FORWARD from the
+   nearest earlier explicit statement (the owner's own framing — a callout
+   "is carried over to the next point until a new callout is introduced")
+   AND the nearest explicit code in EITHER direction (build 88's fallback),
+   and only auto-resolves when the two AGREE on which SIDE (L vs R) the curb
+   is on. When they disagree, that side conflict is FLAGGED in the
+   `#kdReviewScrim` review modal (`seg.kind==='sideConflict'`) — same modal
+   build 86/87 already use for REF-vs-Standard — listing both candidate
+   codes and their source points so the owner picks the right one per point,
+   instead of the app silently guessing wrong again. See the Knockdown
+   section of CLAUDE.md.                                                    */
 function applyKnockdown(){
   if(!PTS.length){hud('load an FBK first');return;}
   const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
@@ -869,8 +885,26 @@ function applyKnockdown(){
     const list=markerCodes[key];
     if(!list||!list.length)return null;
     let best=null,bd=Infinity;
-    list.forEach(e=>{const d=Math.abs(e.pi-pi);if(d<bd){bd=d;best=e.code;}});
-    return best;
+    list.forEach(e=>{const d=Math.abs(e.pi-pi);if(d<bd){bd=d;best=e;}});
+    return best;   // {pi,code} or null
+  };
+  // Build 89 — the owner reported STILL seeing flipped offsets after build 88's
+  // bidirectional-nearest fix: nearest-by-index can still silently guess wrong
+  // when a bare point sits between two competing runs of the same unnumbered
+  // marker key. Rather than picking one heuristic and hoping, compute BOTH
+  // candidates a bare segment could reasonably use and only auto-resolve when
+  // they AGREE on which SIDE (L vs R) the curb is on — the owner's own framing:
+  // a callout "is carried over [to the] next point until a new callout is
+  // introduced" (forward carry), but that alone is exactly what silently
+  // crossed into an unrelated run before; cross-checking it against the
+  // nearest declared code in EITHER direction turns a silent wrong guess into
+  // a visible, flaggable disagreement instead.
+  const forwardMarkerCode=(key,pi)=>{
+    const list=markerCodes[key];
+    if(!list||!list.length)return null;
+    let best=null;
+    for(const e of list){if(e.pi<pi)best=e;else break;}   // list is pi-ascending; last entry strictly before pi
+    return best;   // {pi,code} or null
   };
 
   let neededRef=false;
@@ -892,7 +926,21 @@ function applyKnockdown(){
       let codeTokIdx=null,code=null;
       for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T]){codeTokIdx=i;code=T;}}   // last matching code token WITHIN this segment wins
       const key=toks[mi].toUpperCase();
-      const activeCode=code||nearestMarkerCode(key,pi)||'R612';
+      let activeCode,sideConflict=null;
+      if(code){
+        activeCode=code;
+      }else{
+        const fwd=forwardMarkerCode(key,pi),near=nearestMarkerCode(key,pi);
+        if(fwd&&near&&fwd.code[0]!==near.code[0]&&fwd.code!==near.code){
+          // the code carried forward from an earlier point disagrees with the
+          // nearest declared code on which SIDE (L/R) the curb is on — flag it
+          // rather than silently picking one (build 89).
+          sideConflict={fwd,near};
+          activeCode=near.code;  // default choice: nearest declared — empirically the safer guess (a bare point with no code of its own is far more likely to be the START of a run whose own code is stated a shot or two later, than a genuine continuation of a stale, distant, unrelated run) — still just a pre-checked default, the point of flagging is that the user decides
+        }else{
+          activeCode=(fwd&&fwd.code)||(near&&near.code)||'R612';
+        }
+      }
       if(!db[activeCode])return;                 // no template for this code in the chosen DB
       if(marker==='FL'){
         // flow-line shot → only bake when THIS segment carries its own curb
@@ -915,11 +963,19 @@ function applyKnockdown(){
         }
         return;
       }
-      // no code on this segment → derive the reveal from the nearest REF shot
+      // no code on this segment → derive the reveal from the nearest REF shot,
+      // using whichever fallback code is currently ACTIVE for this point (the
+      // carried-forward callout, or the flagged side-conflict choice below).
       const near=nearestRef(p);
       if(!near){neededRef=true;return;}
       const v=p.Z-near.ref.Z;
-      segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:refKdTmpl(db,activeCode,v),v,refLabel:'REF '+near.ref.id});
+      if(sideConflict){
+        segs.push({start,end,codeTokIdx,activeCode,kind:'sideConflict',choice:'near',v,refPoint:near.ref,
+          fwdCode:sideConflict.fwd.code,fwdPt:PTS[sideConflict.fwd.pi].id,fwdTmpl:refKdTmpl(db,sideConflict.fwd.code,v),
+          nearCode:sideConflict.near.code,nearPt:PTS[sideConflict.near.pi].id,nearTmpl:refKdTmpl(db,sideConflict.near.code,v)});
+      }else{
+        segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:refKdTmpl(db,activeCode,v),v,refLabel:'REF '+near.ref.id});
+      }
     });
     if(segs.length)pointWork.push({p,toks,segs});
   });
@@ -927,13 +983,21 @@ function applyKnockdown(){
   if(!pointWork.length){hud(neededRef?'no REF point in range for RBCB pt(s)':'no RBCB/RCFL curb codes to knock down');return;}
 
   const ambigList=[];
-  pointWork.forEach((pw,pwIdx)=>pw.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig')ambigList.push({pwIdx,segIdx,p:pw.p,seg});}));
+  pointWork.forEach((pw,pwIdx)=>pw.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig'||seg.kind==='sideConflict')ambigList.push({pwIdx,segIdx,p:pw.p,seg});}));
   if(ambigList.length){openKdReview(pointWork,ambigList);return;}
   commitKnockdown(pointWork);
 }
-function segTmpl(s){return s.kind==='ambig'?(s.choice==='ref'?s.refTmpl:s.stdTmpl):s.tmpl;}
+function segTmpl(s){
+  if(s.kind==='ambig')return s.choice==='ref'?s.refTmpl:s.stdTmpl;
+  if(s.kind==='sideConflict')return s.choice==='near'?s.nearTmpl:s.fwdTmpl;
+  return s.tmpl;
+}
+function segActiveCode(s){                          // the code actually baked, after any user choice — for kdInfo/logging
+  return s.kind==='sideConflict'?(s.choice==='near'?s.nearCode:s.fwdCode):s.activeCode;
+}
 function segLogLabel(s){
   if(s.kind==='ambig')return s.choice==='ref'?`v=${s.v.toFixed(3)} (REF ${s.refPoint.id})`:'std code';
+  if(s.kind==='sideConflict')return `v=${s.v.toFixed(3)} (REF ${s.refPoint.id}, side conflict — carried:${s.fwdCode} pt${s.fwdPt} vs nearest:${s.nearCode} pt${s.nearPt} — used ${segActiveCode(s)})`;
   return s.refLabel+(s.v?` v=${s.v.toFixed(3)}`:'');
 }
 // Bakes every resolved (and, for 'ambig' segments, chosen) segment into its
@@ -955,7 +1019,7 @@ function commitKnockdown(pointWork){
     segs.forEach(s=>logEdit('code',`knockdown pt ${p.id}: ${s.activeCode} ${segLogLabel(s)}`));
     // remember the pre-knockdown description so the line-code review can toggle
     // back to the original curb code(s) (before the offset was baked in).
-    p.kdInfo={code:segs.map(s=>s.activeCode).join(', '),orig:p.desc};
+    p.kdInfo={code:segs.map(segActiveCode).join(', '),orig:p.desc};
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
     applied++;
   });
@@ -973,17 +1037,33 @@ function openKdReview(pointWork,ambigList){
   kdReviewCtx={pointWork,ambigList};
   renderKdReviewList();
   $('kdReviewScrim').classList.add('show');
-  hud(`${ambigList.length} pt(s) have both a curb code and a nearby REF — choose REF or Standard for each, then Apply`);
+  hud(`${ambigList.length} pt(s) need review (REF/Standard or an L/R side conflict) — choose for each, then Apply`);
 }
 function renderKdReviewList(){
   if(!kdReviewCtx)return;
   const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   $('kdReviewList').innerHTML=kdReviewCtx.ambigList.map((row,idx)=>{
-    const s=row.seg,dist=Math.hypot(s.refPoint.N-row.p.N,s.refPoint.E-row.p.E);
+    const s=row.seg;
     // which figure(s) — if any — this point belongs to, so a long list across many
     // different lines is actually readable instead of just a bare point number.
     const lines=figuresOfPoint(PTS.indexOf(row.p)).map(f=>f.code);
     const lineTag=lines.length?`<span class="arc" title="line(s) this point is on">${esc(lines.join(', '))}</span>`:`<span class="mut" style="font-size:9px" title="not part of any figure/line">no line</span>`;
+    if(s.kind==='sideConflict'){
+      return `<div class="vrow">
+        <div class="vhd"><span class="vpt">pt ${esc(row.p.id)} — no code, L/R conflict</span>${lineTag}</div>
+        <div class="fbk" style="display:flex;flex-direction:column;gap:4px;font-size:11px;padding:6px 9px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="kdChoice_${idx}" value="fwd" ${s.choice==='fwd'?'checked':''}>
+            <span><b>Carried forward: ${esc(s.fwdCode)}</b> — from pt ${esc(s.fwdPt)}</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="kdChoice_${idx}" value="near" ${s.choice==='near'?'checked':''}>
+            <span><b>Nearest declared: ${esc(s.nearCode)}</b> — pt ${esc(s.nearPt)}</span>
+          </label>
+        </div>
+      </div>`;
+    }
+    const dist=Math.hypot(s.refPoint.N-row.p.N,s.refPoint.E-row.p.E);
     return `<div class="vrow">
       <div class="vhd"><span class="vpt">pt ${esc(row.p.id)} — ${esc(s.activeCode)}</span>${lineTag}</div>
       <div class="fbk" style="display:flex;flex-direction:column;gap:4px;font-size:11px;padding:6px 9px">
