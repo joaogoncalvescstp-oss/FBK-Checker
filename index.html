@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -390,7 +390,15 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       other point (no ambiguity) knocks down normally alongside these once you
       Apply.
     </div>
-    <div id="kdReviewList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSelAllBtn">Select all</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSelNoneBtn">Clear</button>
+      <span style="flex:1"></span>
+      <span class="mut" style="font-size:10px">for selected:</span>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSetRefBtn" disabled title="Sets every SELECTED row that has a REF choice to REF">Set REF</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="kdSetStdBtn" disabled title="Sets every SELECTED row that has a Standard choice to Standard">Set Standard</button>
+    </div>
+    <div id="kdReviewList" style="max-height:48vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
     <div class="row">
       <button class="btn ghost" id="kdReviewCancel">Cancel</button>
       <button class="btn gold" id="kdReviewApply">Apply</button>
@@ -592,7 +600,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:89};
+const VERSION={fruit:'🥝',name:'KIWI',build:90};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -953,10 +961,12 @@ function applyKnockdown(){
         // this BOC segment carries its own code — if a REF is in range,
         // that's an ambiguous case (build 86): let the user pick REF or
         // Standard instead of silently always overriding REF with std.
+        // Build 90 — the owner asked for REF as the default pick (was
+        // Standard) since a nearby REF is usually the more accurate reveal.
         const near=nearestRef(p);
         if(near){
           const v=p.Z-near.ref.Z;
-          segs.push({start,end,codeTokIdx,activeCode,kind:'ambig',choice:'std',
+          segs.push({start,end,codeTokIdx,activeCode,kind:'ambig',choice:'ref',
             stdTmpl:db[activeCode],refTmpl:refKdTmpl(db,activeCode,v),refPoint:near.ref,v});
         }else{
           segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:db[activeCode],v:0,refLabel:'std code'});
@@ -1032,13 +1042,16 @@ function commitKnockdown(pointWork){
 // hit — this modal only exists to let the user override the ambiguous ones;
 // Cancel aborts the WHOLE run (nothing is applied until Apply), same "nothing
 // written until confirmed" contract the UGW→CPN review popup already uses.
-let kdReviewCtx=null;   // {pointWork,ambigList} while the modal is open
+let kdReviewCtx=null;   // {pointWork,ambigList,selected,lastIdx} while the modal is open
 function openKdReview(pointWork,ambigList){
-  kdReviewCtx={pointWork,ambigList};
+  kdReviewCtx={pointWork,ambigList,selected:new Set(),lastIdx:null};
   renderKdReviewList();
   $('kdReviewScrim').classList.add('show');
   hud(`${ambigList.length} pt(s) need review (REF/Standard or an L/R side conflict) — choose for each, then Apply`);
 }
+// Build 90 — ctrl/shift bulk-select across review rows, so a real job file with
+// many ambiguous points (e.g. 70+ REF-vs-Standard rows) can be resolved a whole
+// group at a time ("set selected to REF") instead of one radio click per row.
 function renderKdReviewList(){
   if(!kdReviewCtx)return;
   const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1048,9 +1061,10 @@ function renderKdReviewList(){
     // different lines is actually readable instead of just a bare point number.
     const lines=figuresOfPoint(PTS.indexOf(row.p)).map(f=>f.code);
     const lineTag=lines.length?`<span class="arc" title="line(s) this point is on">${esc(lines.join(', '))}</span>`:`<span class="mut" style="font-size:9px" title="not part of any figure/line">no line</span>`;
+    const chk=`<input type="checkbox" class="kdRowChk" data-idx="${idx}" ${kdReviewCtx.selected.has(idx)?'checked':''} style="margin-right:6px" title="Shift-click to select a range">`;
     if(s.kind==='sideConflict'){
       return `<div class="vrow">
-        <div class="vhd"><span class="vpt">pt ${esc(row.p.id)} — no code, L/R conflict</span>${lineTag}</div>
+        <div class="vhd">${chk}<span class="vpt">pt ${esc(row.p.id)} — no code, L/R conflict</span>${lineTag}</div>
         <div class="fbk" style="display:flex;flex-direction:column;gap:4px;font-size:11px;padding:6px 9px">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="radio" name="kdChoice_${idx}" value="fwd" ${s.choice==='fwd'?'checked':''}>
@@ -1065,7 +1079,7 @@ function renderKdReviewList(){
     }
     const dist=Math.hypot(s.refPoint.N-row.p.N,s.refPoint.E-row.p.E);
     return `<div class="vrow">
-      <div class="vhd"><span class="vpt">pt ${esc(row.p.id)} — ${esc(s.activeCode)}</span>${lineTag}</div>
+      <div class="vhd">${chk}<span class="vpt">pt ${esc(row.p.id)} — ${esc(s.activeCode)}</span>${lineTag}</div>
       <div class="fbk" style="display:flex;flex-direction:column;gap:4px;font-size:11px;padding:6px 9px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
           <input type="radio" name="kdChoice_${idx}" value="std" ${s.choice==='std'?'checked':''}>
@@ -1083,6 +1097,34 @@ function renderKdReviewList(){
     const idx=+inp.name.slice('kdChoice_'.length);
     kdReviewCtx.ambigList[idx].seg.choice=inp.value;
   });
+  $('kdReviewList').querySelectorAll('.kdRowChk').forEach(chk=>chk.onclick=e=>{
+    e.stopPropagation();
+    const idx=+chk.dataset.idx;
+    if(e.shiftKey&&kdReviewCtx.lastIdx!=null){
+      const [lo,hi]=kdReviewCtx.lastIdx<idx?[kdReviewCtx.lastIdx,idx]:[idx,kdReviewCtx.lastIdx];
+      for(let i=lo;i<=hi;i++)kdReviewCtx.selected.add(i);
+      renderKdReviewList();return;
+    }
+    if(chk.checked)kdReviewCtx.selected.add(idx);else kdReviewCtx.selected.delete(idx);
+    kdReviewCtx.lastIdx=idx;
+    syncKdReviewToolbar();
+  });
+  syncKdReviewToolbar();
+}
+function syncKdReviewToolbar(){
+  const n=kdReviewCtx?kdReviewCtx.selected.size:0;
+  if($('kdSetRefBtn'))$('kdSetRefBtn').disabled=n===0;
+  if($('kdSetStdBtn'))$('kdSetStdBtn').disabled=n===0;
+}
+function kdReviewSelectAll(){if(kdReviewCtx){kdReviewCtx.ambigList.forEach((_,i)=>kdReviewCtx.selected.add(i));renderKdReviewList();}}
+function kdReviewClearSel(){if(kdReviewCtx){kdReviewCtx.selected.clear();renderKdReviewList();}}
+// Only 'ambig' (REF-vs-Standard) rows have a std/ref choice at all — a sideConflict
+// row in the selection is silently skipped, not an error, since "REF"/"Standard"
+// doesn't apply to a carried-forward-vs-nearest-declared choice.
+function kdReviewSetChoice(val){
+  if(!kdReviewCtx)return;
+  kdReviewCtx.selected.forEach(i=>{const seg=kdReviewCtx.ambigList[i].seg;if(seg.kind==='ambig')seg.choice=val;});
+  renderKdReviewList();
 }
 function closeKdReview(){kdReviewCtx=null;$('kdReviewScrim').classList.remove('show');}
 function applyKdReview(){
@@ -1124,7 +1166,7 @@ function revertKnockdown(){
     if(!m)return;                                  // marker present but nothing baked here — nothing to revert
     const run=m[0].trim().replace(/\s+/g,' ');
     const code=(isFL?revFL:revBOC)[run];
-    if(!code){skipped.push({id:p.id,hv:run});return;}
+    if(!code){skipped.push({id:p.id,hv:run,p});return;}
     const newDesc=(p.desc.slice(0,m.index)+' '+code+p.desc.slice(m.index+m[0].length)).replace(/\s+/g,' ').trim();
     converted.push({p,id:p.id,code,hv:run,newDesc});
   });
@@ -1141,6 +1183,12 @@ function revertKnockdown(){
   showUnKdReport(restored,converted,skipped);
   hud(`un-knockdown: ${restored.length+converted.length} pt(s) reverted, ${skipped.length} left untouched`);
 }
+// Build 90 — the owner asked for a way to actually DO something with a real
+// job file's "Left untouched" pile (253 pts on one real file) instead of just
+// reading a static list: sort it by point # or by the H/V text, ctrl/shift
+// bulk-select rows, and bulk-delete the ones not worth fixing by hand.
+let unkdSkipCtx=null;   // {rows:[{id,hv,p}],selected:Set<string>,sort:'pt'|'code',lastId:string|null}
+const numCmp=(a,b)=>{const na=parseFloat(a),nb=parseFloat(b);if(!isNaN(na)&&!isNaN(nb)&&na!==nb)return na-nb;return String(a).localeCompare(String(b));};
 function showUnKdReport(restored,converted,skipped){
   const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const section=(title,rows,empty)=>{
@@ -1150,12 +1198,82 @@ function showUnKdReport(restored,converted,skipped){
   };
   const restoredRows=restored.map(r=>`<tr><td class="key">pt ${esc(r.id)}</td><td>restored original <b>${esc(r.code)}</b> line</td></tr>`);
   const convertedRows=converted.map(c=>`<tr><td class="key">pt ${esc(c.id)}</td><td>${esc(c.hv||'')}&nbsp;→&nbsp;<b>${esc(c.code)}</b></td></tr>`);
-  const skippedRows=skipped.map(s=>`<tr><td class="key">pt ${esc(s.id)}</td><td class="mut">${esc(s.hv)}</td></tr>`);
+  unkdSkipCtx={rows:skipped.map(s=>({id:s.id,hv:s.hv,p:s.p})),selected:new Set(),sort:'pt',lastId:null};
+  const skipSection=skipped.length?
+    `<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">Left untouched — no unambiguous match (${skipped.length})</h5>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSortPt">Sort: Point #</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSortCode">Sort: Code (H/V)</button>
+      <span style="flex:1"></span>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSkipAllBtn">Select all</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSkipNoneBtn">Clear</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSkipDelBtn" disabled title="Deletes the SELECTED points outright (marked Deleted on export) — use for junk/unresolvable offsets not worth fixing by hand">Delete selected</button>
+    </div>
+    <div id="unkdSkipList" style="max-height:220px;overflow:auto;display:flex;flex-direction:column"></div>`
+    :`<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">Left untouched — no unambiguous match (0)</h5><div class="mut" style="font-size:11px">none — every baked offset found was safely revertible</div>`;
   $('unkdReportBody').innerHTML=
     section('Restored — this session\'s own knockdown',restoredRows,'none')+
     section('Converted — H/V matched one code exactly',convertedRows,'none')+
-    section('Left untouched — no unambiguous match',skippedRows,'none — every baked offset found was safely revertible');
+    skipSection;
   $('unkdReportScrim').classList.add('show');
+  if(skipped.length){
+    renderUnkdSkippedList();
+    $('unkdSortPt').onclick=()=>{unkdSkipCtx.sort='pt';renderUnkdSkippedList();};
+    $('unkdSortCode').onclick=()=>{unkdSkipCtx.sort='code';renderUnkdSkippedList();};
+    $('unkdSkipAllBtn').onclick=()=>{unkdSkipCtx.rows.forEach(r=>unkdSkipCtx.selected.add(r.id));renderUnkdSkippedList();};
+    $('unkdSkipNoneBtn').onclick=()=>{unkdSkipCtx.selected.clear();renderUnkdSkippedList();};
+    $('unkdSkipDelBtn').onclick=unkdSkipDeleteSelected;
+  }
+}
+// 'pt' sorts by point number (numeric-aware); 'code' sorts by the baked H/V
+// text so identical/similar ambiguous templates cluster together — placed as
+// the second (lower) sort button, point # stays the default/primary one.
+function renderUnkdSkippedList(){
+  if(!unkdSkipCtx)return;
+  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows=[...unkdSkipCtx.rows].sort(unkdSkipCtx.sort==='code'
+    ?(a,b)=>a.hv.localeCompare(b.hv)||numCmp(a.id,b.id)
+    :(a,b)=>numCmp(a.id,b.id));
+  const box=$('unkdSkipList');
+  if(!box)return;
+  if(!rows.length){box.innerHTML='<div class="mut" style="font-size:11px">none left</div>';return;}
+  box.innerHTML=rows.map(r=>`<label class="vrow" style="display:flex;align-items:center;gap:8px;padding:5px 9px;cursor:pointer;flex-shrink:0">
+    <input type="checkbox" class="unkdSkipChk" data-id="${esc(r.id)}" ${unkdSkipCtx.selected.has(r.id)?'checked':''} title="Shift-click to select a range">
+    <span class="vpt">pt ${esc(r.id)}</span><span class="mut" style="font-size:11px;flex:1">${esc(r.hv)}</span>
+  </label>`).join('');
+  const idOrder=rows.map(r=>r.id);
+  box.querySelectorAll('.unkdSkipChk').forEach(chk=>chk.onclick=e=>{
+    e.stopPropagation();
+    const id=chk.dataset.id;
+    if(e.shiftKey&&unkdSkipCtx.lastId!=null){
+      const a=idOrder.indexOf(unkdSkipCtx.lastId),b=idOrder.indexOf(id);
+      if(a>=0&&b>=0){
+        const [lo,hi]=a<b?[a,b]:[b,a];
+        for(let i=lo;i<=hi;i++)unkdSkipCtx.selected.add(idOrder[i]);
+        renderUnkdSkippedList();return;
+      }
+    }
+    if(chk.checked)unkdSkipCtx.selected.add(id);else unkdSkipCtx.selected.delete(id);
+    unkdSkipCtx.lastId=id;
+    syncUnkdSkipToolbar();
+  });
+  syncUnkdSkipToolbar();
+}
+function syncUnkdSkipToolbar(){
+  const n=unkdSkipCtx?unkdSkipCtx.selected.size:0;
+  const btn=$('unkdSkipDelBtn');
+  if(btn){btn.disabled=n===0;btn.textContent=n?`Delete selected (${n})`:'Delete selected';}
+}
+function unkdSkipDeleteSelected(){
+  if(!unkdSkipCtx||!unkdSkipCtx.selected.size)return;
+  saveState();
+  let n=0;
+  unkdSkipCtx.rows.forEach(r=>{if(unkdSkipCtx.selected.has(r.id)&&!r.p.deleted){r.p.deleted=true;n++;}});
+  unkdSkipCtx.rows=unkdSkipCtx.rows.filter(r=>!unkdSkipCtx.selected.has(r.id));
+  unkdSkipCtx.selected.clear();
+  buildLinework();draw();flagDirty();
+  renderUnkdSkippedList();
+  hud(`deleted ${n} left-untouched pt(s)`);
 }
 function closeUnKdReport(){$('unkdReportScrim').classList.remove('show');}
 
@@ -3401,6 +3519,10 @@ $('unkdBtn').onclick=revertKnockdown;
 $('unkdReportClose').onclick=closeUnKdReport;
 $('kdReviewApply').onclick=applyKdReview;
 $('kdReviewCancel').onclick=closeKdReview;
+$('kdSelAllBtn').onclick=kdReviewSelectAll;
+$('kdSelNoneBtn').onclick=kdReviewClearSel;
+$('kdSetRefBtn').onclick=()=>kdReviewSetChoice('ref');
+$('kdSetStdBtn').onclick=()=>kdReviewSetChoice('std');
 $('kdReviewScrim').onclick=e=>{if(e.target===$('kdReviewScrim'))closeKdReview();};
 $('unkdReportScrim').onclick=e=>{if(e.target===$('unkdReportScrim'))closeUnKdReport();};
 $('ugwCpnBtn').onclick=openUgwCpnReview;
