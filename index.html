@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -602,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:93};
+const VERSION={fruit:'🍇',name:'GRAPE',build:94};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1906,14 +1906,14 @@ function collectOffsetSegments(){const segs=[];
   figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    const{per,cont}=offsetPerCont(all,stepsAt,stopAt,startK);
+    const{per,cont,changed}=offsetPerCont(all,stepsAt,stopAt,startK);
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
-    for(let L=0;L<lanes;L++){const op=[],contPrev=[];
-      per.forEach((s,k)=>{if(!(s&&L<s.length)){op.push(null);contPrev.push(false);return;}
-        const{hasPrev,hasNext}=spanAdj(cont,k);op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));contPrev.push(hasPrev);});
+    for(let L=0;L<lanes;L++){const{op,contPrev,oldCap}=laneOffsetArrays(all,per,cont,changed,L);
       let prev=null;
       op.forEach((o,k)=>{if(!o){prev=null;return;}
-        if(prev&&contPrev[k]){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);   // SO stop / a fresh restart breaks the chain even when physically adjacent
+        if(prev&&oldCap[k]){const A=W2S(prev.E,prev.N),B=W2S(oldCap[k].E,oldCap[k].N);   // close the OLD lane exactly at a new-callout point (old value) instead of jogging to the new one
+          segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:oldCap[k].E,bN:oldCap[k].N,bZ:oldCap[k].Z,label:f.code+' offset'});}
+        else if(prev&&contPrev[k]){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);   // SO stop / a fresh restart breaks the chain even when physically adjacent
           segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:o.E,bN:o.N,bZ:o.Z,label:f.code+' offset'});}
         prev=o;});}});
   return segs;}
@@ -2799,19 +2799,44 @@ function offsetAt(all,k,h,v,contPrev,contNext){          // offset point at vert
     const p=perp(all[k],all[k+1]);E=all[k].E+p.E*h;N=all[k].N+p.N*h;
   }else{E=all[k].E;N=all[k].N;}        // degenerate: a single-vertex figure, no direction to offset along
   return {E,N,Z:all[k].Z+v};}
+function sameTemplate(a,b){                          // value equality for a curb/H-V step list — a re-expanded curb code is a FRESH array even when its numbers match (build 68), so this can never be a reference check
+  if(!a||!b||a.length!==b.length)return false;
+  for(let i=0;i<a.length;i++)if(a[i].h!==b[i].h||a[i].v!==b[i].v)return false;
+  return true;}
 function offsetPerCont(all,stepsAt,stopAt,startK){   // per-vertex active template + real continuity, shared by drawOffsets/collectOffsetSegments.
   // cont[k] = is the offset truly continuous from k-1 into k — i.e. NOT an SO stop — not just "does k also happen to carry its own H/V/curb-code restatement".
   // A curb-code shorthand (R612, R006, ...) re-expands to a FRESH steps array every time it's re-stated, even redundantly on consecutive points of the
   // same curve with no SO anywhere near — treating that as a break (build 67's own object-identity check did) silently kills real curve offsets.
   // Only an actual SO on the PRIOR point breaks continuity; a same-or-different-valued restart with no SO in between is still one continuous run.
-  let active=null;const per=[],cont=[];
+  // changed[k] = a genuinely NEW-valued callout was declared right at k (not just a redundant restatement of the same values, and not an SO restart —
+  // both of those are handled by cont[] already) — build 94: this is what tells the lane-line drawer to end the OLD lane's offset exactly at k using
+  // the OLD value and start a fresh lane departing from k using the NEW value, instead of one connected segment whose two ends sit at different offset
+  // distances (a diagonal jog).
+  let active=null;const per=[],cont=[],changed=[];
   for(let k=0;k<all.length;k++){
+    changed[k]=!!(stepsAt[k]&&active!=null&&!sameTemplate(active,stepsAt[k]));
     if(stepsAt[k])active=stepsAt[k];
     per[k]=k<startK?null:active;
     cont[k]=k>0&&per[k-1]!=null&&!stopAt[k-1];
     if(stopAt[k])active=null;}
-  return {per,cont};}
+  return {per,cont,changed};}
 function spanAdj(cont,k){return {hasPrev:!!cont[k],hasNext:k+1<cont.length&&!!cont[k+1]};}
+function laneOffsetArrays(all,per,cont,changed,L){   // one lane's per-vertex offset points, plus an OLD-value end-cap wherever a new callout changes the offset mid-run with no SO (build 94)
+  const op=[],contPrev=[],oldCap=[];
+  per.forEach((s,k)=>{
+    if(!(s&&L<s.length)){op.push(null);contPrev.push(false);oldCap.push(null);return;}
+    const{hasPrev,hasNext}=spanAdj(cont,k);
+    if(changed[k]&&hasPrev){                          // a new H/V callout right at this point, no SO — close the OLD lane here (old value), open a fresh one here (new value), no connecting jog between the two
+      const prevTmpl=per[k-1],oldStep=prevTmpl&&L<prevTmpl.length?prevTmpl[L]:null;
+      oldCap.push(oldStep?offsetAt(all,k,oldStep.h,oldStep.v,true,false):null);
+      op.push(offsetAt(all,k,s[L].h,s[L].v,false,hasNext));
+      contPrev.push(false);
+    }else{
+      oldCap.push(null);
+      op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));
+      contPrev.push(hasPrev);
+    }});
+  return {op,contPrev,oldCap};}
 function curvedOffsetPts(baseSub,opSub,hSub){   // an offset lane's run through a BC..EC (sub-)span: same PCC/PRC compound/reverse-curve splits as the base line, and each segment's radius is the BASE segment's own fitted radius, adjusted by this lane's offset distance (not an independent re-fit)
   const idx=breakIndices(baseSub),out=[];
   for(let s=0;s<idx.length-1;s++){
@@ -2839,7 +2864,7 @@ function drawOffsets(proj){ctx.save();
   figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[],ocAt=[];
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);ocAt.push(!!v.oc);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
-    const{per,cont}=offsetPerCont(all,stepsAt,stopAt,startK);
+    const{per,cont,changed}=offsetPerCont(all,stepsAt,stopAt,startK);
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     ctx.strokeStyle='rgba(110,224,166,.4)';ctx.lineWidth=1;ctx.setLineDash([2,3]);   // cross-section ribs
     per.forEach((s,k)=>{if(!s)return;let p0=proj(all[k].E,all[k].N,all[k].Z);
@@ -2847,12 +2872,11 @@ function drawOffsets(proj){ctx.save();
       ctx.beginPath();ctx.moveTo(p0[0],p0[1]);
       s.forEach(st=>{const o=offsetAt(all,k,st.h,st.v,hasPrev,hasNext),sp=proj(o.E,o.N,o.Z);ctx.lineTo(sp[0],sp[1]);});ctx.stroke();});
     ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.9)';ctx.lineWidth=1.4;     // lane lines
-    for(let L=0;L<lanes;L++){const op=[],contPrev=[];
-      per.forEach((s,k)=>{if(!(s&&L<s.length)){op.push(null);contPrev.push(false);return;}
-        const{hasPrev,hasNext}=spanAdj(cont,k);op.push(offsetAt(all,k,s[L].h,s[L].v,hasPrev,hasNext));contPrev.push(hasPrev);});
+    for(let L=0;L<lanes;L++){const{op,contPrev,oldCap}=laneOffsetArrays(all,per,cont,changed,L);
       ctx.beginPath();let started=false,k=0;
       while(k<op.length){
         if(!op[k]){started=false;k++;continue;}
+        if(started&&oldCap[k]){const sp=proj(oldCap[k].E,oldCap[k].N,oldCap[k].Z);ctx.lineTo(sp[0],sp[1]);}   // a new callout at k: finish the OLD lane exactly here (old value) before breaking to the new one
         if(!started||!contPrev[k]){                        // SO stop / a fresh template restart breaks the drawn line even when the two points are physically adjacent — "disabled" means a real gap, not just a corrected corner angle
           const s0=proj(op[k].E,op[k].N,op[k].Z);ctx.moveTo(s0[0],s0[1]);started=true;k++;continue;}
         if(bcAt[k-1]){                                     // base line starts a BC..EC run here → curve this lane the same way, through its own offset points
