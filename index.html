@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
   </div>
 
   <div class="main">
@@ -600,7 +600,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:90};
+const VERSION={fruit:'🥭',name:'MANGO',build:91};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1188,6 +1188,7 @@ function revertKnockdown(){
 // reading a static list: sort it by point # or by the H/V text, ctrl/shift
 // bulk-select rows, and bulk-delete the ones not worth fixing by hand.
 let unkdSkipCtx=null;   // {rows:[{id,hv,p}],selected:Set<string>,sort:'pt'|'code',lastId:string|null}
+let unkdDelCtx=null;    // {rows:[{id,p}],selected:Set<string>,lastId:string|null} -- build 91, every currently-deleted point in the file
 const numCmp=(a,b)=>{const na=parseFloat(a),nb=parseFloat(b);if(!isNaN(na)&&!isNaN(nb)&&na!==nb)return na-nb;return String(a).localeCompare(String(b));};
 function showUnKdReport(restored,converted,skipped){
   const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -1207,14 +1208,25 @@ function showUnKdReport(restored,converted,skipped){
       <span style="flex:1"></span>
       <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSkipAllBtn">Select all</button>
       <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSkipNoneBtn">Clear</button>
-      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSkipDelBtn" disabled title="Deletes the SELECTED points outright (marked Deleted on export) — use for junk/unresolvable offsets not worth fixing by hand">Delete selected</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdSkipClearBtn" disabled title="Clears ONLY the unresolved H/V offset text from the selected points' descriptions — the point/line itself (coords, marker code) is kept, never deleted">Clear code</button>
     </div>
     <div id="unkdSkipList" style="max-height:220px;overflow:auto;display:flex;flex-direction:column"></div>`
     :`<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">Left untouched — no unambiguous match (0)</h5><div class="mut" style="font-size:11px">none — every baked offset found was safely revertible</div>`;
+  unkdDelCtx={rows:PTS.filter(p=>p.deleted).map(p=>({id:p.id,p})),selected:new Set(),lastId:null};
+  const delSection=unkdDelCtx.rows.length?
+    `<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">Deleted points (${unkdDelCtx.rows.length})</h5>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <span style="flex:1"></span>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdDelAllBtn">Select all</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdDelNoneBtn">Clear</button>
+      <button class="btn ghost" style="font-size:10px;padding:4px 8px" id="unkdDelRestoreBtn" disabled title="Restores the selected points — undoes Delete, the point comes back as a live shot">Restore selected</button>
+    </div>
+    <div id="unkdDelList" style="max-height:220px;overflow:auto;display:flex;flex-direction:column"></div>`
+    :`<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">Deleted points (0)</h5><div class="mut" style="font-size:11px">none — no points are currently marked deleted</div>`;
   $('unkdReportBody').innerHTML=
     section('Restored — this session\'s own knockdown',restoredRows,'none')+
     section('Converted — H/V matched one code exactly',convertedRows,'none')+
-    skipSection;
+    skipSection+delSection;
   $('unkdReportScrim').classList.add('show');
   if(skipped.length){
     renderUnkdSkippedList();
@@ -1222,7 +1234,13 @@ function showUnKdReport(restored,converted,skipped){
     $('unkdSortCode').onclick=()=>{unkdSkipCtx.sort='code';renderUnkdSkippedList();};
     $('unkdSkipAllBtn').onclick=()=>{unkdSkipCtx.rows.forEach(r=>unkdSkipCtx.selected.add(r.id));renderUnkdSkippedList();};
     $('unkdSkipNoneBtn').onclick=()=>{unkdSkipCtx.selected.clear();renderUnkdSkippedList();};
-    $('unkdSkipDelBtn').onclick=unkdSkipDeleteSelected;
+    $('unkdSkipClearBtn').onclick=unkdSkipClearSelected;
+  }
+  if(unkdDelCtx.rows.length){
+    renderUnkdDeletedList();
+    $('unkdDelAllBtn').onclick=()=>{unkdDelCtx.rows.forEach(r=>unkdDelCtx.selected.add(r.id));renderUnkdDeletedList();};
+    $('unkdDelNoneBtn').onclick=()=>{unkdDelCtx.selected.clear();renderUnkdDeletedList();};
+    $('unkdDelRestoreBtn').onclick=unkdDelRestoreSelected;
   }
 }
 // 'pt' sorts by point number (numeric-aware); 'code' sorts by the baked H/V
@@ -1261,19 +1279,87 @@ function renderUnkdSkippedList(){
 }
 function syncUnkdSkipToolbar(){
   const n=unkdSkipCtx?unkdSkipCtx.selected.size:0;
-  const btn=$('unkdSkipDelBtn');
-  if(btn){btn.disabled=n===0;btn.textContent=n?`Delete selected (${n})`:'Delete selected';}
+  const btn=$('unkdSkipClearBtn');
+  if(btn){btn.disabled=n===0;btn.textContent=n?`Clear code (${n})`:'Clear code';}
 }
-function unkdSkipDeleteSelected(){
+/* Build 91 fix — this used to set p.deleted=true, i.e. delete the WHOLE point/line
+   (archived as Deleted on export) just because its baked offset couldn't be safely
+   reverse-matched to one code. That's far more destructive than the situation calls
+   for: the point is a perfectly real shot, only its curb-offset TEXT is unresolved.
+   Now it strips just the matched H/V run (the same hvRe revertKnockdown() itself
+   uses) out of the description and leaves everything else about the point —
+   coordinates, marker token, any other code riding along — completely untouched. */
+function unkdSkipClearSelected(){
   if(!unkdSkipCtx||!unkdSkipCtx.selected.size)return;
+  const hvRe=/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/;
   saveState();
   let n=0;
-  unkdSkipCtx.rows.forEach(r=>{if(unkdSkipCtx.selected.has(r.id)&&!r.p.deleted){r.p.deleted=true;n++;}});
+  unkdSkipCtx.rows.forEach(r=>{
+    if(!unkdSkipCtx.selected.has(r.id))return;
+    const m=hvRe.exec(r.p.desc);
+    if(!m)return;                                   // description changed since the scan — nothing to clear now
+    const newDesc=(r.p.desc.slice(0,m.index)+r.p.desc.slice(m.index+m[0].length)).replace(/\s+/g,' ').trim();
+    logEdit('code',`un-knockdown pt ${r.id}: cleared unresolved H/V "${r.hv}" (point kept, code left blank)`);
+    r.p.desc=newDesc;r.p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();r.p.edited=true;
+    n++;
+  });
   unkdSkipCtx.rows=unkdSkipCtx.rows.filter(r=>!unkdSkipCtx.selected.has(r.id));
   unkdSkipCtx.selected.clear();
   buildLinework();draw();flagDirty();
   renderUnkdSkippedList();
-  hud(`deleted ${n} left-untouched pt(s)`);
+  hud(`cleared unresolved code on ${n} pt(s) — point(s) kept`);
+}
+/* Build 91 — side note: select any currently-deleted point and restore just the
+   selected ones, same ctrl/shift bulk-select pattern as the skip list above. */
+function renderUnkdDeletedList(){
+  if(!unkdDelCtx)return;
+  const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows=[...unkdDelCtx.rows].sort((a,b)=>numCmp(a.id,b.id));
+  const box=$('unkdDelList');
+  if(!box)return;
+  if(!rows.length){box.innerHTML='<div class="mut" style="font-size:11px">none left</div>';return;}
+  box.innerHTML=rows.map(r=>`<label class="vrow" style="display:flex;align-items:center;gap:8px;padding:5px 9px;cursor:pointer;flex-shrink:0">
+    <input type="checkbox" class="unkdDelChk" data-id="${esc(r.id)}" ${unkdDelCtx.selected.has(r.id)?'checked':''} title="Shift-click to select a range">
+    <span class="vpt">pt ${esc(r.id)}</span><span class="mut" style="font-size:11px;flex:1">${esc((r.p.desc||'').trim())}</span>
+  </label>`).join('');
+  const idOrder=rows.map(r=>r.id);
+  box.querySelectorAll('.unkdDelChk').forEach(chk=>chk.onclick=e=>{
+    e.stopPropagation();
+    const id=chk.dataset.id;
+    if(e.shiftKey&&unkdDelCtx.lastId!=null){
+      const a=idOrder.indexOf(unkdDelCtx.lastId),b=idOrder.indexOf(id);
+      if(a>=0&&b>=0){
+        const [lo,hi]=a<b?[a,b]:[b,a];
+        for(let i=lo;i<=hi;i++)unkdDelCtx.selected.add(idOrder[i]);
+        renderUnkdDeletedList();return;
+      }
+    }
+    if(chk.checked)unkdDelCtx.selected.add(id);else unkdDelCtx.selected.delete(id);
+    unkdDelCtx.lastId=id;
+    syncUnkdDelToolbar();
+  });
+  syncUnkdDelToolbar();
+}
+function syncUnkdDelToolbar(){
+  const n=unkdDelCtx?unkdDelCtx.selected.size:0;
+  const btn=$('unkdDelRestoreBtn');
+  if(btn){btn.disabled=n===0;btn.textContent=n?`Restore selected (${n})`:'Restore selected';}
+}
+function unkdDelRestoreSelected(){
+  if(!unkdDelCtx||!unkdDelCtx.selected.size)return;
+  saveState();
+  let n=0;
+  unkdDelCtx.rows.forEach(r=>{
+    if(!unkdDelCtx.selected.has(r.id)||!r.p.deleted)return;
+    r.p.deleted=false;r.p.edited=true;
+    logEdit('del',`pt ${r.id} line ${r.p.srcLine+1} restored`);
+    n++;
+  });
+  unkdDelCtx.rows=unkdDelCtx.rows.filter(r=>!unkdDelCtx.selected.has(r.id));
+  unkdDelCtx.selected.clear();
+  buildLinework();draw();flagDirty();
+  renderUnkdDeletedList();
+  hud(`restored ${n} point(s)`);
 }
 function closeUnKdReport(){$('unkdReportScrim').classList.remove('show');}
 
