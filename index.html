@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -602,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:99};
+const VERSION={fruit:'🍊',name:'ORANGE',build:100};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2815,17 +2815,17 @@ function offsetPerCont(all,stepsAt,stopAt,startK){   // per-vertex active templa
   return {per,cont};}
 function spanAdj(cont,k){return {hasPrev:!!cont[k],hasNext:k+1<cont.length&&!!cont[k+1]};}
 function laneOffsetArrays(all,per,cont,L){   // one lane's per-vertex offset points — H/V value changes flow through continuously (build 97/98), and a callout that temporarily drops this lane (fewer offsets than before) is bridged straight across to wherever it next reappears, with no visible gap (build 99), as long as nothing actually stopped the offset in between (an SO still breaks it for real — see the SO section)
-  const op=[],contPrev=[],real=[];   // real[k] — true only when per[k] genuinely carries this lane's own step (not a cap, not a gap); a BC..EC curve span needs every vertex to be real to sample from, a capped/skipped vertex has no h/v of its own to fit through
+  const op=[],contPrev=[],real=[],hv=[];   // real[k] — true only when per[k] genuinely carries this lane's own step (not a cap, not a gap); hv[k] — the {h,v} actually used to place op[k] (the real step, or the borrowed value behind a cap), for a BC..EC curve fit (build 100) to sample even at a capped endpoint
   let lastStep=null;   // this lane's own most recently seen step, tracked only while continuity holds — cleared the instant a real stop (SO, or before the run even starts) breaks it
   per.forEach((s,k)=>{
     const{hasPrev,hasNext}=spanAdj(cont,k);
     if(!hasPrev)lastStep=null;
     const curStep=s&&L<s.length?s[L]:null;
-    if(curStep){op.push(offsetAt(all,k,curStep.h,curStep.v,hasPrev,hasNext));contPrev.push(hasPrev);real.push(true);lastStep=curStep;return;}
+    if(curStep){op.push(offsetAt(all,k,curStep.h,curStep.v,hasPrev,hasNext));contPrev.push(hasPrev);real.push(true);hv.push(curStep);lastStep=curStep;return;}
     if(lastStep){                       // this lane just dropped out of a shorter callout — cap it right here at this real vertex using its own last value (one-sided, since nothing continues it beyond this point yet), so the line still visibly reaches this point instead of stopping one vertex early
-      op.push(offsetAt(all,k,lastStep.h,lastStep.v,true,false));contPrev.push(hasPrev);real.push(false);lastStep=null;return;}
-    op.push(null);contPrev.push(false);real.push(false);});    // deeper into the drop — nothing to draw or cap; the drawing consumers skip straight through (build 99) and connect the next real point on this lane, whenever it reappears, directly back to the cap above
-  return {op,contPrev,real};}
+      op.push(offsetAt(all,k,lastStep.h,lastStep.v,true,false));contPrev.push(hasPrev);real.push(false);hv.push(lastStep);lastStep=null;return;}
+    op.push(null);contPrev.push(false);real.push(false);hv.push(null);});    // deeper into the drop — nothing to draw or cap; the drawing consumers skip straight through (build 99) and connect the next real point on this lane, whenever it reappears, directly back to the cap above
+  return {op,contPrev,real,hv};}
 function curvedOffsetPts(baseSub,opSub,hSub){   // an offset lane's run through a BC..EC (sub-)span: same PCC/PRC compound/reverse-curve splits as the base line, and each segment's radius is the BASE segment's own fitted radius, adjusted by this lane's offset distance (not an independent re-fit)
   const idx=breakIndices(baseSub),out=[];
   for(let s=0;s<idx.length-1;s++){
@@ -2861,7 +2861,7 @@ function drawOffsets(proj){ctx.save();
       ctx.beginPath();ctx.moveTo(p0[0],p0[1]);
       s.forEach(st=>{const o=offsetAt(all,k,st.h,st.v,hasPrev,hasNext),sp=proj(o.E,o.N,o.Z);ctx.lineTo(sp[0],sp[1]);});ctx.stroke();});
     ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.9)';ctx.lineWidth=1.4;     // lane lines
-    for(let L=0;L<lanes;L++){const{op,contPrev,real}=laneOffsetArrays(all,per,cont,L);
+    for(let L=0;L<lanes;L++){const{op,contPrev,hv}=laneOffsetArrays(all,per,cont,L);
       ctx.beginPath();let started=false,k=0;
       while(k<op.length){
         if(!op[k]){                                        // this lane has no step at k — a real SO stop still breaks the line for real; a callout simply dropping this lane (no SO) does NOT — skip straight through so the next real point on this lane connects directly back, skipping the gap (build 99)
@@ -2871,9 +2871,9 @@ function drawOffsets(proj){ctx.save();
           const s0=proj(op[k].E,op[k].N,op[k].Z);ctx.moveTo(s0[0],s0[1]);started=true;k++;continue;}
         if(bcAt[k-1]){                                     // base line starts a BC..EC run here → curve this lane the same way, through its own offset points
           let j=k;while(j<op.length&&!ecAt[j])j++;
-          if(j<op.length&&real.slice(k-1,j+1).every(Boolean)){   // every vertex in the span must genuinely carry this lane (not a build-99 drop-cap/gap) — a curve fit needs a real h/v to sample at each one
+          if(j<op.length&&op.slice(k-1,j+1).every(Boolean)){   // every vertex in the span must have SOMETHING to draw for this lane (a real step, or a build-99 cap borrowing the last known value) — a true gap (null) has no h/v or position to fit through, but a cap's own already-computed position/value is a perfectly good curve endpoint (build 100)
             const baseSub=all.slice(k-1,j+1),opSub=op.slice(k-1,j+1);
-            const hSub=[];for(let m=k-1;m<=j;m++)hSub.push(per[m][L].h);
+            const hSub=hv.slice(k-1,j+1).map(x=>x.h);
             curvedOffsetPts(baseSub,opSub,hSub).forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});
             k=j+1;continue;}}
         if(ocAt[k]&&k>=2&&k<=op.length-3&&op[k-1]&&op[k+1]){   // base line rounds an OC tangent-arc corner here → curve this lane through the SAME corner (concentric with the base arc), instead of the plain mitered/extended corner offsetAt would otherwise draw
