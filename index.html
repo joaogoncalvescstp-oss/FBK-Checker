@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -602,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍎',name:'APPLE',build:101};
+const VERSION={fruit:'🍌',name:'BANANA',build:102};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -862,6 +862,39 @@ function applyKnockdown(){
     refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
     return best?{ref:best,d:bd}:null;};
   const hPat=/^H-?\d+\.?\d*$/, vPat=/^V-?\d+\.?\d*$/;
+  // Build 102 — a marker's own SEGMENT must stop at the next figure code of ANY
+  // kind, not just the next RBCB\d*/RCFL\d* marker. The owner reported real lines
+  // carrying MULTIPLE unrelated figure codes together (e.g. "RBCB1 B BC RWLK1 B")
+  // — the old `end` (bounded only by the next RBCB/RCFL) had no idea RWLK1 even
+  // existed, so a bare (no-own-code) RBCB segment's insertion-point scan (below,
+  // in commitKnockdown) could walk straight through RWLK1's own B/E tokens and
+  // land the baked H/V past them — Knockdown must never look at, or land inside,
+  // any code besides RBCB\d*/RCFL\d*. `KD_CTRL_TOKENS` matches every token
+  // `parseDesc` itself treats as a control flag (never a new code) so a segment's
+  // own B/E/BC/OC/EC/CLS/PCC/PRC/CIR/SO never wrongly ends it.
+  // `isOtherCodeStart` treats a non-RBCB/RCFL word as a genuine OTHER marker only
+  // when it's immediately followed by one of those real control tokens (matching
+  // how parseDesc's own tokenizer would give it real begin/end/etc. flags right
+  // there) — a bare descriptive word with nothing structural right after it (real,
+  // already-verified cases: "RDRC"/"R0PARK" riding along with no code of their
+  // own, build 88/93) stays part of THIS segment, exactly as it always has.
+  // Also excludes the CURRENT segment's own curb-code family (`db`) so a real
+  // code like R624 always counts as part of THIS segment, never a new one.
+  const KD_CTRL_TOKENS=/^(B|E|CLS|CL|BC|PC|EC|PT|OC|POC|PCC|PRC|CIR|CIRCLE|SO)$/;
+  const isOtherCodeStart=(toks,i,db)=>{
+    const T=toks[i].toUpperCase();
+    if(/^(RBCB|RCFL)\d*$/.test(T))return true;
+    if(!/^[A-Za-z]/.test(T))return false;
+    if(KD_CTRL_TOKENS.test(T))return false;
+    if(/^(CPN|RPN)\d*$/.test(T))return false;
+    if(/^[HV]-?[0-9.]+$/.test(T))return false;             // glued H<v>/V<v>
+    if(/^(RECT|RT|X)(-?[0-9.]+)?$/.test(T))return false;
+    if(db&&db[T])return false;                             // this segment's own curb code stays in-segment
+    const next=toks[i+1]?toks[i+1].toUpperCase():'';
+    return KD_CTRL_TOKENS.test(next);};
+  const curbSegEnd=(toks,start,db)=>{
+    for(let i=start+1;i<toks.length;i++)if(isOtherCodeStart(toks,i,db))return i-1;
+    return toks.length-1;};
   const refKdTmpl=(db,activeCode,v)=>{
     const kd=CURB_KD[activeCode]||0;
     const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
@@ -896,9 +929,9 @@ function applyKnockdown(){
     const markerIdxs=[];
     toks.forEach((t,i)=>{if(/^(RBCB|RCFL)\d*$/.test(t.toUpperCase()))markerIdxs.push(i);});
     markerIdxs.forEach((mi,k)=>{
-      const start=mi,end=(k+1<markerIdxs.length?markerIdxs[k+1]:toks.length)-1;
       const marker=/^RBCB/.test(toks[mi].toUpperCase())?'BOC':'FL';
       const db=marker==='BOC'?CURB_BOC:CURB_FL;
+      const start=mi,end=curbSegEnd(toks,start,db);
       let code=null;
       for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T])code=T;}
       if(!code)return;
@@ -943,10 +976,12 @@ function applyKnockdown(){
     const segs=[];
     markerIdxs.forEach((mi,k)=>{
       // this marker's own segment: its tokens up to (not including) the next
-      // marker, or the end of the description if it's the last one
-      const start=mi,end=(k+1<markerIdxs.length?markerIdxs[k+1]:toks.length)-1;
+      // RBCB/RCFL marker OR any other figure code entirely (build 102 —
+      // curbSegEnd, not just the next same-family marker), or the end of the
+      // description if there's nothing else
       const marker=/^RBCB/.test(toks[mi].toUpperCase())?'BOC':'FL';
       const db=marker==='BOC'?CURB_BOC:CURB_FL;
+      const start=mi,end=curbSegEnd(toks,start,db);
       for(let i=start;i<end;i++)if(hPat.test(toks[i])&&vPat.test(toks[i+1]))return;   // this segment already baked — skip it, not the whole point
       let codeTokIdx=null,code=null;
       for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T]){codeTokIdx=i;code=T;}}   // last matching code token WITHIN this segment wins
@@ -1059,40 +1094,38 @@ function segLogLabel(s){
   return s.refLabel+(s.v?` v=${s.v.toFixed(3)}`:'');
 }
 // B/E/CLS/BC/OC/EC (and their PC/PT/POC aliases) are what actually control the
-// LINE — where a run begins/ends/closes, where a curve starts/ends/fillets —
-// so a baked H/V run must always land AFTER whichever of these appear in a
-// segment, never before, no matter which of REF/Standard/L/R/carried-forward/
-// nearest-declared was chosen (build 101). `B` belongs here too — a real
+// LINE — where a run begins/ends/closes, where a curve starts/ends/fillets — so
+// a BARE segment's (no own curb code) baked H/V must land AFTER whichever of
+// these appear in it, never before (build 101). `B` belongs here too — a real
 // segment like "RBCB B R612" needs its bake to land after B (confirmed by a
 // real regression while building this: omitting B moved it to the very end).
 const KD_LINE_CTRL=new Set(['B','BC','PC','OC','POC','EC','PT','E','CLS','CL']);
-// Bakes every resolved (and, for 'ambig'/'sideConflict'/'noSide' segments, chosen)
-// segment into its point's description. The segment's own curb-DB code token
-// (if it had one) is always REMOVED first — regardless of whether the chosen
-// template came from Standard, REF, carried-forward, nearest-declared, or an
-// explicit L/R pick, the literal code text never survives knockdown — then the
-// H/V template is inserted right after the LAST line-control token (above)
-// found in the segment, or right after the marker if the segment has none
-// (matching the pre-build-101 placement for every real case on file, where a
-// bare marker's only other tokens are non-control descriptive text). Segments
-// on the same point are spliced right-to-left so earlier segments' token
-// indices stay valid across each splice.
+// Build 102 — a segment WITH its own curb code (e.g. R624) is baked by a plain
+// in-place REPLACE at that exact token, never repositioned relative to control
+// tokens. Build 101 originally scanned for control tokens on this path too, but
+// the owner flagged a real multi-code case (an RBCB segment sharing a line with
+// a totally different code like RWLK) where that scan — even correctly bounded
+// to this segment (see curbSegEnd above) — is needless risk for a case that
+// never actually occurs in real data: every verified real file already has its
+// own curb code positioned after B/BC by the time a crew types it. "Just
+// replace where the curb code occurs, don't rearrange" is simpler and exactly
+// as correct for every real case on file. The control-token scan is now used
+// ONLY for a truly BARE segment (no code of its own at all — REF-derived),
+// which has no existing token to anchor a replace on and still needs somewhere
+// to land the bake.
 function commitKnockdown(pointWork){
   saveState();
   let applied=0;
   pointWork.forEach(({p,toks,segs})=>{
     [...segs].sort((a,b)=>b.start-a.start).forEach(s=>{
       const tmplToks=segTmpl(s).split(/\s+/);
-      let insertAt=s.start+1;
-      for(let i=s.start+1;i<=s.end;i++){
-        if(s.codeTokIdx!=null&&i===s.codeTokIdx)continue;   // the curb code itself is never a line-control token
-        if(KD_LINE_CTRL.has(toks[i].toUpperCase()))insertAt=i+1;
-      }
       if(s.codeTokIdx!=null){
-        toks.splice(s.codeTokIdx,1);                        // remove the curb DB code — always, REF or Standard alike
-        if(s.codeTokIdx<insertAt)insertAt--;                // removing a token before the insertion point shifts it back
+        toks.splice(s.codeTokIdx,1,...tmplToks);            // replace the curb DB code in place — never rearranged
+      }else{
+        let insertAt=s.start+1;
+        for(let i=s.start+1;i<=s.end;i++)if(KD_LINE_CTRL.has(toks[i].toUpperCase()))insertAt=i+1;
+        toks.splice(insertAt,0,...tmplToks);
       }
-      toks.splice(insertAt,0,...tmplToks);
     });
     const newDesc=toks.join(' ');
     segs.forEach(s=>logEdit('code',`knockdown pt ${p.id}: ${s.activeCode} ${segLogLabel(s)}`));
