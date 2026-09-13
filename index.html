@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍎 APPLE</span>
   </div>
 
   <div class="main">
@@ -602,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:100};
+const VERSION={fruit:'🍎',name:'APPLE',build:101};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1058,20 +1058,41 @@ function segLogLabel(s){
   if(s.kind==='noSide')return `v=${s.v.toFixed(3)} (REF ${s.refPoint.id}, no code anywhere for this marker — L/R unknown — used ${segActiveCode(s)})`;
   return s.refLabel+(s.v?` v=${s.v.toFixed(3)}`:'');
 }
-// Bakes every resolved (and, for 'ambig' segments, chosen) segment into its
-// point's description — replacing the segment's own code token with the H/V
-// template (or, for a bare no-code segment, inserting right after the marker,
-// same 2 placements the pre-build-86 single-segment version already used).
-// Segments on the same point are spliced right-to-left so earlier segments'
-// token indices stay valid across each splice.
+// B/E/CLS/BC/OC/EC (and their PC/PT/POC aliases) are what actually control the
+// LINE — where a run begins/ends/closes, where a curve starts/ends/fillets —
+// so a baked H/V run must always land AFTER whichever of these appear in a
+// segment, never before, no matter which of REF/Standard/L/R/carried-forward/
+// nearest-declared was chosen (build 101). `B` belongs here too — a real
+// segment like "RBCB B R612" needs its bake to land after B (confirmed by a
+// real regression while building this: omitting B moved it to the very end).
+const KD_LINE_CTRL=new Set(['B','BC','PC','OC','POC','EC','PT','E','CLS','CL']);
+// Bakes every resolved (and, for 'ambig'/'sideConflict'/'noSide' segments, chosen)
+// segment into its point's description. The segment's own curb-DB code token
+// (if it had one) is always REMOVED first — regardless of whether the chosen
+// template came from Standard, REF, carried-forward, nearest-declared, or an
+// explicit L/R pick, the literal code text never survives knockdown — then the
+// H/V template is inserted right after the LAST line-control token (above)
+// found in the segment, or right after the marker if the segment has none
+// (matching the pre-build-101 placement for every real case on file, where a
+// bare marker's only other tokens are non-control descriptive text). Segments
+// on the same point are spliced right-to-left so earlier segments' token
+// indices stay valid across each splice.
 function commitKnockdown(pointWork){
   saveState();
   let applied=0;
   pointWork.forEach(({p,toks,segs})=>{
     [...segs].sort((a,b)=>b.start-a.start).forEach(s=>{
       const tmplToks=segTmpl(s).split(/\s+/);
-      if(s.codeTokIdx!=null)toks.splice(s.codeTokIdx,1,...tmplToks);
-      else toks.splice(s.start+1,0,...tmplToks);
+      let insertAt=s.start+1;
+      for(let i=s.start+1;i<=s.end;i++){
+        if(s.codeTokIdx!=null&&i===s.codeTokIdx)continue;   // the curb code itself is never a line-control token
+        if(KD_LINE_CTRL.has(toks[i].toUpperCase()))insertAt=i+1;
+      }
+      if(s.codeTokIdx!=null){
+        toks.splice(s.codeTokIdx,1);                        // remove the curb DB code — always, REF or Standard alike
+        if(s.codeTokIdx<insertAt)insertAt--;                // removing a token before the insertion point shifts it back
+      }
+      toks.splice(insertAt,0,...tmplToks);
     });
     const newDesc=toks.join(' ');
     segs.forEach(s=>logEdit('code',`knockdown pt ${p.id}: ${s.activeCode} ${segLogLabel(s)}`));
