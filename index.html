@@ -205,6 +205,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — each marker in a point's description (a point can carry more than one, e.g. ending one run and beginning another) is knocked down on its own. A marker with its own curb code AND a REF point nearby asks which reveal to use (REF or standard); with no REF nearby it's the code's std cross-section; with no code at all it derives the reveal from the nearest REF point's Z difference. RCFL (flow line) — always the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
     <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
+    <button class="btn ghost" id="refKdBtn" disabled title="Single-point REF knockdown: click the RBCB/RCFL point to knock down, then click its REF point on the canvas — bypasses the automatic nearest-REF search entirely, for a point whose real REF is out of range or where the automatic pick chose the wrong one. Works in 2D or 3D.">🎯 REF Knockdown (1 pt)</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
@@ -213,7 +214,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -600,7 +601,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:104};
+const VERSION={fruit:'🥝',name:'KIWI',build:105};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -759,7 +760,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -836,90 +837,74 @@ const CURB_KD={L612:0.06,R612:0.06,L624:0.12,R624:0.12,LPARK:0.06,RPARK:0.06,L60
    codes and their source points so the owner picks the right one per point,
    instead of the app silently guessing wrong again. See the Knockdown
    section of CLAUDE.md.                                                    */
-function applyKnockdown(){
-  if(!PTS.length){hud('load an FBK first');return;}
-  const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
-  const refs=PTS.filter(p=>!p.deleted&&/^REF\d*$/.test(refToken(p.desc)));
-  // Build 93 — widened from 1.2 to 1.4 ft: the owner's real combined job file
-  // has a genuine, coherent cluster of REF standoff distances from ~0.3 to
-  // ~1.35 ft (smoothly decaying, the crew's own real placement convention —
-  // confirmed by histogramming every RBCB/RCFL point's true nearest-REF
-  // distance across the whole file), then a real gap before the next,
-  // clearly unrelated distance shows up around 1.49 ft. The OLD 1.2 ft cutoff
-  // sliced straight through the middle of that one coherent cluster, silently
-  // excluding a real REF standoff by a few hundredths of a foot for points
-  // like 7665 (its real REF, pt 7666, sits 1.224 ft away) and 7670 (its real
-  // REF, pt 7671, sits 1.234 ft away) — both correctly within the same
-  // cluster as hundreds of other points on the same file that DID match under
-  // 1.2 ft, just unlucky enough to fall a hair past the old boundary. 1.4 ft
-  // captures the full cluster (up to its real max, 1.353 ft) with margin on
-  // both sides, while still stopping well short of the next, clearly separate
-  // group starting at 1.49 ft.
-  const maxSearchRadius=1.4;
-  const nearestRef=p=>{let best=null,bd=Infinity;
-    refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
-    return best?{ref:best,d:bd}:null;};
-  const hPat=/^H-?\d+\.?\d*$/, vPat=/^V-?\d+\.?\d*$/;
-  // Build 102 — a marker's own SEGMENT must stop at the next figure code of ANY
-  // kind, not just the next RBCB\d*/RCFL\d* marker. The owner reported real lines
-  // carrying MULTIPLE unrelated figure codes together (e.g. "RBCB1 B BC RWLK1 B")
-  // — the old `end` (bounded only by the next RBCB/RCFL) had no idea RWLK1 even
-  // existed, so a bare (no-own-code) RBCB segment's insertion-point scan (below,
-  // in commitKnockdown) could walk straight through RWLK1's own B/E tokens and
-  // land the baked H/V past them — Knockdown must never look at, or land inside,
-  // any code besides RBCB\d*/RCFL\d*. `KD_CTRL_TOKENS` matches every token
-  // `parseDesc` itself treats as a control flag (never a new code) so a segment's
-  // own B/E/BC/OC/EC/CLS/PCC/PRC/CIR/SO never wrongly ends it.
-  // `isOtherCodeStart` treats a non-RBCB/RCFL word as a genuine OTHER marker only
-  // when it's immediately followed by one of those real control tokens (matching
-  // how parseDesc's own tokenizer would give it real begin/end/etc. flags right
-  // there) — a bare descriptive word with nothing structural right after it (real,
-  // already-verified cases: "RDRC"/"R0PARK" riding along with no code of their
-  // own, build 88/93) stays part of THIS segment, exactly as it always has.
-  // Also excludes the CURRENT segment's own curb-code family (`db`) so a real
-  // code like R624 always counts as part of THIS segment, never a new one.
-  const KD_CTRL_TOKENS=/^(B|E|CLS|CL|BC|PC|EC|PT|OC|POC|PCC|PRC|CIR|CIRCLE|SO)$/;
-  const isOtherCodeStart=(toks,i,db)=>{
-    const T=toks[i].toUpperCase();
-    if(/^(RBCB|RCFL)\d*$/.test(T))return true;
-    if(!/^[A-Za-z]/.test(T))return false;
-    if(KD_CTRL_TOKENS.test(T))return false;
-    if(/^(CPN|RPN)\d*$/.test(T))return false;
-    if(/^[HV]-?[0-9.]+$/.test(T))return false;             // glued H<v>/V<v>
-    if(/^(RECT|RT|X)(-?[0-9.]+)?$/.test(T))return false;
-    if(db&&db[T])return false;                             // this segment's own curb code stays in-segment
-    const next=toks[i+1]?toks[i+1].toUpperCase():'';
-    return KD_CTRL_TOKENS.test(next);};
-  const curbSegEnd=(toks,start,db)=>{
-    for(let i=start+1;i<toks.length;i++)if(isOtherCodeStart(toks,i,db))return i-1;
-    return toks.length-1;};
-  const refKdTmpl=(db,activeCode,v)=>{
-    const kd=CURB_KD[activeCode]||0;
-    const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
-    return db[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
-  };
+// ---------- shared curb-marker-segment helpers (build 105) ----------
+// Hoisted out of applyKnockdown, unchanged, so the single-point REF-pick tool
+// below (applySingleRefKnockdown) can reuse the exact same, already-verified
+// (builds 86-103) segment-resolution logic instead of a second, drifting copy.
+const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
+function findRefPoints(){return PTS.filter(p=>!p.deleted&&/^REF\d*$/.test(refToken(p.desc)));}
+function isRefPoint(p){return !!p&&!p.deleted&&/^REF\d*$/.test(refToken(p.desc));}
+const hPat=/^H-?\d+\.?\d*$/, vPat=/^V-?\d+\.?\d*$/;
+// Build 102 — a marker's own SEGMENT must stop at the next figure code of ANY
+// kind, not just the next RBCB\d*/RCFL\d* marker. The owner reported real lines
+// carrying MULTIPLE unrelated figure codes together (e.g. "RBCB1 B BC RWLK1 B")
+// — the old `end` (bounded only by the next RBCB/RCFL) had no idea RWLK1 even
+// existed, so a bare (no-own-code) RBCB segment's insertion-point scan (below,
+// in commitKnockdown) could walk straight through RWLK1's own B/E tokens and
+// land the baked H/V past them — Knockdown must never look at, or land inside,
+// any code besides RBCB\d*/RCFL\d*. `KD_CTRL_TOKENS` matches every token
+// `parseDesc` itself treats as a control flag (never a new code) so a segment's
+// own B/E/BC/OC/EC/CLS/PCC/PRC/CIR/SO never wrongly ends it.
+// `isOtherCodeStart` treats a non-RBCB/RCFL word as a genuine OTHER marker only
+// when it's immediately followed by one of those real control tokens (matching
+// how parseDesc's own tokenizer would give it real begin/end/etc. flags right
+// there) — a bare descriptive word with nothing structural right after it (real,
+// already-verified cases: "RDRC"/"R0PARK" riding along with no code of their
+// own, build 88/93) stays part of THIS segment, exactly as it always has.
+// Also excludes the CURRENT segment's own curb-code family (`db`) so a real
+// code like R624 always counts as part of THIS segment, never a new one.
+const KD_CTRL_TOKENS=/^(B|E|CLS|CL|BC|PC|EC|PT|OC|POC|PCC|PRC|CIR|CIRCLE|SO)$/;
+const isOtherCodeStart=(toks,i,db)=>{
+  const T=toks[i].toUpperCase();
+  if(/^(RBCB|RCFL)\d*$/.test(T))return true;
+  if(!/^[A-Za-z]/.test(T))return false;
+  if(KD_CTRL_TOKENS.test(T))return false;
+  if(/^(CPN|RPN)\d*$/.test(T))return false;
+  if(/^[HV]-?[0-9.]+$/.test(T))return false;             // glued H<v>/V<v>
+  if(/^(RECT|RT|X)(-?[0-9.]+)?$/.test(T))return false;
+  if(db&&db[T])return false;                             // this segment's own curb code stays in-segment
+  const next=toks[i+1]?toks[i+1].toUpperCase():'';
+  return KD_CTRL_TOKENS.test(next);};
+const curbSegEnd=(toks,start,db)=>{
+  for(let i=start+1;i<toks.length;i++)if(isOtherCodeStart(toks,i,db))return i-1;
+  return toks.length-1;};
+const refKdTmpl=(db,activeCode,v)=>{
+  const kd=CURB_KD[activeCode]||0;
+  const midV=(-v-0.012).toFixed(3),lastV=(-v-0.012+kd).toFixed(3);
+  return db[activeCode].replace('V-0.5','V'+midV).replace(/V-0\.\d+$/,'V'+lastV);
+};
 
-  // Pass 1 — index every marker segment's OWN explicit curb code by exact
-  // marker KEY (the literal token, e.g. "RBCB" vs "RBCB1" vs "RCFL2" — these
-  // are separate figure instances and never share a code) and point INDEX, so
-  // a bare (no-own-code) segment can borrow the code from whichever explicitly
-  // coded segment of the SAME marker key is NEAREST to it by point-index
-  // distance (searched in both directions), instead of "whichever code was
-  // last seen anywhere earlier in the whole file." Build 88 fix: a real job
-  // file reuses the same unnumbered "RBCB" marker for dozens of unrelated
-  // curb runs scattered across the whole site — a purely-backward, file-order
-  // "last code wins" scan can walk straight past an older, unrelated run's
-  // L/R code (left over from a totally different corner) and silently apply
-  // it to a bare point that's actually the FIRST shot of a brand-new run,
-  // whose own explicit code only gets stated a point or two LATER in the same
-  // run. Since CURB_BOC's L/R templates are horizontally mirrored (L uses
-  // positive H offsets, R uses negative), picking the wrong side's code
-  // doesn't just get the depth wrong — it flips the whole offset onto the
-  // opposite side of the curb. Confirmed against a real job file: point 3604
-  // ("RBCB RDRC", no B, no own code) sits right after an unrelated L624 run
-  // elsewhere in the file, but its own run's next two points (3605/3606)
-  // explicitly state "R624" — the old backward-only scan handed 3604 the
-  // stale L624 instead of the R024/R624 its own run actually uses.
+// Index every marker segment's OWN explicit curb code by exact marker KEY (the
+// literal token, e.g. "RBCB" vs "RBCB1" vs "RCFL2" — these are separate figure
+// instances and never share a code) and point INDEX, so a bare (no-own-code)
+// segment can borrow the code from whichever explicitly coded segment of the
+// SAME marker key is NEAREST to it by point-index distance (searched in both
+// directions), instead of "whichever code was last seen anywhere earlier in
+// the whole file." Build 88 fix: a real job file reuses the same unnumbered
+// "RBCB" marker for dozens of unrelated curb runs scattered across the whole
+// site — a purely-backward, file-order "last code wins" scan can walk straight
+// past an older, unrelated run's L/R code (left over from a totally different
+// corner) and silently apply it to a bare point that's actually the FIRST shot
+// of a brand-new run, whose own explicit code only gets stated a point or two
+// LATER in the same run. Since CURB_BOC's L/R templates are horizontally
+// mirrored (L uses positive H offsets, R uses negative), picking the wrong
+// side's code doesn't just get the depth wrong — it flips the whole offset
+// onto the opposite side of the curb. Confirmed against a real job file: point
+// 3604 ("RBCB RDRC", no B, no own code) sits right after an unrelated L624 run
+// elsewhere in the file, but its own run's next two points (3605/3606)
+// explicitly state "R624" — the old backward-only scan handed 3604 the stale
+// L624 instead of the R024/R624 its own run actually uses.
+function buildMarkerCodeIndex(){
   const markerCodes={};   // key -> [{pi,code}], built in point-index order
   PTS.forEach((p,pi)=>{
     if(p.deleted)return;
@@ -962,95 +947,139 @@ function applyKnockdown(){
     for(const e of list){if(e.pi<pi)best=e;else break;}   // list is pi-ascending; last entry strictly before pi
     return best;   // {pi,code} or null
   };
+  return {markerCodes,nearestMarkerCode,forwardMarkerCode};
+}
+
+// Resolves the RBCB/RCFL marker segment(s) on ONE point into a `segs` array of
+// the exact shape commitKnockdown/openKdReview already consume. Shared by
+// applyKnockdown (called once per point, whole-file, `nearestRefFn` searching
+// by distance) and applySingleRefKnockdown (build 105, called once for a
+// single manually-picked point/REF pair, `nearestRefFn` always returning that
+// one chosen REF) — both go through the identical own-code / bare-code-
+// fallback / side-conflict resolution logic; only WHERE the REF comes from
+// differs. Returns `null` for a deleted point or one with no RBCB/RCFL marker
+// at all, otherwise `{toks,segs,neededRef}` (segs may be empty — e.g. every
+// segment already baked, or unresolvable per build 103's skip rule).
+function buildKdSegsForPointWork(p,pi,nearestRefFn,forwardMarkerCode,nearestMarkerCode){
+  if(p.deleted)return null;
+  const toks=p.desc.split(/\s+/);
+  const markerIdxs=[];
+  toks.forEach((t,i)=>{if(/^(RBCB|RCFL)\d*$/.test(t.toUpperCase()))markerIdxs.push(i);});
+  if(!markerIdxs.length)return null;
+  const segs=[];
+  let neededRef=false;
+  markerIdxs.forEach((mi,k)=>{
+    // this marker's own segment: its tokens up to (not including) the next
+    // RBCB/RCFL marker OR any other figure code entirely (build 102 —
+    // curbSegEnd, not just the next same-family marker), or the end of the
+    // description if there's nothing else
+    const marker=/^RBCB/.test(toks[mi].toUpperCase())?'BOC':'FL';
+    const db=marker==='BOC'?CURB_BOC:CURB_FL;
+    const start=mi,end=curbSegEnd(toks,start,db);
+    for(let i=start;i<end;i++)if(hPat.test(toks[i])&&vPat.test(toks[i+1]))return;   // this segment already baked — skip it, not the whole point
+    let codeTokIdx=null,code=null;
+    for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T]){codeTokIdx=i;code=T;}}   // last matching code token WITHIN this segment wins
+    const key=toks[mi].toUpperCase();
+    let activeCode,sideConflict=null;
+    if(code){
+      activeCode=code;
+    }else{
+      const fwd=forwardMarkerCode(key,pi),near=nearestMarkerCode(key,pi);
+      if(fwd&&near&&fwd.code[0]!==near.code[0]&&fwd.code!==near.code){
+        // the code carried forward from an earlier point disagrees with the
+        // nearest declared code on which SIDE (L/R) the curb is on — flag it
+        // rather than silently picking one (build 89).
+        sideConflict={fwd,near};
+        activeCode=near.code;  // default choice: nearest declared — empirically the safer guess (a bare point with no code of its own is far more likely to be the START of a run whose own code is stated a shot or two later, than a genuine continuation of a stale, distant, unrelated run) — still just a pre-checked default, the point of flagging is that the user decides
+      }else if(!fwd&&!near){
+        // Build 103 — neither direction found ANY explicit declaration of
+        // this exact marker key ANYWHERE in the whole file, so there is
+        // nothing to borrow a side from and no safe default to guess at
+        // (build 92's hardcoded-R612-then-ask-Left/Right popup is gone —
+        // the owner's own framing: the horizontal side should already be
+        // settled by the time Knockdown runs, so an unresolved side isn't
+        // something to ask about, it's a sign the field data itself is
+        // still missing its code). Skip this segment entirely — leave the
+        // description untouched. The offset just won't be drawn for it,
+        // which is the visible signal to go add an explicit L/R code
+        // somewhere for this marker and re-run Knockdown.
+        return;
+      }else{
+        activeCode=(fwd&&fwd.code)||(near&&near.code)||'R612';
+      }
+    }
+    if(!db[activeCode])return;                 // no template for this code in the chosen DB
+    if(marker==='FL'){
+      // flow-line shot → only bake when THIS segment carries its own curb
+      // code — never inherits, never REF-derived (REF is back-of-curb-only).
+      if(!code)return;
+      segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:db[activeCode],v:0,refLabel:'flow line'});
+      return;
+    }
+    if(code){
+      // this BOC segment carries its own code — if a REF is in range,
+      // that's an ambiguous case (build 86): let the user pick REF or
+      // Standard instead of silently always overriding REF with std.
+      // Build 90 — the owner asked for REF as the default pick (was
+      // Standard) since a nearby REF is usually the more accurate reveal.
+      const near=nearestRefFn(p);
+      if(near){
+        const v=p.Z-near.ref.Z;
+        segs.push({start,end,codeTokIdx,activeCode,kind:'ambig',choice:'ref',
+          stdTmpl:db[activeCode],refTmpl:refKdTmpl(db,activeCode,v),refPoint:near.ref,v});
+      }else{
+        segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:db[activeCode],v:0,refLabel:'std code'});
+      }
+      return;
+    }
+    // no code on this segment → derive the reveal from the nearest REF shot,
+    // using whichever fallback code is currently ACTIVE for this point (the
+    // carried-forward callout, or the flagged side-conflict choice below).
+    const near=nearestRefFn(p);
+    if(!near){neededRef=true;return;}
+    const v=p.Z-near.ref.Z;
+    if(sideConflict){
+      segs.push({start,end,codeTokIdx,activeCode,kind:'sideConflict',choice:'near',v,refPoint:near.ref,
+        fwdCode:sideConflict.fwd.code,fwdPt:PTS[sideConflict.fwd.pi].id,fwdTmpl:refKdTmpl(db,sideConflict.fwd.code,v),
+        nearCode:sideConflict.near.code,nearPt:PTS[sideConflict.near.pi].id,nearTmpl:refKdTmpl(db,sideConflict.near.code,v)});
+    }else{
+      segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:refKdTmpl(db,activeCode,v),v,refLabel:'REF '+near.ref.id});
+    }
+  });
+  return {toks,segs,neededRef};
+}
+
+function applyKnockdown(){
+  if(!PTS.length){hud('load an FBK first');return;}
+  const refs=findRefPoints();
+  // Build 93 — widened from 1.2 to 1.4 ft: the owner's real combined job file
+  // has a genuine, coherent cluster of REF standoff distances from ~0.3 to
+  // ~1.35 ft (smoothly decaying, the crew's own real placement convention —
+  // confirmed by histogramming every RBCB/RCFL point's true nearest-REF
+  // distance across the whole file), then a real gap before the next,
+  // clearly unrelated distance shows up around 1.49 ft. The OLD 1.2 ft cutoff
+  // sliced straight through the middle of that one coherent cluster, silently
+  // excluding a real REF standoff by a few hundredths of a foot for points
+  // like 7665 (its real REF, pt 7666, sits 1.224 ft away) and 7670 (its real
+  // REF, pt 7671, sits 1.234 ft away) — both correctly within the same
+  // cluster as hundreds of other points on the same file that DID match under
+  // 1.2 ft, just unlucky enough to fall a hair past the old boundary. 1.4 ft
+  // captures the full cluster (up to its real max, 1.353 ft) with margin on
+  // both sides, while still stopping well short of the next, clearly separate
+  // group starting at 1.49 ft.
+  const maxSearchRadius=1.4;
+  const nearestRef=p=>{let best=null,bd=Infinity;
+    refs.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=maxSearchRadius){bd=d;best=r;}});
+    return best?{ref:best,d:bd}:null;};
+  const {forwardMarkerCode,nearestMarkerCode}=buildMarkerCodeIndex();
 
   let neededRef=false;
   const pointWork=[];   // [{p,toks,segs:[...]}] — one entry per point that carries at least one processable marker segment
   PTS.forEach((p,pi)=>{
-    if(p.deleted)return;
-    const toks=p.desc.split(/\s+/);
-    const markerIdxs=[];
-    toks.forEach((t,i)=>{if(/^(RBCB|RCFL)\d*$/.test(t.toUpperCase()))markerIdxs.push(i);});
-    if(!markerIdxs.length)return;
-    const segs=[];
-    markerIdxs.forEach((mi,k)=>{
-      // this marker's own segment: its tokens up to (not including) the next
-      // RBCB/RCFL marker OR any other figure code entirely (build 102 —
-      // curbSegEnd, not just the next same-family marker), or the end of the
-      // description if there's nothing else
-      const marker=/^RBCB/.test(toks[mi].toUpperCase())?'BOC':'FL';
-      const db=marker==='BOC'?CURB_BOC:CURB_FL;
-      const start=mi,end=curbSegEnd(toks,start,db);
-      for(let i=start;i<end;i++)if(hPat.test(toks[i])&&vPat.test(toks[i+1]))return;   // this segment already baked — skip it, not the whole point
-      let codeTokIdx=null,code=null;
-      for(let i=start+1;i<=end;i++){const T=toks[i].toUpperCase();if(db[T]){codeTokIdx=i;code=T;}}   // last matching code token WITHIN this segment wins
-      const key=toks[mi].toUpperCase();
-      let activeCode,sideConflict=null;
-      if(code){
-        activeCode=code;
-      }else{
-        const fwd=forwardMarkerCode(key,pi),near=nearestMarkerCode(key,pi);
-        if(fwd&&near&&fwd.code[0]!==near.code[0]&&fwd.code!==near.code){
-          // the code carried forward from an earlier point disagrees with the
-          // nearest declared code on which SIDE (L/R) the curb is on — flag it
-          // rather than silently picking one (build 89).
-          sideConflict={fwd,near};
-          activeCode=near.code;  // default choice: nearest declared — empirically the safer guess (a bare point with no code of its own is far more likely to be the START of a run whose own code is stated a shot or two later, than a genuine continuation of a stale, distant, unrelated run) — still just a pre-checked default, the point of flagging is that the user decides
-        }else if(!fwd&&!near){
-          // Build 103 — neither direction found ANY explicit declaration of
-          // this exact marker key ANYWHERE in the whole file, so there is
-          // nothing to borrow a side from and no safe default to guess at
-          // (build 92's hardcoded-R612-then-ask-Left/Right popup is gone —
-          // the owner's own framing: the horizontal side should already be
-          // settled by the time Knockdown runs, so an unresolved side isn't
-          // something to ask about, it's a sign the field data itself is
-          // still missing its code). Skip this segment entirely — leave the
-          // description untouched. The offset just won't be drawn for it,
-          // which is the visible signal to go add an explicit L/R code
-          // somewhere for this marker and re-run Knockdown.
-          return;
-        }else{
-          activeCode=(fwd&&fwd.code)||(near&&near.code)||'R612';
-        }
-      }
-      if(!db[activeCode])return;                 // no template for this code in the chosen DB
-      if(marker==='FL'){
-        // flow-line shot → only bake when THIS segment carries its own curb
-        // code — never inherits, never REF-derived (REF is back-of-curb-only).
-        if(!code)return;
-        segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:db[activeCode],v:0,refLabel:'flow line'});
-        return;
-      }
-      if(code){
-        // this BOC segment carries its own code — if a REF is in range,
-        // that's an ambiguous case (build 86): let the user pick REF or
-        // Standard instead of silently always overriding REF with std.
-        // Build 90 — the owner asked for REF as the default pick (was
-        // Standard) since a nearby REF is usually the more accurate reveal.
-        const near=nearestRef(p);
-        if(near){
-          const v=p.Z-near.ref.Z;
-          segs.push({start,end,codeTokIdx,activeCode,kind:'ambig',choice:'ref',
-            stdTmpl:db[activeCode],refTmpl:refKdTmpl(db,activeCode,v),refPoint:near.ref,v});
-        }else{
-          segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:db[activeCode],v:0,refLabel:'std code'});
-        }
-        return;
-      }
-      // no code on this segment → derive the reveal from the nearest REF shot,
-      // using whichever fallback code is currently ACTIVE for this point (the
-      // carried-forward callout, or the flagged side-conflict choice below).
-      const near=nearestRef(p);
-      if(!near){neededRef=true;return;}
-      const v=p.Z-near.ref.Z;
-      if(sideConflict){
-        segs.push({start,end,codeTokIdx,activeCode,kind:'sideConflict',choice:'near',v,refPoint:near.ref,
-          fwdCode:sideConflict.fwd.code,fwdPt:PTS[sideConflict.fwd.pi].id,fwdTmpl:refKdTmpl(db,sideConflict.fwd.code,v),
-          nearCode:sideConflict.near.code,nearPt:PTS[sideConflict.near.pi].id,nearTmpl:refKdTmpl(db,sideConflict.near.code,v)});
-      }else{
-        segs.push({start,end,codeTokIdx,activeCode,kind:'resolved',tmpl:refKdTmpl(db,activeCode,v),v,refLabel:'REF '+near.ref.id});
-      }
-    });
-    if(segs.length)pointWork.push({p,toks,segs});
+    const r=buildKdSegsForPointWork(p,pi,nearestRef,forwardMarkerCode,nearestMarkerCode);
+    if(!r)return;
+    if(r.neededRef)neededRef=true;
+    if(r.segs.length)pointWork.push({p,toks:r.toks,segs:r.segs});
   });
 
   if(!pointWork.length){hud(neededRef?'no REF point in range for RBCB pt(s)':'no RBCB/RCFL curb codes to knock down');return;}
@@ -1060,6 +1089,53 @@ function applyKnockdown(){
   if(ambigList.length){openKdReview(pointWork,ambigList);return;}
   commitKnockdown(pointWork);
 }
+
+// ---------- Single-point REF knockdown (build 105) ----------
+// The owner: "add single point REF knockdown — make user select RBCB point
+// then REF point." The whole-file applyKnockdown() above always finds its OWN
+// REF automatically (nearest one within 1.4 ft, per build 93) — reasonable for
+// a whole job, but with no way to override it for one specific point whose real
+// REF is out of that search radius, or where more than one REF sits nearby and
+// the wrong one gets picked. This tool is the manual escape hatch: pick the
+// RBCB/RCFL point, then pick its REF directly on the canvas — the chosen REF is
+// used exactly as given, distance/radius completely ignored, since the user's
+// own pick is definitionally "in range." Reuses buildKdSegsForPointWork (same
+// own-code / bare-code-fallback / side-conflict logic applyKnockdown uses) and
+// the existing #kdReviewScrim/commitKnockdown machinery — an own-coded segment
+// still opens that review (REF vs Standard, pre-checked to REF, build 90's
+// default) so the owner can back out or switch to Standard before it's written;
+// a bare segment with no side conflict bakes immediately, since there's nothing
+// left to ask once its own REF has been chosen by hand.
+function applySingleRefKnockdown(rbcbIdx,refIdx){
+  const p=PTS[rbcbIdx],refP=PTS[refIdx];
+  if(!p||!refP)return;
+  if(rbcbIdx===refIdx){hud('pick two different points — the curb point, then its REF');return;}
+  if(!isRefPoint(refP)){hud(`pt ${refP.id} isn't a REF shot — pick a REF point`);return;}
+  const {forwardMarkerCode,nearestMarkerCode}=buildMarkerCodeIndex();
+  const forcedRef=pp=>({ref:refP,d:Math.hypot(refP.N-pp.N,refP.E-pp.E)});
+  const r=buildKdSegsForPointWork(p,rbcbIdx,forcedRef,forwardMarkerCode,nearestMarkerCode);
+  if(!r){hud(`pt ${p.id} has no RBCB/RCFL marker — nothing to knock down`);return;}
+  if(!r.segs.length){hud(`pt ${p.id}: nothing to knock down (already baked, or no curb code resolvable for its marker — add one and try again)`);return;}
+  const pointWork=[{p,toks:r.toks,segs:r.segs}];
+  const ambigList=[];
+  r.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig'||seg.kind==='sideConflict')ambigList.push({pwIdx:0,segIdx,p,seg});});
+  if(ambigList.length){openKdReview(pointWork,ambigList);hud(`pt ${p.id} — REF ${refP.id} picked · confirm below, then Apply`);return;}
+  commitKnockdown(pointWork);
+  hud(`pt ${p.id} knocked down using REF ${refP.id}`);
+}
+let refKdPick=null;   // {rbcbIdx} while picking — rbcbIdx<0 until the curb point is clicked, then it's the REF point's turn
+function startRefKdPick(){
+  if(!PTS.length){hud('load an FBK first');return;}
+  refKdPick={rbcbIdx:-1};
+  hud('single REF knockdown: click the RBCB/RCFL point to knock down · Esc to cancel');
+  draw();
+}
+function cancelRefKdPick(){refKdPick=null;hud('single REF knockdown cancelled');draw();}
+function drawRefKdPick(proj){if(!refKdPick||refKdPick.rbcbIdx<0)return;
+  const p=PTS[refKdPick.rbcbIdx];if(!p)return;const s=proj(p.E,p.N,p.Z);
+  ctx.save();ctx.beginPath();ctx.arc(s[0],s[1],10,0,7);ctx.strokeStyle='#F1B434';ctx.lineWidth=2;ctx.stroke();
+  ctx.font='700 10px ui-monospace,monospace';ctx.fillStyle='#F1B434';ctx.fillText('RBCB pt',s[0]+13,s[1]-9);
+  ctx.restore();}
 function segTmpl(s){
   if(s.kind==='ambig')return s.choice==='ref'?s.refTmpl:s.stdTmpl;
   if(s.kind==='sideConflict')return s.choice==='near'?s.nearTmpl:s.fwdTmpl;
@@ -1808,7 +1884,7 @@ function importCSV(text){
   buildLinework();
   if(wasEmpty){
     $('jobpill').textContent='CSV import';
-    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
     is3D=false;setMode('sel');fit();
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
@@ -2669,7 +2745,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -2697,7 +2773,7 @@ function draw3D(){
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
       const lbl=pointLabelText(p);
       if(lbl){ctx.font=`600 ${labelSize}px ui-monospace,monospace`;ctx.fillText(lbl,x+7,y-6);}}});
-  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();
+  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawRefKdPick((E,N,Z)=>P3(E,N,Z));
 }
 /* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
    center), keyed off the point's own description — square for any point
@@ -3532,6 +3608,15 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       vs:view.s,os:orbit.s,ox:orbit.ox,oy:orbit.oy};
     pinch.wE=(pinch.mx-view.x)/view.s;pinch.wN=-(pinch.my-view.y)/view.s;return;}
   if(pointers.size>2)return;
+  if(refKdPick){const i=pick(sx,sy);
+    if(i<0){hud(refKdPick.rbcbIdx<0?'click the RBCB/RCFL point to knock down':'click its REF point');return;}
+    if(refKdPick.rbcbIdx<0){
+      if(!/\b(RBCB|RCFL)\d*\b/i.test(PTS[i].desc||'')){hud('that point has no RBCB/RCFL marker — click a curb point (Esc to cancel)');return;}
+      refKdPick.rbcbIdx=i;hud(`pt ${PTS[i].id} — now click its REF point (Esc to cancel)`);draw();return;}
+    if(i===refKdPick.rbcbIdx){hud('click a different point for the REF (Esc to cancel)');return;}
+    if(!isRefPoint(PTS[i])){hud(`pt ${PTS[i].id} isn't a REF shot — click a REF point (Esc to cancel)`);return;}
+    const rbcbIdx=refKdPick.rbcbIdx;refKdPick=null;
+    applySingleRefKnockdown(rbcbIdx,i);draw();return;}
   if(ugwPick!=null){const i=pick(sx,sy);
     if(i>=0)endUgwPick(PTS[i].id);else hud('click a point for the target pole');
     return;}
@@ -3705,6 +3790,7 @@ $('dlRawBtn').onclick=()=>exportFBK(false);
 $('dlCsvBtn').onclick=exportCSV;
 $('kdBtn').onclick=applyKnockdown;
 $('unkdBtn').onclick=revertKnockdown;
+$('refKdBtn').onclick=startRefKdPick;
 $('unkdReportClose').onclick=closeUnKdReport;
 $('kdReviewApply').onclick=applyKdReview;
 $('kdReviewCancel').onclick=closeKdReview;
@@ -3765,6 +3851,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
   if(e.key==='Escape'&&circleCtrCtx){e.preventDefault();closeCircleCtrDialog();return;}
   if(e.key==='Escape'&&circleCtrPick){e.preventDefault();cancelCircleCtrPick();return;}
+  if(e.key==='Escape'&&refKdPick){e.preventDefault();cancelRefKdPick();return;}
   const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
   if(!typing&&selSet.size&&(e.key==='Delete'||e.key==='Backspace')){e.preventDefault();multiDelete(true);return;}
   if(!typing&&e.key==='Escape'&&selSet.size){e.preventDefault();selSet.clear();sel=-1;selFig=null;inspect();draw();hud('selection cleared');}},true);
