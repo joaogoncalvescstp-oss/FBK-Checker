@@ -213,7 +213,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -600,7 +600,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:103};
+const VERSION={fruit:'🍒',name:'CHERRY',build:104};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -3674,7 +3674,13 @@ function setMode(m){
   if(is3D){const d=$('agmap');if(d)d.style.display='none';}   // 3D canvas is transparent — don't leak the aerial behind it
   if(is3D)$('orbHint').textContent=mode==='zoom'?'drag a box to zoom · wheel zoom · shift-drag or middle-drag pan':'drag orbit (re-centers on click) · wheel zoom · shift-drag or middle-drag pan';
   cv.style.cursor=m==='zoom'?'zoom-in':is3D?'grab':m==='pan'?'grab':m==='move'?'move':'crosshair';
-  if(is3D!==wasOrbit)fit();else draw();
+  if(is3D!==wasOrbit){
+    if(is3D&&sel>=0&&PTS[sel]&&!PTS[sel].deleted){          // entering orbit with a point selected — zoom to it instead of the whole-model fit
+      fit();const p=PTS[sel];
+      orbit.cx=p.E;orbit.cy=p.N;orbit.cz=p.Z;orbit.s=Math.max(orbit.s,6);orbit.ox=0;orbit.oy=0;
+      flash={i:sel,t0:performance.now()};draw();
+    }else fit();
+  }else draw();
   if(m==='inv')inspectInverse();else if(sel>=0)inspect();
 }
 const cap=s=>s[0].toUpperCase()+s.slice(1);
