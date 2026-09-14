@@ -214,7 +214,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -601,7 +601,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:105};
+const VERSION={fruit:'🍑',name:'PEACH',build:106};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -842,7 +842,16 @@ const CURB_KD={L612:0.06,R612:0.06,L624:0.12,R624:0.12,LPARK:0.06,RPARK:0.06,L60
 // below (applySingleRefKnockdown) can reuse the exact same, already-verified
 // (builds 86-103) segment-resolution logic instead of a second, drifting copy.
 const refToken=s=>(((s||'').trim().split(/\s+/)[0])||'').toUpperCase();
-function findRefPoints(){return PTS.filter(p=>!p.deleted&&/^REF\d*$/.test(refToken(p.desc)));}
+// Build 106 — REF1 is a DISTINCT marker from plain REF/REF2/REF3/…, reserved
+// for the separate 3ft outermost-vertical adjustment below (applyRef1Adjustment)
+// — a REF1-coded point is deliberately excluded from the ordinary REF search
+// here (findRefPoints, the 1.4ft nearestRef used by applyKnockdown's own-code/
+// bare-code REF-derived paths) so the two mechanisms never overlap or double-
+// adjust the same point. `isRefPoint` (used by the manual 🎯 REF Knockdown
+// (1 pt) tool, build 105, to validate a hand-picked REF target) is unchanged —
+// REF1 still validates there, since a manual pick is an explicit, deliberate
+// override with no search-radius ambiguity to worry about.
+function findRefPoints(){return PTS.filter(p=>!p.deleted&&/^REF\d*$/.test(refToken(p.desc))&&refToken(p.desc)!=='REF1');}
 function isRefPoint(p){return !!p&&!p.deleted&&/^REF\d*$/.test(refToken(p.desc));}
 const hPat=/^H-?\d+\.?\d*$/, vPat=/^V-?\d+\.?\d*$/;
 // Build 102 — a marker's own SEGMENT must stop at the next figure code of ANY
@@ -1082,7 +1091,27 @@ function applyKnockdown(){
     if(r.segs.length)pointWork.push({p,toks:r.toks,segs:r.segs});
   });
 
-  if(!pointWork.length){hud(neededRef?'no REF point in range for RBCB pt(s)':'no RBCB/RCFL curb codes to knock down');return;}
+  if(!pointWork.length){
+    // Build 106 — a point can have NOTHING left to freshly bake (every RBCB/RCFL
+    // marker on it is already knocked down) and still sit near a REF1 point that
+    // wants to correct its outermost V. Without this, applyKnockdown() would just
+    // return here and commitKnockdown() (the only place applyRef1Adjustment() ran
+    // from) would never even be called — REF1 would silently do nothing on a file
+    // that was already knocked down in an earlier pass. Only worth the extra
+    // saveState() when a REF1 point actually exists in the file at all (the
+    // overwhelmingly common case has none, and this keeps that path exactly as
+    // cheap/unchanged as before).
+    if(findRef1Points().length){
+      saveState();
+      const ref1Adjusted=applyRef1Adjustment();
+      if(ref1Adjusted){
+        buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
+        hud(`REF1 adjusted outermost V on ${ref1Adjusted} pt(s)`);
+        return;
+      }
+    }
+    hud(neededRef?'no REF point in range for RBCB pt(s)':'no RBCB/RCFL curb codes to knock down');return;
+  }
 
   const ambigList=[];
   pointWork.forEach((pw,pwIdx)=>pw.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig'||seg.kind==='sideConflict')ambigList.push({pwIdx,segIdx,p:pw.p,seg});}));
@@ -1170,6 +1199,73 @@ const KD_LINE_CTRL=new Set(['B','BC','PC','OC','POC','EC','PT','E','CLS','CL']);
 // ONLY for a truly BARE segment (no code of its own at all — REF-derived),
 // which has no existing token to anchor a replace on and still needs somewhere
 // to land the bake.
+// ---------- REF1 — outermost-vertical-only adjustment, 3ft search (build 106) ----------
+// The owner: "add new function on the knockdown curb[,] have REF1 be the code
+// to adjust the outermost vertical of the code by [inversing/referencing]
+// point with the REF1 point[,] have search area be 3ft." Distinct from the
+// ordinary REF workflow above in three ways: (1) it's triggered by the exact
+// literal token REF1, never a plain REF/REF2/… shot (see findRefPoints's own
+// exclusion, right above); (2) it touches ONLY the OUTERMOST (last-stated)
+// V value of an RBCB segment's already-baked H/V cross-section — never the
+// earlier "mid" step(s) the ordinary REF-vs-Standard workflow also adjusts;
+// (3) its search radius is a full 3 ft, not the 1.4 ft `maxSearchRadius`
+// above — a deliberately wider, independent tolerance for this specific
+// correction, not a change to the standard REF radius. Runs automatically
+// every time Knockdown commits (both `applyKnockdown`'s direct-apply path
+// and the `#kdReviewScrim` review's Apply path funnel through the single
+// `commitKnockdown` choke point below, so there's only one place this needs
+// to be wired in) — no separate button, no per-point ask, matching how the
+// owner asked for it ("on the knockdown [tool]", not a standalone tool.
+// Scoped to RBCB (back-of-curb) segments only, matching this app's existing
+// "REF-derived reveals are a back-of-curb-only concept" rule for RCFL — see
+// the Knockdown behavior section's RCFL bullet.
+const REF1_SEARCH_RADIUS=3;
+function findRef1Points(){return PTS.filter(p=>!p.deleted&&refToken(p.desc)==='REF1');}
+function nearestRef1(p,ref1s){
+  let best=null,bd=Infinity;
+  ref1s.forEach(r=>{const d=Math.hypot(r.N-p.N,r.E-p.E);if(d<bd&&d<=REF1_SEARCH_RADIUS){bd=d;best=r;}});
+  return best?{ref:best,d:bd}:null;
+}
+function applyRef1Adjustment(){
+  const ref1s=findRef1Points();
+  if(!ref1s.length)return 0;
+  let adjusted=0;
+  PTS.forEach(p=>{
+    if(p.deleted)return;
+    if(refToken(p.desc)==='REF1')return;         // a REF1 shot never adjusts itself (or another REF1 point)
+    const toks=p.desc.split(/\s+/);
+    const markerIdxs=[];
+    toks.forEach((t,i)=>{if(/^RBCB\d*$/.test(t.toUpperCase()))markerIdxs.push(i);});
+    if(!markerIdxs.length)return;
+    const near=nearestRef1(p,ref1s);
+    if(!near)return;
+    const v=p.Z-near.ref.Z;
+    // Same baseline "-v-0.012" formula the ordinary REF-derived mid-step
+    // already uses (refKdTmpl's `midV`) — deliberately WITHOUT a CURB_KD
+    // offset, since by the time a segment is already baked its original
+    // curb-code NAME is gone (replaced by numbers), so there's no code to
+    // look a per-code kd delta up under; reapplying one would mean guessing
+    // which code it used to be, exactly the kind of guess this project's
+    // standing rule (build 40/47/49/103) argues against.
+    const newV='V'+(-v-0.012).toFixed(3);
+    let changed=false;
+    markerIdxs.forEach(mi=>{
+      const start=mi,end=curbSegEnd(toks,start,CURB_BOC);
+      let lastVIdx=-1;
+      for(let i=start+1;i<=end;i++)if(vPat.test(toks[i]))lastVIdx=i;
+      if(lastVIdx<0)return;                      // no baked H/V here (yet) — nothing to adjust
+      if(toks[lastVIdx]===newV)return;           // already correct — idempotent no-op
+      toks[lastVIdx]=newV;changed=true;
+    });
+    if(!changed)return;
+    const newDesc=toks.join(' ');
+    logEdit('code',`REF1 pt ${near.ref.id} adjusted outermost V on pt ${p.id}: ${newV} (${near.d.toFixed(2)} ft away)`);
+    p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.edited=true;
+    adjusted++;
+  });
+  return adjusted;
+}
+
 function commitKnockdown(pointWork){
   saveState();
   let applied=0;
@@ -1192,8 +1288,9 @@ function commitKnockdown(pointWork){
     p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
     applied++;
   });
+  const ref1Adjusted=applyRef1Adjustment();
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
-  hud(`Knockdown applied to ${applied} pt(s)`);
+  hud(`Knockdown applied to ${applied} pt(s)`+(ref1Adjusted?` · REF1 adjusted outermost V on ${ref1Adjusted} pt(s)`:''));
 }
 // Build 86 — REF-vs-Standard review: opened only when at least one segment is
 // ambiguous (its own curb code AND a REF point in range). Every other,
