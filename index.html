@@ -211,10 +211,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
+    <button class="btn ghost" id="dlDxfBtn" disabled title="Export a DXF drawing: points + labels, all figure linework (curves/circles/jogs rendered exactly as drawn on screen), standalone CTR circles, CPN/RPN tie lines, and the curb offset cross-section lane lines">↓ Export DXF</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍉 WATERMELON</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥭 MANGO</span>
   </div>
 
   <div class="main">
@@ -601,7 +602,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍉',name:'WATERMELON',build:110};
+const VERSION={fruit:'🥭',name:'MANGO',build:111};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -758,7 +759,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -1986,7 +1987,7 @@ function importCSV(text){
   buildLinework();
   if(wasEmpty){
     $('jobpill').textContent='CSV import';
-    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
     is3D=false;setMode('sel');fit();
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
@@ -3777,6 +3778,68 @@ function exportCSV(){
   a.href=URL.createObjectURL(blob);a.download=(($('jobpill').textContent||'points').replace(/\s+/g,'_'))+'_PNEZD.csv';a.click();
   logEdit('code',`exported ${n} point(s) to CSV`);hud(`exported ${n} point(s) to CSV`);}
 
+/* ---------- DXF export (build 111) ----------
+   A plain ASCII (R12-style) DXF with just an ENTITIES section — no HEADER/
+   TABLES needed for AutoCAD/Civil3D to import it; any layer an entity
+   references that isn't already in the drawing gets auto-created, same as
+   every other minimal DXF writer relies on. X=Easting, Y=Northing, Z=
+   Elevation throughout, the standard state-plane CAD convention (matches
+   how a PNEZD point file like Export CSV already gets consumed downstream).
+   Geometry is pulled from the SAME already-verified functions rendering and
+   snap already use — figurePolyline() for a figure's actual tessellated
+   curve/circle/jog geometry (build 107) and offsetLaneChains() for the curb
+   offset lane lines (build 94-100/108) — never a re-derived approximation,
+   given this project's own long, hard-won history of subtle bugs in exactly
+   that geometry. */
+function dxfLayer(name){const s=(name||'0').toUpperCase().replace(/[^A-Z0-9_.$-]/g,'_').slice(0,31);return s||'0';}
+function dxfNum(n){return (Math.round((n||0)*10000)/10000).toFixed(4);}
+function dxfPoint(layer,E,N,Z){return `0\nPOINT\n8\n${layer}\n10\n${dxfNum(E)}\n20\n${dxfNum(N)}\n30\n${dxfNum(Z)}\n`;}
+function dxfText(layer,E,N,Z,h,s){return `0\nTEXT\n8\n${layer}\n10\n${dxfNum(E)}\n20\n${dxfNum(N)}\n30\n${dxfNum(Z)}\n40\n${h}\n1\n${(s||'').replace(/[\r\n]/g,' ')}\n`;}
+function dxfLine(layer,A,B){return `0\nLINE\n8\n${layer}\n10\n${dxfNum(A.E)}\n20\n${dxfNum(A.N)}\n30\n${dxfNum(A.Z)}\n11\n${dxfNum(B.E)}\n21\n${dxfNum(B.N)}\n31\n${dxfNum(B.Z)}\n`;}
+function dxfCircle(layer,c){return `0\nCIRCLE\n8\n${layer}\n10\n${dxfNum(c.E)}\n20\n${dxfNum(c.N)}\n30\n${dxfNum(c.Z)}\n40\n${dxfNum(c.r)}\n`;}
+function dxfPolyline(layer,pts,closed){
+  if(pts.length<2)return '';
+  let out=`0\nPOLYLINE\n8\n${layer}\n66\n1\n70\n${closed?9:8}\n`;   // 70: 8=3D polyline, +1=closed
+  pts.forEach(p=>{out+=`0\nVERTEX\n8\n${layer}\n10\n${dxfNum(p.E)}\n20\n${dxfNum(p.N)}\n30\n${dxfNum(p.Z)}\n`;});
+  return out+`0\nSEQEND\n`;}
+function exportDXF(){
+  if(!PTS.length){hud('nothing to export');return;}
+  let ents='',nPts=0,nFig=0,nCirc=0,nOff=0,nTie=0;
+  PTS.forEach(p=>{if(p.deleted)return;nPts++;
+    ents+=dxfPoint(p.kind==='ctrl'?'CONTROL-POINTS':'POINTS',p.E,p.N,p.Z);
+    ents+=dxfText('POINT-LABELS',p.E,p.N,p.Z,0.5,pointLabelText(p)||p.id);});
+  const figs=figures(),figuredIdx=new Set();
+  figs.forEach(f=>{
+    const{pts,circle}=figurePolyline(f);
+    const layer='LINE-'+dxfLayer(f.code);
+    if(circle){ents+=dxfCircle(layer,circle);nCirc++;}
+    else if(pts.length>=2){ents+=dxfPolyline(layer,pts,f.closed);nFig++;}
+    f.verts.forEach(v=>figuredIdx.add(v.i));
+    (f.links||[]).forEach(({at,to})=>{const A=PTS[at],B=PTS[to];
+      if(!A||A.deleted||!B||B.deleted)return;ents+=dxfLine('TIES',A,B);nTie++;});});
+  CONNECT.forEach(c=>{                                      // ties whose origin isn't part of any figure — same set drawConnectLinks draws
+    if(figuredIdx.has(c.at))return;
+    const A=PTS[c.at],B=PTS[c.to];if(!A||A.deleted||!B||B.deleted)return;
+    ents+=dxfLine('TIES',A,B);nTie++;});
+  circles.forEach(c=>{const p=PTS[c.centerIdx];if(!p||p.deleted)return;   // standalone ⊙ CTR circles
+    ents+=dxfCircle('CIRCLES',{E:p.E,N:p.N,Z:p.Z,r:c.radiusFt*0.3048});nCirc++;});
+  figs.forEach(f=>{                                          // curb offset cross-section lane lines
+    const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[],ocAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;
+      all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);
+      stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);ocAt.push(!!v.oc);});
+    const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
+    const{per,cont}=offsetPerCont(all,stepsAt,stopAt,startK);
+    const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
+    for(let L=0;L<lanes;L++)offsetLaneChains(all,per,cont,bcAt,ecAt,ocAt,L).forEach(chain=>{
+      if(chain.length<2)return;ents+=dxfPolyline('OFFSET-'+dxfLayer(f.code),chain,false);nOff++;});});
+  if(!ents){hud('nothing to export');return;}
+  const dxf=`0\nSECTION\n2\nENTITIES\n${ents}0\nENDSEC\n0\nEOF\n`;
+  const blob=new Blob([dxf],{type:'application/dxf'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=(($('jobpill').textContent||'points').replace(/\s+/g,'_'))+'.dxf';a.click();
+  logEdit('code',`exported DXF: ${nPts} pt(s), ${nFig} line(s), ${nCirc} circle(s), ${nOff} offset lane(s), ${nTie} tie(s)`);
+  hud(`exported DXF: ${nPts} pts, ${nFig} lines, ${nCirc} circles, ${nOff} offset lanes`);}
+
 /* ---------- go to point ---------- */
 function openGoto(){$('scrim').classList.add('show');const i=$('gotoInput');i.value='';$('gotoHint').textContent='type a point #, then Enter';i.focus();}
 function closeGoto(){$('scrim').classList.remove('show');}
@@ -3988,6 +4051,7 @@ $('sideScrim').onclick=closeSideMobile;
 $('dlBtn').onclick=exportFBK;
 $('dlRawBtn').onclick=()=>exportFBK(false);
 $('dlCsvBtn').onclick=exportCSV;
+$('dlDxfBtn').onclick=exportDXF;
 $('kdBtn').onclick=applyKnockdown;
 $('unkdBtn').onclick=revertKnockdown;
 $('refKdBtn').onclick=startRefKdPick;
