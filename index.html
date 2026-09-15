@@ -214,7 +214,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍋 LEMON</span>
   </div>
 
   <div class="main">
@@ -601,7 +601,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:108};
+const VERSION={fruit:'🍋',name:'LEMON',build:109};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -704,22 +704,20 @@ function updateUndoRedoButtons(){
   $('redoBtn').disabled=redoStack.length===0;
 }
 
-/* ---------- REF-hide: comment a pure REF shot out of the exported file ----------
-   A REF point exists only to give Knockdown a reveal to measure from — CAD never
-   needs to see it as a real point. exportFBK prefixes a pure REF shot's line with
-   REF_HIDE so any FBK/CAD reader (which only recognizes known keyword lines, same
-   assumption the existing "Deleted <stamp>" archive marker already relies on)
-   silently skips it, while this app still tokenizes right through the marker on
-   the next load — see parse()'s deHide() — so the point keeps working for
-   Knockdown exactly as if it were never hidden. A REF point that also carries
-   another code (a "multi-code shot" — CAD needs it for that other purpose) is
-   never touched: isPureRefDesc requires the description to be nothing BUT the
-   bare REF token. */
+/* ---------- REF-hide marker — READ-ONLY compat, no longer written (build 109) ----------
+   Builds 84-108 prefixed a pure REF shot's exported line with REF_HIDE ('-- '),
+   on the assumption an FBK/CAD reader silently skips any line it doesn't
+   recognize (the same assumption the "Deleted <stamp>" archive marker relies on).
+   A real Civil3D 2024 import of a real job file with 407 such lines proved that
+   assumption wrong for THIS marker: Civil3D throws a per-line "Unrecognizable
+   input (Improper number of parameters)" dialog for every single one instead of
+   skipping it, making the export effectively unusable (407 blocking dialogs).
+   Build 109 stops WRITING this marker entirely — see exportFBK's step 2d — so a
+   REF point now exports as a perfectly ordinary line, same as any other point.
+   REF_HIDE and parse()'s deHide() step are kept so a job file exported by an
+   OLDER build (84-108) still loads correctly; exporting it again self-heals it
+   (step 2d strips any marker it finds, never re-adds one). */
 const REF_HIDE='-- ';
-function isPureRefDesc(desc){
-  const t=(desc||'').trim().split(/\s+/).filter(Boolean);
-  return t.length===1 && /^REF\d*$/i.test(t[0]);
-}
 
 /* ---------- parse + reduce ---------- */
 function parse(text){
@@ -3552,18 +3550,17 @@ function logEdit(type,msg){log.push({type,msg});$('logn').textContent=log.length
 function flagDirty(){$('dlBtn').classList.add('gold');$('dlRawBtn').classList.add('gold');}
 function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
   let ln=RAW[p.srcLine];if(ln===undefined)return ln;
-  // strip/restore the REF_HIDE comment marker around the edit so an edited-but-
-  // still-hidden REF point (Rod HT/N/E/Z corrections, etc.) keeps tokenizing
-  // correctly (t[1]==='VA' would otherwise miss, shifted by the marker token)
-  // and stays hidden from CAD afterward.
-  const hidden=ln.startsWith(REF_HIDE);
-  const body=hidden?ln.slice(REF_HIDE.length):ln;
+  // strip a REF_HIDE marker left over from an older (build 84-108) export so an
+  // edited, previously-hidden REF point still tokenizes correctly (t[1]==='VA'
+  // would otherwise miss, shifted by the marker token) — build 109 no longer
+  // WRITES this marker (see REF_HIDE above), so this only ever strips, never restores.
+  const body=ln.startsWith(REF_HIDE)?ln.slice(REF_HIDE.length):ln;
   const t=body.split(/\s+/);
   let out;
   if(t[1]==='VA'){t[2]=p.id;t[3]=deg2dms(p.ha);t[4]=p.sd.toFixed(3);t[5]=deg2dms(p.za);
     out=t.slice(0,6).join(' ')+' "'+p.desc+'"';}
   else out=body.replace(/"([^"]*)"/,`"${p.desc}"`);
-  return hidden?REF_HIDE+out:out;}
+  return out;}
 function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Boolean);
   return toks.some(t=>t.toUpperCase()===code)?desc:(desc?desc+' ':'')+code;}   // ensure the line carries the figure code
 /* The FBK line for a point as it stands now (edits applied). Inserted points have
@@ -3714,26 +3711,19 @@ function exportFBK(expandCodes=true){
     const at=anchor.srcLine+1;
     (nezBefore[at]=nezBefore[at]||[]).push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);
     nezDone.add(p.id);});
-  // 2d. REF-hide — comment out a pure REF shot's line (see REF_HIDE above) so CAD
-  //     never sees it, while this app keeps reading it fine on the next load. Runs
-  //     last among the per-line content steps so it judges purity off whatever
-  //     description actually ends up in the line (e.g. 2b can graft a figure code
-  //     onto a REF point pulled into linework — that's the "multi-code shot" case
-  //     and must stay visible, even though the point's own p.desc is still "REF").
-  //     A previously-hidden REF point that picked up another code this session gets
-  //     its marker removed again for the same reason, in the other direction.
-  const refHiddenIds=[], refShownIds=[];
+  // 2d. REF-un-hide — build 109 stopped WRITING the REF_HIDE marker entirely (a real
+  //     Civil3D 2024 import proved commenting a line out with it throws a blocking
+  //     "Unrecognizable input" error per line, not a silent skip — see REF_HIDE
+  //     above). This pass strips a leftover marker off any REF point still carrying
+  //     one from an OLDER (build 84-108) export, so simply re-exporting an old
+  //     hidden job file self-heals it back to a plain, CAD-safe line.
+  const refShownIds=[];
   PTS.forEach(p=>{
     if(p.deleted||p.srcLine<0||deletedAfter.has(p.srcLine))return;
     if(!/^REF\d*$/i.test(((p.desc||'').trim().split(/\s+/)[0])||''))return;   // not a REF point at all — untouched
     const line=editedContent[p.srcLine]!==undefined?editedContent[p.srcLine]:RAW[p.srcLine];
-    if(line===undefined)return;
-    const hidden=line.startsWith(REF_HIDE);
-    const body=hidden?line.slice(REF_HIDE.length):line;
-    const m=body.match(/"([^"]*)"/);
-    const pure=m?isPureRefDesc(m[1]):false;
-    if(pure&&!hidden){editedContent[p.srcLine]=REF_HIDE+body;refHiddenIds.push(p.id);}
-    else if(!pure&&hidden){editedContent[p.srcLine]=body;refShownIds.push(p.id);}
+    if(line===undefined||!line.startsWith(REF_HIDE))return;
+    editedContent[p.srcLine]=line.slice(REF_HIDE.length);refShownIds.push(p.id);
   });
   // 3. assemble
   const result=[];
@@ -3748,9 +3738,7 @@ function exportFBK(expandCodes=true){
   Object.values(nezBefore).forEach(arr=>arr.forEach(s=>{const m=s.match(/^NEZ\s+(\S+)/);if(m)alreadyNEZ.add(m[1]);}));
   PTS.forEach(p=>{if(p.deleted||p.srcLine>=0)return;if(nezDone.has(p.id)||alreadyNEZ.has(p.id))return;
     const d=expandCodes?expandDescForExport(p.desc):p.desc;
-    const line=`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`;
-    if(isPureRefDesc(d)){result.push(REF_HIDE+line);refHiddenIds.push(p.id);}
-    else result.push(line);});
+    result.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);});
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
   logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?'':' (codes unapplied)'}`);
@@ -3758,8 +3746,7 @@ function exportFBK(expandCodes=true){
   if(nezed.length)logEdit('mv',`cross-setup → NEZ: ${nezed.join(', ')} (originals archived as Deleted)`);
   if(shared.size)logEdit('del',`shared pts NEZ-moved, check other figures: ${[...shared].join(', ')}`);
   if(rodEdits.length)logEdit('code',`rod HT corrected: ${rodEdits.join(', ')} — bracketed with PRISM lines`);
-  if(refHiddenIds.length)logEdit('code',`REF shot(s) commented out for CAD, still usable by the app: ${refHiddenIds.join(', ')}`);
-  if(refShownIds.length)logEdit('code',`REF shot(s) un-commented (now multi-code, kept visible to CAD): ${refShownIds.join(', ')}`);}
+  if(refShownIds.length)logEdit('code',`REF shot(s) un-commented from an older export (self-healed for CAD): ${refShownIds.join(', ')}`);}
 
 /* Export every non-deleted point as a comma-delimited PNEZD file: point number,
    Northing, Easting, Elevation (Z), Description. Round-trips with importCSV. */
