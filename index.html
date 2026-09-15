@@ -214,7 +214,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -248,7 +248,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       </div>
       <div class="snapbox" id="snapBox">
         <div class="sbTitle">OSNAP — active shown in green</div>
-        <label id="snapLbl_endpoint"><input type="checkbox" id="snapChk_endpoint" checked>▢ endpoint</label>
+        <label id="snapLbl_endpoint" title="also snaps to a circle's own center and its 4 quadrant points"><input type="checkbox" id="snapChk_endpoint" checked>▢ endpoint</label>
         <label id="snapLbl_intersection"><input type="checkbox" id="snapChk_intersection" checked>○ intersection</label>
         <label id="snapLbl_midpoint"><input type="checkbox" id="snapChk_midpoint" checked>△ midpoint</label>
         <label id="snapLbl_nearest"><input type="checkbox" id="snapChk_nearest" checked>⋈ nearest</label>
@@ -470,8 +470,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <label>Elevation (Z)</label>
       <input type="number" id="simplCogoZ" placeholder="Enter elevation" step="0.001" autocomplete="off">
     </div>
-    <button class="btn" id="simplCogoPick" style="width:100%;justify-content:center" title="Click on the drawing to set N/E/Z. CAD object snap: endpoint, apparent intersection of two lines, midpoint, nearest.">📍 Pick on canvas (snap)</button>
-    <div class="hint" style="margin:6px 0 2px">osnap: ▢ endpoint · ○ intersection · △ midpoint · ⋈ nearest · Esc cancels</div>
+    <button class="btn" id="simplCogoPick" style="width:100%;justify-content:center" title="Click on the drawing to set N/E/Z. CAD object snap: endpoint (incl. circle center/quadrant), intersection of two lines, midpoint, nearest — works on curves and circles too.">📍 Pick on canvas (snap)</button>
+    <div class="hint" style="margin:6px 0 2px">osnap: ▢ endpoint (⊕ center/quadrant on circles) · ○ intersection · △ midpoint · ⋈ nearest · Esc cancels</div>
     <div class="field">
       <label>Code/Description</label>
       <input type="text" id="simplCogoCode" placeholder="e.g., CP CONTROL POINT" autocomplete="off">
@@ -483,7 +483,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   </div>
 </div>
 
-<!-- elevation chooser at an apparent intersection of two lines -->
+<!-- elevation chooser at an intersection of two lines -->
 <div class="scrim" id="zpickScrim">
   <div class="modal">
     <h4>Elevation at intersection</h4>
@@ -601,7 +601,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:106};
+const VERSION={fruit:'🍇',name:'GRAPE',build:107};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1879,7 +1879,7 @@ function pickSegmentForInsert(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)
   const figSegs=[];                                       // this figure's own segments (world), for the intersection pass
   const segPts=[];                                        // this figure's own segments (screen), for endpoint/midpoint/nearest
   const addSeg=(A,B,i1,i2,p1,p2)=>{
-    figSegs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:p1.E,aN:p1.N,aZ:p1.Z,bE:p2.E,bN:p2.N,bZ:p2.Z,i1,i2,p1,p2});
+    figSegs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:p1.E,aN:p1.N,aZ:p1.Z,bE:p2.E,bN:p2.N,bZ:p2.Z,i1,i2,p1,p2,src:f.id});
     segPts.push({A,B,i1,i2,p1,p2});};
   for(let k=0;k<vs.length-1;k++)addSeg(proj(vs[k].E,vs[k].N,vs[k].Z),proj(vs[k+1].E,vs[k+1].N,vs[k+1].Z),k,k+1,vs[k],vs[k+1]);
   if(f.closed&&vs.length>1)addSeg(proj(vs[vs.length-1].E,vs[vs.length-1].N,vs[vs.length-1].Z),proj(vs[0].E,vs[0].N,vs[0].Z),vs.length-1,0,vs[vs.length-1],vs[0]);
@@ -1890,17 +1890,24 @@ function pickSegmentForInsert(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)
         const dA=Math.hypot(A[0]-sx,A[1]-sy);if(dA<bd){bd=dA;best={figId:f.id,i1,i2,p1,p2,t:0,type:'endpoint',sx:A[0],sy:A[1],E:p1.E,N:p1.N,Z:p1.Z,label:'endpoint · pt '+p1.id};}
         const dB=Math.hypot(B[0]-sx,B[1]-sy);if(dB<bd){bd=dB;best={figId:f.id,i1,i2,p1,p2,t:1,type:'endpoint',sx:B[0],sy:B[1],E:p2.E,N:p2.N,Z:p2.Z,label:'endpoint · pt '+p2.id};}});
       if(best)return best;
+      // Note: no quadrant candidate here — a circle figure is a fixed 3-point construct and
+      // insertPointOnLine always re-derives the new point's E/N by interpolating between the
+      // two REAL vertices it's told to insert between, so a synthetic quadrant point (which
+      // isn't between any two real vertices) has no valid (i1,i2,t) to express here; quadrant/
+      // center snapping is offered by the free-standing snapPoint()/COGO pick instead, which
+      // places a point at an exact E/N/Z with no such interpolation.
     }
-    if(snapEnabled.intersection){                         // 2) landing near where this line crosses ANY other line (or its own offset lanes) — ask which elevation to use
+    if(snapEnabled.intersection){                         // 2) landing near where this line crosses ANY other line (or its own offset lanes) — ask which elevation to use. The crossing must fall within BOTH segments' own real extent, not an extension of either — a genuine intersection, not an apparent one (build 107); pairs sharing this figure's own `src` are skipped, since two joints of this line's own tessellation meeting at a sample point isn't a second line to cross
       const other=collectSegments();
       const TOL_X=14;let bxd=TOL_X,bxBest=null;
       figSegs.forEach(fs=>other.forEach(os=>{
-        const X=lineLineX(fs,os);if(!X||!isFinite(X.x)||X.t<-0.02||X.t>1.02)return;   // crossing must fall within THIS figure's segment
+        if(os.src!==undefined&&os.src===fs.src)return;
+        const X=lineLineX(fs,os);if(!X||!isFinite(X.x)||X.t<-0.02||X.t>1.02||X.u<-0.02||X.u>1.02)return;   // crossing must fall within THIS figure's segment AND the other line's own real extent
         const d=Math.hypot(X.x-sx,X.y-sy);if(d>=bxd)return;
         const z1=fs.aZ+X.t*(fs.bZ-fs.aZ),z2=os.aZ+X.u*(os.bZ-os.aZ);
         const[E,N]=S2W(X.x,X.y);
         bxd=d;bxBest={figId:f.id,i1:fs.i1,i2:fs.i2,p1:fs.p1,p2:fs.p2,t:Math.max(0,Math.min(1,X.t)),
-          sx:X.x,sy:X.y,E,N,z1,z2,la:f.code,lb:os.label||'line B',label:'apparent intersection',type:'intersection'};}));
+          sx:X.x,sy:X.y,E,N,z1,z2,la:f.code,lb:os.label||'line B',label:'intersection',type:'intersection'};}));
       if(bxBest)return bxBest;                            // an in-range crossing wins over anything lower-priority
     }
     if(snapEnabled.midpoint){                             // 3) snap onto the midpoint of one of this line's own segments
@@ -2072,18 +2079,52 @@ function addSimplCogoPoint(){
   hud(`point ${newId} added`);}
 
 /* ---------- basic CAD object snap (2D) for the COGO canvas pick ----------
-   Snaps the cursor to: endpoint (a figure vertex / point), apparent intersection
-   of two lines (lines extended until they cross), midpoint of a segment, and
-   nearest point on a segment. W2S is affine, so a segment parameter computed in
-   screen space equals the world-space parameter — used to interpolate Z.        */
+   Snaps the cursor to: endpoint (a figure vertex/point, or a circle's own
+   center/quadrant points), a genuine intersection of two lines (they must
+   actually cross ON both, not just when extended — build 107), midpoint of
+   a segment, and nearest point on a segment. W2S is affine, so a segment
+   parameter computed in screen space equals the world-space parameter —
+   used to interpolate Z.        */
+/* Every segment carries `src` — a tag identifying which single rendered LINE
+   it came from (a figure's id, one of its offset lanes, a CPN/RPN tie, a
+   standalone circle). Two consecutive samples of the SAME tessellated curve
+   share one `src`, so the intersection pass (below) can skip pairs that are
+   really just two joints of one line meeting at a sample point, and only
+   ever report a genuine crossing between two DIFFERENT rendered lines. */
 function collectSegments(){const segs=[];
-  figures().forEach(f=>{const vs=f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);
-    const push=(a,b)=>{const A=W2S(a.E,a.N),B=W2S(b.E,b.N);
-      segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:a.E,aN:a.N,aZ:a.Z,bE:b.E,bN:b.N,bZ:b.Z,label:f.code});};
-    for(let k=0;k<vs.length-1;k++)push(vs[k],vs[k+1]);
-    if(f.closed&&vs.length>1)push(vs[vs.length-1],vs[0]);});
-  segs.push(...collectOffsetSegments());                   // curb cross-section offset lane lines snap too
+  const pushChain=(pts,closed,label,src)=>{
+    for(let k=0;k<pts.length-1;k++){const A=W2S(pts[k].E,pts[k].N),B=W2S(pts[k+1].E,pts[k+1].N);
+      segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:pts[k].E,aN:pts[k].N,aZ:pts[k].Z,bE:pts[k+1].E,bN:pts[k+1].N,bZ:pts[k+1].Z,label,src});}
+    if(closed&&pts.length>1){const a=pts[pts.length-1],b=pts[0],A=W2S(a.E,a.N),B=W2S(b.E,b.N);
+      segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:a.E,aN:a.N,aZ:a.Z,bE:b.E,bN:b.N,bZ:b.Z,label,src});}};
+  const figured=new Set();                                  // pts belonging to some figure's own path — mirrors drawConnectLinks's own dedup logic, for the CONNECT pass below
+  figures().forEach(f=>{
+    f.verts.forEach(v=>figured.add(v.i));
+    const{pts,circle}=figurePolyline(f);                    // world polyline exactly matching what's actually drawn — a circle's full loop, a BC..EC arc/spline, an OC tangent arc, RT/X/RECT jogs — not just straight vertex-to-vertex chords (build 107)
+    pushChain(pts,f.closed&&!circle,f.code,f.id);
+    if(f.links)f.links.forEach(({at,to})=>{const A=PTS[at],B=PTS[to];if(!A||A.deleted||!B||B.deleted)return;
+      pushChain([{E:A.E,N:A.N,Z:A.Z},{E:B.E,N:B.N,Z:B.Z}],false,f.code+' tie',f.id+'|link|'+at);});
+  });
+  CONNECT.forEach(c=>{                                        // a CPN/RPN tie whose origin isn't part of ANY figure (drawConnectLinks' own case) still renders — snap onto it too
+    if(figured.has(c.at))return;
+    const A=PTS[c.at],B=PTS[c.to];if(!A||A.deleted||!B||B.deleted)return;
+    pushChain([{E:A.E,N:A.N,Z:A.Z},{E:B.E,N:B.N,Z:B.Z}],false,c.code+' tie','connect|'+c.at+'|'+c.to);});
+  circles.forEach((c,ci)=>{                                   // standalone ⊙ CTR-tool circles (dashed, drawCircles) — same tessellation, same world radius drawCircles itself renders at (radiusFt*0.3048, matching its own on-screen scale exactly)
+    const p=PTS[c.centerIdx];if(!p||p.deleted)return;
+    const r=c.radiusFt*0.3048,ST=72,pts=[];
+    for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST;pts.push({E:p.E+r*Math.cos(a),N:p.N+r*Math.sin(a),Z:p.Z});}
+    pushChain(pts,false,c.radiusFt.toFixed(1)+'ft circle','circle|'+ci);});   // already a full 72-sample loop back to its own start, no extra closing segment needed
+  segs.push(...collectOffsetSegments());                   // curb cross-section offset lane lines snap too (each lane's own straight vertex-to-vertex chords — see collectOffsetSegments)
   return segs;}
+/* Every full circle currently on screen — CIR-coded figures and standalone
+   ⊙ CTR circles — as {E,N,Z,r,label}, for the center/quadrant snap
+   candidates in snapPoint()/pickSegmentForInsert() below (build 107). */
+function collectCircles(){
+  const out=[];
+  figures().forEach(f=>{const{circle}=figurePolyline(f);if(circle)out.push({E:circle.E,N:circle.N,Z:circle.Z,r:circle.r,label:f.code});});
+  circles.forEach(c=>{const p=PTS[c.centerIdx];if(!p||p.deleted)return;
+    out.push({E:p.E,N:p.N,Z:p.Z,r:c.radiusFt*0.3048,label:c.radiusFt.toFixed(1)+'ft circle'});});
+  return out;}
 /* Rebuild the green offset lane lines (same math as drawOffsets) as world-coord
    segments so the snap engine can catch endpoints/intersections on them. */
 function collectOffsetSegments(){const segs=[];
@@ -2097,7 +2138,7 @@ function collectOffsetSegments(){const segs=[];
       op.forEach((o,k)=>{
         if(!o){if(!cont[k])prev=null;return;}   // a real SO stop breaks the chain (prev reset); this lane simply having no step here (a shorter callout) does not — keep prev so the next real point on this lane bridges straight back to it, skipping the gap (build 99)
         if(prev&&contPrev[k]){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);
-          segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:o.E,bN:o.N,bZ:o.Z,label:f.code+' offset'});}
+          segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:o.E,bN:o.N,bZ:o.Z,label:f.code+' offset',src:f.id+'|off'+L});}
         prev=o;});}});
   return segs;}
 function projParam(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
@@ -2114,24 +2155,43 @@ function snapPoint(sx,sy){
   if(is3D)return null;
   const TOL_PT=12,TOL_X=14,TOL_MID=11,TOL_NEAR=8;
   let best=null;
-  // 1) endpoint / node — nearest point (covers every segment endpoint)
+  // 1) endpoint / node — nearest point (covers every segment endpoint, plus a
+  //    circle's own center and 4 quadrant points — precise geometry that can
+  //    never sit on a chord between two real vertices, so a segment-based
+  //    scan alone could never land on it)
   if(snapEnabled.endpoint){
     let bd=TOL_PT;
     PTS.forEach(p=>{if(p.deleted)return;const[x,y]=W2S(p.E,p.N);const d=Math.hypot(x-sx,y-sy);
       if(d<bd){bd=d;best={E:p.E,N:p.N,Z:p.Z,sx:x,sy:y,type:'endpoint',label:'endpoint · pt '+p.id};}});
+    collectCircles().forEach(c=>{
+      const[cx,cy]=W2S(c.E,c.N),dC=Math.hypot(cx-sx,cy-sy);
+      if(dC<bd){bd=dC;best={E:c.E,N:c.N,Z:c.Z,sx:cx,sy:cy,type:'center',label:'center · '+c.label};}
+      [0,Math.PI/2,Math.PI,3*Math.PI/2].forEach(a=>{
+        const qE=c.E+c.r*Math.cos(a),qN=c.N+c.r*Math.sin(a),[qx,qy]=W2S(qE,qN),dQ=Math.hypot(qx-sx,qy-sy);
+        if(dQ<bd){bd=dQ;best={E:qE,N:qN,Z:c.Z,sx:qx,sy:qy,type:'quadrant',label:'quadrant · '+c.label};}});
+    });
     if(best)return best;
   }
   const segs=collectSegments();
-  // 2) apparent intersection — pairs of lines passing near the cursor, crossing near the cursor
+  // 2) intersection — a genuine crossing of two DIFFERENT rendered lines: the
+  //    point must fall ON both segments' real extent (t and u both in
+  //    [0,1]), not on an extension of either past its own end (build 107 —
+  //    this used to be an "apparent" intersection of the lines extended to
+  //    cross; the owner asked for it to only fire on an actual crossing).
+  //    Pairs sharing the same `src` are two joints of ONE tessellated curve
+  //    meeting at a sample point, not a real second line — skipped so a
+  //    click near a curve never reports a false self-intersection.
   if(snapEnabled.intersection){
     const near=segs.filter(s=>ptLineDist(sx,sy,s.ax,s.ay,s.bx,s.by)<60);
     let bxd=TOL_X;
     for(let i=0;i<near.length;i++)for(let j=i+1;j<near.length;j++){
+      if(near[i].src!==undefined&&near[i].src===near[j].src)continue;
       const X=lineLineX(near[i],near[j]);if(!X||!isFinite(X.x))continue;
+      if(X.t<-0.02||X.t>1.02||X.u<-0.02||X.u>1.02)continue;
       const d=Math.hypot(X.x-sx,X.y-sy);if(d<bxd){
         const z1=near[i].aZ+X.t*(near[i].bZ-near[i].aZ),z2=near[j].aZ+X.u*(near[j].bZ-near[j].aZ);
         const[E,N]=S2W(X.x,X.y);bxd=d;
-        best={E,N,Z:(z1+z2)/2,z1,z2,la:near[i].label||'line A',lb:near[j].label||'line B',sx:X.x,sy:X.y,type:'intersection',label:'apparent intersection'};}}
+        best={E,N,Z:(z1+z2)/2,z1,z2,la:near[i].label||'line A',lb:near[j].label||'line B',sx:X.x,sy:X.y,type:'intersection',label:'intersection'};}}
     if(best)return best;
   }
   // 3) midpoint
@@ -2153,8 +2213,11 @@ function drawSnapMarker(){
   if(!s)return;const x=s.sx,y=s.sy,r=7;ctx.save();
   ctx.lineWidth=2;ctx.strokeStyle='#35c184';ctx.fillStyle='rgba(53,193,132,.18)';
   if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}   // box = endpoint (any point/vertex)
-  else if(s.type==='intersection'){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();ctx.stroke();}   // circle = apparent intersection of two lines
+  else if(s.type==='intersection'){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();ctx.stroke();}   // circle = a genuine crossing of two lines (build 107: bounded, never an extended/apparent one)
   else if(s.type==='midpoint'){ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y+r);ctx.lineTo(x-r,y+r);ctx.closePath();ctx.fill();ctx.stroke();}   // triangle = midpoint between two nodes on a line
+  else if(s.type==='center'){ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();ctx.stroke();      // circle+cross = a circle's own center (build 107)
+    ctx.beginPath();ctx.moveTo(x-r,y);ctx.lineTo(x+r,y);ctx.moveTo(x,y-r);ctx.lineTo(x,y+r);ctx.stroke();}
+  else if(s.type==='quadrant'){ctx.beginPath();ctx.moveTo(x,y-r);ctx.lineTo(x+r,y);ctx.lineTo(x,y+r);ctx.lineTo(x-r,y);ctx.closePath();ctx.fill();ctx.stroke();}   // diamond = one of a circle's 4 quadrant points (build 107)
   else{ctx.beginPath();ctx.moveTo(x-r,y-r);ctx.lineTo(x+r,y+r);ctx.lineTo(x+r,y-r);ctx.lineTo(x-r,y+r);ctx.closePath();ctx.stroke();}  // bowtie = nearest
   ctx.font='600 11px ui-monospace,monospace';const txt=s.label;const tw=ctx.measureText(txt).width;
   ctx.fillStyle='rgba(7,11,22,.85)';ctx.fillRect(x+12,y-9,tw+10,18);
@@ -2170,8 +2233,9 @@ function syncSnapBox(){
   box.classList.toggle('show',!!live);
   if(!live)return;
   const s=cogoPick?cogoSnap:insertSnap;
+  const active=s&&(s.type==='center'||s.type==='quadrant'?'endpoint':s.type);   // circle center/quadrant fold under the endpoint toggle — see snapEnabled/collectCircles (build 107)
   ['endpoint','intersection','midpoint','nearest'].forEach(t=>{
-    const lbl=$('snapLbl_'+t);if(lbl)lbl.classList.toggle('active',!!s&&s.type===t);});
+    const lbl=$('snapLbl_'+t);if(lbl)lbl.classList.toggle('active',active===t);});
 }
 function startCogoPick(){
   if(is3D)setMode('sel');                                  // object snap is a 2D operation
@@ -2674,8 +2738,11 @@ function offsetTangentArc(A,B,C,D,OC,Boff,Coff){   // the offset lane's own tang
   const foot=(P,Q,d)=>{const t=(P.E-Q.E)*d.E+(P.N-Q.N)*d.N;return{E:Q.E+d.E*t,N:Q.N+d.N*t};};   // nearest point on the line (through Q, direction d) to P — the tangent point of a circle centered at P
   const T1p=foot(g.center,Boff,d1),T2p=foot(g.center,Coff,d2);
   return arcSamplesCenter(g.center,T1p,T2p,OC,Boff.Z,Coff.Z);}
+function figureVerts(f){                              // filtered/annotated vertex list — single source shared by drawing (strokeFigure) and the snap engine (figurePolyline, build 107)
+  return f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,jogs:v.jogs,closeL:v.closeL};}).filter(Boolean);
+}
 function strokeFigure(f,proj,color){
-  const vs=f.verts.map(v=>{const p=PTS[v.i];return p.deleted?null:{E:p.E,N:p.N,Z:p.Z,bc:v.bc,ec:v.ec,oc:v.oc,pcc:v.pcc,prc:v.prc,so:v.so,rect:v.rect,jogs:v.jogs,closeL:v.closeL};}).filter(Boolean);
+  const vs=figureVerts(f);
   if(vs.length>=2)strokeFigureMain(f,vs,proj,color);
   // CPN/RPN connect-to-point ties whose origin vertex is part of THIS figure — one separate
   // straight tie line per link, from the point that coded CPN<n>/RPN<n> directly to point n's
@@ -2689,13 +2756,22 @@ function strokeFigure(f,proj,color){
       if(!A||A.deleted||!B||B.deleted)return;
       const s1=proj(A.E,A.N,A.Z),s2=proj(B.E,B.N,B.Z);
       ctx.beginPath();ctx.moveTo(s1[0],s1[1]);ctx.lineTo(s2[0],s2[1]);ctx.stroke();});}}
-function strokeFigureMain(f,vs,proj,color){
+/* World-space polyline exactly matching what strokeFigureMain draws for this figure's own
+   vertex list — a circle's full tessellated loop, a BC..EC span's fitted arc/spline samples,
+   an OC corner's tangent arc, and every RT/X/RECT synthetic jog point, not just the raw figure
+   vertices. Factored out (build 107) so the snap engine (collectSegments) can snap onto
+   exactly what's actually rendered — the same point sequence strokeFigureMain draws, just
+   captured into an array here instead of being handed straight to the canvas — instead of the
+   old coarse straight-vertex-to-vertex approximation of a curve. Returns {pts,circle}: circle
+   is the {E,N,Z,r} circle3() result when this figure IS a circle (so callers can offer a
+   center/quadrant snap on it), else null. */
+function figurePolylineFromVerts(f,vs){
+  if(vs.length<2)return{pts:[],circle:null};
   if(f.circle&&vs.length>=3){const c=circle3(vs[0],vs[1],vs[2]);if(c){
-    ctx.beginPath();const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST,pt=proj(c.E+c.r*Math.cos(a),c.N+c.r*Math.sin(a),c.Z);
-      s?ctx.lineTo(pt[0],pt[1]):ctx.moveTo(pt[0],pt[1]);}
-    ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();return;}}
-  ctx.beginPath();let started=false;
-  const put=(E,N,Z)=>{const s=proj(E,N,Z);started?ctx.lineTo(s[0],s[1]):(ctx.moveTo(s[0],s[1]),started=true);};
+    const pts=[];const ST=72;for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST;
+      pts.push({E:c.E+c.r*Math.cos(a),N:c.N+c.r*Math.sin(a),Z:c.Z});}
+    return{pts,circle:c};}}
+  const pts=[];const put=(E,N,Z)=>pts.push({E,N,Z});
   let k=0,lastE=null,lastN=null,lastZ=null;             // actual last-drawn pen position — RT/X/RECT's "incoming direction" must be the segment really just drawn, which after a prior RT jog is FROM that jog point, not from the previous real vertex
   while(k<vs.length){const v=vs[k];
     if(v.bc){let j=k+1;while(j<vs.length&&!vs[j].ec)j++;
@@ -2739,7 +2815,15 @@ function strokeFigureMain(f,vs,proj,color){
         lastE=v.E;lastN=v.N;lastZ=v.Z;}
     }
     k++;}
-  if(f.closed){const s=proj(vs[0].E,vs[0].N,vs[0].Z);ctx.lineTo(s[0],s[1]);}
+  return{pts,circle:null};
+}
+function figurePolyline(f){return figurePolylineFromVerts(f,figureVerts(f));}
+function strokeFigureMain(f,vs,proj,color){
+  const{pts,circle}=figurePolylineFromVerts(f,vs);
+  if(!pts.length)return;
+  ctx.beginPath();
+  pts.forEach((p,i)=>{const s=proj(p.E,p.N,p.Z);i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);});
+  if(f.closed&&!circle){const s=proj(pts[0].E,pts[0].N,pts[0].Z);ctx.lineTo(s[0],s[1]);}
   ctx.strokeStyle=color||codeColor(f.code);ctx.stroke();}
 /* CPN/RPN ties whose origin point isn't part of ANY figure — a code with no B anywhere stays
    plain unconnected nodes (drawPt draws them same as always) even when one of them carries
