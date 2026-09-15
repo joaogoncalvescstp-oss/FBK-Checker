@@ -214,7 +214,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -601,7 +601,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:107};
+const VERSION={fruit:'🍊',name:'ORANGE',build:108};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2125,21 +2125,26 @@ function collectCircles(){
   circles.forEach(c=>{const p=PTS[c.centerIdx];if(!p||p.deleted)return;
     out.push({E:p.E,N:p.N,Z:p.Z,r:c.radiusFt*0.3048,label:c.radiusFt.toFixed(1)+'ft circle'});});
   return out;}
-/* Rebuild the green offset lane lines (same math as drawOffsets) as world-coord
-   segments so the snap engine can catch endpoints/intersections on them. */
+/* Rebuild the green offset lane lines as world-coord segments so the snap
+   engine can catch endpoints/intersections/nearest on them. Build 108: reuses
+   the SAME offsetLaneChains() drawOffsets itself draws from — so a curved
+   BC..EC lane or an OC tangent-arc lane snaps onto its actual tessellated
+   curve, not a straight vertex-to-vertex chord that can sit feet away from
+   the real rendered line (the "snap not working on offset lines" report —
+   a click near a visibly curved lane found nothing nearby, since the old
+   chord-only segment ran nowhere close to where the curve actually is). */
 function collectOffsetSegments(){const segs=[];
-  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[];
-    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push(p);stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);});
+  figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[],ocAt=[];
+    f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);ocAt.push(!!v.oc);});
     const startK=stepsAt.findIndex(s=>s);if(startK<0)return;
     const{per,cont}=offsetPerCont(all,stepsAt,stopAt,startK);
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
-    for(let L=0;L<lanes;L++){const{op,contPrev}=laneOffsetArrays(all,per,cont,L);
-      let prev=null;
-      op.forEach((o,k)=>{
-        if(!o){if(!cont[k])prev=null;return;}   // a real SO stop breaks the chain (prev reset); this lane simply having no step here (a shorter callout) does not — keep prev so the next real point on this lane bridges straight back to it, skipping the gap (build 99)
-        if(prev&&contPrev[k]){const A=W2S(prev.E,prev.N),B=W2S(o.E,o.N);
-          segs.push({ax:A[0],ay:A[1],bx:B[0],by:B[1],aE:prev.E,aN:prev.N,aZ:prev.Z,bE:o.E,bN:o.N,bZ:o.Z,label:f.code+' offset',src:f.id+'|off'+L});}
-        prev=o;});}});
+    for(let L=0;L<lanes;L++){
+      offsetLaneChains(all,per,cont,bcAt,ecAt,ocAt,L).forEach(chain=>{
+        for(let i=0;i<chain.length-1;i++){const A=chain[i],B=chain[i+1];
+          const sa=W2S(A.E,A.N),sb=W2S(B.E,B.N);
+          segs.push({ax:sa[0],ay:sa[1],bx:sb[0],by:sb[1],aE:A.E,aN:A.N,aZ:A.Z,bE:B.E,bN:B.N,bZ:B.Z,label:f.code+' offset',src:f.id+'|off'+L});}
+      });}});
   return segs;}
 function projParam(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy||1;
   return ((px-x1)*dx+(py-y1)*dy)/L;}                       // unclamped parameter along the line
@@ -3117,6 +3122,34 @@ function curvedOffsetPts(baseSub,opSub,hSub){   // an offset lane's run through 
       for(let s2=1;s2<=ST;s2++){const t=s2/ST,a2=aP+sweep*t;
         out.push({E:center.E+R*Math.cos(a2),N:center.N+R*Math.sin(a2),Z:P.Z+(Q.Z-P.Z)*t});}}}
   return out;}
+/* One lane's actual drawn geometry (straight runs, BC..EC curve fits, OC tangent
+   arcs — build 99's gap/bridge rules included) as world-point chains — a chain
+   breaks only at a real SO stop, exactly like the draw loop. Extracted so BOTH
+   drawOffsets (draws it) and collectOffsetSegments (snaps onto it, build 108)
+   read the identical geometry, the same single-source-of-truth pattern build 107
+   already used for figurePolyline — no way for the two to drift apart. */
+function offsetLaneChains(all,per,cont,bcAt,ecAt,ocAt,L){
+  const{op,contPrev,hv}=laneOffsetArrays(all,per,cont,L);
+  const chains=[];let cur=null,started=false,k=0;
+  while(k<op.length){
+    if(!op[k]){                                        // this lane has no step at k — a real SO stop still breaks the line for real; a callout simply dropping this lane (no SO) does NOT — skip straight through so the next real point on this lane connects directly back, skipping the gap (build 99)
+      if(!cont[k])started=false;
+      k++;continue;}
+    if(!started||!contPrev[k]){                        // SO stop / resuming after one breaks the drawn line — "disabled" means a real gap, not just a corrected corner angle
+      cur=[{E:op[k].E,N:op[k].N,Z:op[k].Z}];chains.push(cur);started=true;k++;continue;}
+    if(bcAt[k-1]){                                     // base line starts a BC..EC run here → curve this lane the same way, through its own offset points
+      let j=k;while(j<op.length&&!ecAt[j])j++;
+      if(j<op.length&&op.slice(k-1,j+1).every(Boolean)){   // every vertex in the span must have SOMETHING to draw for this lane (a real step, or a build-99 cap borrowing the last known value) — a true gap (null) has no h/v or position to fit through, but a cap's own already-computed position/value is a perfectly good curve endpoint (build 100)
+        const baseSub=all.slice(k-1,j+1),opSub=op.slice(k-1,j+1);
+        const hSub=hv.slice(k-1,j+1).map(x=>x.h);
+        curvedOffsetPts(baseSub,opSub,hSub).forEach(pt=>cur.push({E:pt.E,N:pt.N,Z:pt.Z}));
+        k=j+1;continue;}}
+    if(ocAt[k]&&k>=2&&k<=op.length-3&&op[k-1]&&op[k+1]){   // base line rounds an OC tangent-arc corner here → curve this lane through the SAME corner (concentric with the base arc), instead of the plain mitered/extended corner offsetAt would otherwise draw
+      const samp=offsetTangentArc(all[k-2],all[k-1],all[k+1],all[k+2],all[k],op[k-1],op[k+1]);
+      if(samp){samp.forEach(pt=>cur.push({E:pt.E,N:pt.N,Z:pt.Z}));k+=2;continue;}}
+    cur.push({E:op[k].E,N:op[k].N,Z:op[k].Z});k++;
+  }
+  return chains;}
 function drawOffsets(proj){ctx.save();
   figures().forEach(f=>{const all=[],stepsAt=[],stopAt=[],bcAt=[],ecAt=[],ocAt=[];
     f.verts.forEach(v=>{const p=PTS[v.i];if(p.deleted)return;all.push({...p,pcc:!!v.pcc,prc:!!v.prc});stepsAt.push(v.steps&&v.steps.length?v.steps:null);stopAt.push(v.so);bcAt.push(!!v.bc);ecAt.push(!!v.ec);ocAt.push(!!v.oc);});
@@ -3129,26 +3162,10 @@ function drawOffsets(proj){ctx.save();
       ctx.beginPath();ctx.moveTo(p0[0],p0[1]);
       s.forEach(st=>{const o=offsetAt(all,k,st.h,st.v,hasPrev,hasNext),sp=proj(o.E,o.N,o.Z);ctx.lineTo(sp[0],sp[1]);});ctx.stroke();});
     ctx.setLineDash([]);ctx.strokeStyle='rgba(110,224,166,.9)';ctx.lineWidth=1.4;     // lane lines
-    for(let L=0;L<lanes;L++){const{op,contPrev,hv}=laneOffsetArrays(all,per,cont,L);
-      ctx.beginPath();let started=false,k=0;
-      while(k<op.length){
-        if(!op[k]){                                        // this lane has no step at k — a real SO stop still breaks the line for real; a callout simply dropping this lane (no SO) does NOT — skip straight through so the next real point on this lane connects directly back, skipping the gap (build 99)
-          if(!cont[k])started=false;
-          k++;continue;}
-        if(!started||!contPrev[k]){                        // SO stop / resuming after one breaks the drawn line — "disabled" means a real gap, not just a corrected corner angle
-          const s0=proj(op[k].E,op[k].N,op[k].Z);ctx.moveTo(s0[0],s0[1]);started=true;k++;continue;}
-        if(bcAt[k-1]){                                     // base line starts a BC..EC run here → curve this lane the same way, through its own offset points
-          let j=k;while(j<op.length&&!ecAt[j])j++;
-          if(j<op.length&&op.slice(k-1,j+1).every(Boolean)){   // every vertex in the span must have SOMETHING to draw for this lane (a real step, or a build-99 cap borrowing the last known value) — a true gap (null) has no h/v or position to fit through, but a cap's own already-computed position/value is a perfectly good curve endpoint (build 100)
-            const baseSub=all.slice(k-1,j+1),opSub=op.slice(k-1,j+1);
-            const hSub=hv.slice(k-1,j+1).map(x=>x.h);
-            curvedOffsetPts(baseSub,opSub,hSub).forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});
-            k=j+1;continue;}}
-        if(ocAt[k]&&k>=2&&k<=op.length-3&&op[k-1]&&op[k+1]){   // base line rounds an OC tangent-arc corner here → curve this lane through the SAME corner (concentric with the base arc), instead of the plain mitered/extended corner offsetAt would otherwise draw
-          const samp=offsetTangentArc(all[k-2],all[k-1],all[k+1],all[k+2],all[k],op[k-1],op[k+1]);
-          if(samp){samp.forEach(pt=>{const sp=proj(pt.E,pt.N,pt.Z);ctx.lineTo(sp[0],sp[1]);});k+=2;continue;}}
-        const s=proj(op[k].E,op[k].N,op[k].Z);ctx.lineTo(s[0],s[1]);k++;
-      }
+    for(let L=0;L<lanes;L++){
+      ctx.beginPath();
+      offsetLaneChains(all,per,cont,bcAt,ecAt,ocAt,L).forEach(chain=>{
+        chain.forEach((pt,i)=>{const sp=proj(pt.E,pt.N,pt.Z);if(i===0)ctx.moveTo(sp[0],sp[1]);else ctx.lineTo(sp[0],sp[1]);});});
       ctx.stroke();}});
   ctx.restore();}
 
