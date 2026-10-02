@@ -18,10 +18,13 @@ One AutoLISP file with the curb database **built in** — nothing else to copy.
 4. Select the next base line with the same curb type, or press Enter to finish.
    One `U` undoes the whole run.
 
-Result: one 3D polyline per H/V step on layers `CURB-<code>-L1`, `-L2`, … with real
-elevations (base Z + V), and cross-section ribs on `CURB-<code>-XS`. Alignments have
-no elevation, so you're asked for a base elevation. In Civil 3D, run
-`CREATEFEATURELINES` on the results if you want feature lines.
+Result: one offset line per H/V step on layers `CURB-<code>-L1`, `-L2`, … with real
+elevations (base Z + V). In Civil 3D (with **Create offset lines as Civil 3D feature
+lines** ticked, the default) they are **feature lines** in a site named `CurbStep`
+(created if missing) using the drawing's first feature-line style. In plain AutoCAD —
+or if the Civil 3D API refuses — they stay 3D polylines and the command says so.
+Cross-section ribs on `CURB-<code>-XS` are always 3D polylines. Alignments have no
+elevation, so you're asked for a base elevation.
 
 `CURBSTEPLIST` prints a database to the text window.
 

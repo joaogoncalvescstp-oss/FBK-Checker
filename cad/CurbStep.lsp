@@ -29,8 +29,11 @@
 ;;;   * Corners are mitered/extended (OFFSETGAPTYPE=0); arcs are sampled into
 ;;;     short chords.
 ;;;   * Output: 3D polylines with real Z on layers CURB-<code>-L1, -L2, ...
-;;;     and cross-section ribs on CURB-<code>-XS.  In Civil 3D, run
-;;;     CREATEFEATURELINES on them if you want feature lines.
+;;;     are created as Civil 3D FEATURE LINES (site "CurbStep", first
+;;;     feature-line style) when Civil 3D is running and the "feature lines"
+;;;     box is ticked; otherwise (plain AutoCAD, or the Civil API refuses)
+;;;     they stay 3D polylines.  Cross-section ribs (CURB-<code>-XS) are
+;;;     always 3D polylines.
 ;;;   * Alignments have no elevation, so you are asked for a base elevation.
 ;;;
 ;;; To change the database: edit data/*_db.txt in the FBK-Checker repo and
@@ -43,6 +46,7 @@
 (if (not *cs-code*)  (setq *cs-code* "R624"))
 (if (not *cs-step*)  (setq *cs-step* 0.5))     ; max chord (drawing units) on arcs
 (if (not *cs-ribs*)  (setq *cs-ribs* T))
+(if (= *cs-fl* nil)  (setq *cs-fl* T))         ; output lanes as Civil 3D feature lines
 (if (not *cs-alz*)   (setq *cs-alz* 0.0))      ; base elevation used for alignments
 
 ;;; ---------------------------------------------------------------- strings --
@@ -307,8 +311,65 @@
 
 (setq *cs-colors* '(3 4 5 6 1 2 30 140))
 
+;;; ------------------------------------------------- Civil 3D feature lines --
+;;; Civil 3D COM application (version-independent: try known ProgID versions)
+(defun cs:civil-doc (/ acad r)
+  (setq acad (vlax-get-acad-object))
+  (if (not *cs-civapp*)
+    (foreach v '("13.9" "13.8" "13.7" "13.6" "13.5" "13.4" "13.3" "13.2" "13.1" "13.0"
+                 "12.0" "11.0" "10.5" "10.4" "10.3" "10.0")
+      (if (not *cs-civapp*)
+        (progn
+          (setq r (vl-catch-all-apply 'vla-GetInterfaceObject
+                                      (list acad (strcat "AeccXUiLand.AeccApplication." v))))
+          (if (not (vl-catch-all-error-p r)) (setq *cs-civapp* r))))))
+  (if *cs-civapp*
+    (progn
+      (setq r (vl-catch-all-apply 'vlax-get (list *cs-civapp* 'ActiveDocument)))
+      (if (not (vl-catch-all-error-p r)) r))))
+
+;;; -> (featureLinesCollection style) for site "CurbStep" (created if missing), or nil
+(defun cs:fl-context (/ cdoc sites site r styles style)
+  (if (setq cdoc (cs:civil-doc))
+    (progn
+      (setq sites (vl-catch-all-apply 'vlax-get (list cdoc 'Sites)))
+      (if (not (vl-catch-all-error-p sites))
+        (progn
+          (vlax-for x sites
+            (if (= (strcase (vlax-get x 'Name)) "CURBSTEP") (setq site x)))
+          (if (not site)
+            (progn
+              (setq r (vl-catch-all-apply 'vlax-invoke (list sites 'Add "CurbStep")))
+              (if (not (vl-catch-all-error-p r)) (setq site r))))))
+      (setq styles (vl-catch-all-apply 'vlax-get (list cdoc 'FeatureLineStyles)))
+      (if (and (not (vl-catch-all-error-p styles)) (> (vlax-get styles 'Count) 0))
+        (setq style (vlax-invoke styles 'Item 0)))
+      (if site
+        (progn
+          (setq r (vl-catch-all-apply 'vlax-get (list site 'FeatureLines)))
+          (if (not (vl-catch-all-error-p r)) (list r style)))))))
+
+;;; turn a 3D polyline into a feature line on the same layer; returns its ename or nil
+(defun cs:to-featureline (pl ctx / obj fl id)
+  (setq obj (vlax-ename->vla-object pl))
+  (foreach prop '(ObjectID ObjectID32)
+    (if (not fl)
+      (progn
+        (setq id (vl-catch-all-apply 'vlax-get (list obj prop)))
+        (if (not (vl-catch-all-error-p id))
+          (foreach sty (list (cadr ctx) "Standard")
+            (if (and (not fl) sty)
+              (progn
+                (setq fl (vl-catch-all-apply 'vlax-invoke (list (car ctx) 'AddFromPolyline id sty)))
+                (if (vl-catch-all-error-p fl) (setq fl nil)))))))))
+  (if fl
+    (progn
+      (vl-catch-all-apply 'vla-put-Layer (list fl (cdr (assoc 8 (entget pl)))))
+      (if (entget pl) (entdel pl))
+      (vlax-vla-object->ename fl))))
+
 ;;; draw every step line (+ ribs). steps already carry their final signed H.
-(defun cs:build (pts flags closed steps code ribs / lanes li made k rib)
+(defun cs:build (pts flags closed steps code ribs / lanes li made k rib pl fle)
   (setq made '() li 0)
   (setq lanes
     (mapcar
@@ -323,11 +384,13 @@
       steps))
   (foreach ln lanes
     (setq li   (1+ li)
-          made (cons (cs:make-3dpoly ln
-                                     (cs:layer (strcat "CURB-" code "-L" (itoa li))
-                                               (nth (rem (1- li) (length *cs-colors*)) *cs-colors*))
-                                     closed)
-                     made)))
+          pl   (cs:make-3dpoly ln
+                               (cs:layer (strcat "CURB-" code "-L" (itoa li))
+                                         (nth (rem (1- li) (length *cs-colors*)) *cs-colors*))
+                               closed))
+    (if (and *cs-flctx* (setq fle (cs:to-featureline pl *cs-flctx*)))
+      (setq pl fle *cs-nfl* (1+ *cs-nfl*)))
+    (setq made (cons pl made)))
   ;; cross-section ribs at the base line's real vertices: base -> step1 -> step2 ...
   (if ribs
     (progn
@@ -353,6 +416,7 @@
     "    : column {"
     "      : text { key = \"tmpl\"; width = 46; }"
     "      : list_box { key = \"steps\"; label = \"Offset lines (#, H offset, V elev):\"; height = 10; width = 46; tabs = \"5 18\"; }"
+    "      : toggle { key = \"fl\"; label = \"Create offset lines as Civil 3D feature lines\"; }"
     "      : toggle { key = \"ribs\"; label = \"Draw cross-section ribs at vertices\"; }"
     "      : edit_box { key = \"chord\"; label = \"Max chord on arcs:\"; edit_width = 8; }"
     "      : text { label = \"After OK: select base line, then pick the side.\"; }"
@@ -403,7 +467,8 @@
     ((or (not ch) (<= ch 0)) (set_tile "error" "Max chord must be a number > 0."))
     (T (setq *cs-code* (car row)
              *cs-step* ch
-             *cs-ribs* (= (get_tile "ribs") "1"))
+             *cs-ribs* (= (get_tile "ribs") "1")
+             *cs-fl*   (= (get_tile "fl") "1"))
        (done_dialog 1))))
 
 ;;; -> T if the user pressed OK
@@ -419,6 +484,7 @@
       (if (not (member *cs-dbkey* (cs:db-keys))) (setq *cs-dbkey* (car (cs:db-keys))))
       (set_tile "db" (itoa (vl-position *cs-dbkey* (cs:db-keys))))
       (set_tile "ribs" (if *cs-ribs* "1" "0"))
+      (set_tile "fl" (if *cs-fl* "1" "0"))
       (set_tile "chord" (rtos *cs-step* 2 2))
       (cs:dlg-fill)
       (action_tile "db" "(cs:dlg-db $value)")
@@ -462,6 +528,10 @@
             steps (cs:parse-template tmpl)
             total 0)
       (princ (strcat "\n" *cs-code* " = " tmpl))
+      (setq *cs-nfl* 0
+            *cs-flctx* (if *cs-fl* (cs:fl-context)))
+      (if (and *cs-fl* (not *cs-flctx*))
+        (princ "\nCivil 3D feature lines not available here - offset lines will be 3D polylines."))
       (vla-StartUndoMark doc)
       (while (setq e (cs:pick-base))
         (if (not (setq data (cs:curve-pts e)))
@@ -484,9 +554,11 @@
                       signed (mapcar '(lambda (s) (cons (* fac (car s)) (cdr s))) steps)
                       made   (cs:build pts flags closed signed *cs-code* *cs-ribs*)
                       total  (+ total (length made)))
-                (princ (strcat "\n" (itoa (length made)) " 3D polyline(s) on CURB-" *cs-code* "-*.")))))))
+                (princ (strcat "\n" (itoa (length made)) " object(s) on CURB-" *cs-code* "-*"
+                               (if *cs-flctx* " (offset lines = feature lines, site CurbStep)." "."))))))))
       (vla-EndUndoMark doc)
-      (princ (strcat "\nCURBSTEP done: " (itoa total) " object(s) created."))))
+      (princ (strcat "\nCURBSTEP done: " (itoa total) " object(s) created, "
+                     (itoa *cs-nfl*) " of them feature lines."))))
   (princ))
 
 (defun c:CURBSTEPLIST (/ opt)
