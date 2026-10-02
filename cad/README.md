@@ -11,7 +11,9 @@ One AutoLISP file with the curb database **built in** — nothing else to copy.
    to narrow the list. The right side shows every offset line (H offset, V elevation).
    Options: cross-section ribs on/off, max chord length on arcs.
 2. **Select the base line**: line, polyline, 3D polyline, arc, spline,
-   Civil 3D **feature line** or **alignment**.
+   Civil 3D **feature line**, **auto feature line** (`AECC_AUTO_FEATURE_LINE`),
+   survey figure, or **alignment**. If Civil 3D won't give up an object's geometry,
+   a temporary copy is exploded to read it and then deleted.
 3. **Pick the side** to offset toward (the gutter / outermost-line side).
 4. Select the next base line with the same curb type, or press Enter to finish.
    One `U` undoes the whole run.

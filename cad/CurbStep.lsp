@@ -11,7 +11,9 @@
 ;;;   1. Popup window: pick the database (Back of curb / Flow line / Std /
 ;;;      Knockdown) and the curb type.  The window shows every offset step.
 ;;;   2. Select the base line: LINE, POLYLINE, 3D POLYLINE, LWPOLYLINE, ARC,
-;;;      SPLINE, Civil 3D FEATURE LINE or ALIGNMENT.
+;;;      SPLINE, Civil 3D FEATURE LINE / AUTO FEATURE LINE / SURVEY FIGURE,
+;;;      or ALIGNMENT.  (If Civil 3D won't hand over an object's geometry,
+;;;      a temporary copy is exploded to read it, then deleted.)
 ;;;   3. Pick a point on the side the curb steps toward (the side of the
 ;;;      outermost / gutter line).
 ;;;   4. Keep selecting more base lines with the same curb type; Enter = done.
@@ -181,28 +183,86 @@
           lst (cdddr lst)))
   (reverse out))
 
-;;; -> (closed . ((pt . isRealVertex) ...)) or nil
-(defun cs:curve-pts (e / typ p0 p1 out closed)
+;;; Civil 3D feature-line-like objects: FEATURE_LINE, AUTO_FEATURE_LINE, survey figures
+(defun cs:fl-type-p (typ) (wcmatch typ "AECC_*FEATURE_LINE,AECC_SURVEY_FIGURE"))
+
+(defun cs:clean (out)
+  (vl-remove-if '(lambda (r) (null (car r))) (cs:dedupe out)))
+
+;;; plain AutoCAD-curve sampling -> list of (pt . isRealVertex), nil if not readable
+(defun cs:curve-pts-basic (e / typ p0 p1 r)
   (setq typ (cdr (assoc 0 (entget e))))
   (cond
-    ((not (cs:ok 'vlax-curve-getEndParam (list e)))
-     (if (= typ "AECC_FEATURE_LINE")
-       (setq out (cs:featureline-pts e) closed nil)))
+    ((not (cs:ok 'vlax-curve-getEndParam (list e))) nil)
     ((= typ "LINE")
-     (setq out (list (cons (vlax-curve-getStartPoint e) T)
-                     (cons (vlax-curve-getEndPoint e) T))))
+     (list (cons (vlax-curve-getStartPoint e) T) (cons (vlax-curve-getEndPoint e) T)))
     (T
-     (setq p0     (vlax-curve-getStartParam e)
-           p1     (vlax-curve-getEndParam e)
-           closed (vlax-curve-isClosed e)
-           out    (if (and (member typ '("LWPOLYLINE" "POLYLINE" "AECC_FEATURE_LINE"))
-                           (< (- p1 p0) 20000))
-                    (cs:sample-params e p0 p1)
-                    (cs:sample-dist e)))))
-  (setq out (vl-remove-if '(lambda (r) (null (car r))) (cs:dedupe out)))
-  (if (and closed (> (length out) 2)
+     (setq p0 (vlax-curve-getStartParam e)
+           p1 (vlax-curve-getEndParam e)
+           r  (vl-catch-all-apply
+                (if (and (or (member typ '("LWPOLYLINE" "POLYLINE")) (cs:fl-type-p typ))
+                         (< (- p1 p0) 20000))
+                  'cs:sample-params
+                  'cs:sample-dist)
+                (if (and (or (member typ '("LWPOLYLINE" "POLYLINE")) (cs:fl-type-p typ))
+                         (< (- p1 p0) 20000))
+                  (list e p0 p1)
+                  (list e))))
+     (if (vl-catch-all-error-p r) nil r))))
+
+;;; last resort: explode a COPY, chain the pieces end to end, delete the pieces
+(defun cs:explode-pts (e / mark cp ce en ents typ acc l oldecho npc)
+  (setq mark (entlast)
+        cp   (vl-catch-all-apply 'vla-Copy (list (vlax-ename->vla-object e))))
+  (if (not (vl-catch-all-error-p cp))
+    (progn
+      (setq ce (vlax-vla-object->ename cp) oldecho (getvar "CMDECHO"))
+      (setvar "CMDECHO" 0)
+      (vl-catch-all-apply 'vl-cmdf (list "_.EXPLODE" ce))
+      (while (> (getvar "CMDACTIVE") 0) (vl-cmdf ""))
+      (setvar "CMDECHO" oldecho)
+      (setq en (if mark (entnext mark) (entnext)))
+      (while en
+        (setq typ (cdr (assoc 0 (entget en))))
+        (if (and (not (equal en ce)) (wcmatch typ "LINE,ARC,LWPOLYLINE,POLYLINE,SPLINE"))
+          (setq ents (cons en ents)))
+        (setq en (entnext en)))
+      (foreach x (reverse ents)
+        (if (setq l (cs:clean (cs:curve-pts-basic x)))
+          (cond
+            ((null acc) (setq acc l))
+            (T
+             ;; orient the chain built so far on the 2nd piece, then each new piece
+             (if (and (= npc 1)
+                      (< (min (distance (cs:xy (car (car acc))) (cs:xy (car (car l))))
+                              (distance (cs:xy (car (car acc))) (cs:xy (car (last l)))))
+                         (min (distance (cs:xy (car (last acc))) (cs:xy (car (car l))))
+                              (distance (cs:xy (car (last acc))) (cs:xy (car (last l)))))))
+               (setq acc (reverse acc)))
+             (if (> (distance (cs:xy (car (last acc))) (cs:xy (car (car l))))
+                    (distance (cs:xy (car (last acc))) (cs:xy (car (last l)))))
+               (setq l (reverse l)))
+             (setq acc (append acc (cdr l)))))
+          )
+        (if l (setq npc (1+ (cond (npc) (0)))))
+        (entdel x))
+      (if (entget ce) (entdel ce))))
+  acc)
+
+;;; -> (closed . ((pt . isRealVertex) ...)) or nil
+(defun cs:curve-pts (e / typ out closed)
+  (setq typ (cdr (assoc 0 (entget e))))
+  (if (setq out (cs:clean (cs:curve-pts-basic e)))
+    (setq closed (and (cs:ok 'vlax-curve-isClosed (list e)) (vlax-curve-isClosed e))))
+  ;; Civil 3D objects that refuse vlax-curve: ask the object for its points, then explode a copy
+  (if (and (< (length out) 2) (cs:fl-type-p typ))
+    (setq out (cs:clean (cs:featureline-pts e))))
+  (if (< (length out) 2)
+    (setq out (cs:clean (cs:explode-pts e))))
+  (if (and (> (length out) 2)
            (< (distance (cs:xy (car (car out))) (cs:xy (car (last out)))) 1e-6))
-    (setq out (reverse (cdr (reverse out)))))
+    (setq closed T
+          out (reverse (cdr (reverse out)))))
   (if (> (length out) 1) (cons closed out)))
 
 ;;; +1 if pt is RIGHT of the line's travel direction, -1 if left (nearest segment)
@@ -383,7 +443,7 @@
       (T
        (setq e (car sel) typ (cdr (assoc 0 (entget e))))
        (cond
-         ((not (wcmatch typ "LINE,LWPOLYLINE,POLYLINE,ARC,SPLINE,AECC_FEATURE_LINE,AECC_ALIGNMENT"))
+         ((not (wcmatch typ "LINE,LWPOLYLINE,POLYLINE,ARC,SPLINE,AECC_*FEATURE_LINE,AECC_SURVEY_FIGURE,AECC_ALIGNMENT"))
           (princ (strcat "\nThat is a " typ " - pick a line, polyline, feature line or alignment.")))
          ((and (= typ "POLYLINE") (/= 0 (logand 80 (cdr (assoc 70 (entget e))))))
           (princ "\nMeshes are not supported."))
