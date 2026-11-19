@@ -207,7 +207,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="redoBtn" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
     <button class="btn ghost" id="kdBtn" disabled title="Knockdown: RBCB (back of curb) — each marker in a point's description (a point can carry more than one, e.g. ending one run and beginning another) is knocked down on its own. A marker with its own curb code AND a REF point nearby asks which reveal to use (REF or standard); with no REF nearby it's the code's std cross-section; with no code at all it derives the reveal from the nearest REF point's Z difference. RCFL (flow line) — always the std Flow-Line cross-section from the DB (no REF).">⚙ Knockdown</button>
     <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
-    <button class="btn ghost" id="refKdBtn" disabled title="Single-point REF knockdown: click the RBCB/RCFL point to knock down, then click its REF point on the canvas — bypasses the automatic nearest-REF search entirely, for a point whose real REF is out of range or where the automatic pick chose the wrong one. Works in 2D or 3D.">🎯 REF Knockdown (1 pt)</button>
+    <button class="btn ghost" id="refKdBtn" disabled title="Single-point REF knockdown: click the RBCB point, then click ANY point to set the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Replaces only the curb's own H/V/code — every other code on the point is left alone. Works in 2D or 3D.">🎯 REF Knockdown (1 pt)</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
@@ -217,7 +217,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -337,6 +337,18 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <div class="row">
       <button class="btn ghost" id="circleCancel">Cancel</button>
       <button class="btn gold" id="circleAdd">Add circle</button>
+    </div>
+  </div>
+</div>
+
+<!-- single-point REF knockdown (build 115): FL ref, then optional edge-of-travelway ref -->
+<div class="scrim" id="refKdScrim">
+  <div class="modal wide">
+    <h4>REF Knockdown (1 pt)</h4>
+    <div id="refKdBody"></div>
+    <div class="row">
+      <button class="btn ghost" id="refKdCancel">Cancel</button>
+      <button class="btn gold" id="refKdApply">Apply</button>
     </div>
   </div>
 </div>
@@ -605,7 +617,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:114};
+const VERSION={fruit:'🍒',name:'CHERRY',build:115};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1143,35 +1155,140 @@ function applyKnockdown(){
 // default) so the owner can back out or switch to Standard before it's written;
 // a bare segment with no side conflict bakes immediately, since there's nothing
 // left to ask once its own REF has been chosen by hand.
-function applySingleRefKnockdown(rbcbIdx,refIdx){
-  const p=PTS[rbcbIdx],refP=PTS[refIdx];
-  if(!p||!refP)return;
-  if(rbcbIdx===refIdx){hud('pick two different points — the curb point, then its REF');return;}
-  if(!isRefPoint(refP)){hud(`pt ${refP.id} isn't a REF shot — pick a REF point`);return;}
-  const {forwardMarkerCode,nearestMarkerCode}=buildMarkerCodeIndex();
-  const forcedRef=pp=>({ref:refP,d:Math.hypot(refP.N-pp.N,refP.E-pp.E)});
-  const r=buildKdSegsForPointWork(p,rbcbIdx,forcedRef,forwardMarkerCode,nearestMarkerCode);
-  if(!r){hud(`pt ${p.id} has no RBCB/RCFL marker — nothing to knock down`);return;}
-  if(!r.segs.length){hud(`pt ${p.id}: nothing to knock down (already baked, or no curb code resolvable for its marker — add one and try again)`);return;}
-  const pointWork=[{p,toks:r.toks,segs:r.segs}];
-  const ambigList=[];
-  r.segs.forEach((seg,segIdx)=>{if(seg.kind==='ambig'||seg.kind==='sideConflict')ambigList.push({pwIdx:0,segIdx,p,seg});});
-  if(ambigList.length){openKdReview(pointWork,ambigList);hud(`pt ${p.id} — REF ${refP.id} picked · confirm below, then Apply`);return;}
-  commitKnockdown(pointWork);
-  hud(`pt ${p.id} knocked down using REF ${refP.id}`);
+// Build 115 — the owner reworked this tool: "when using, clear any H/V on the
+// curb and leave any stacked code on the point — only edit what's tied to the
+// curb; let the tool REF any point; ask the user to select the FL vertical
+// first, then ask skip or select to adjust the edge-of-travelway vertical."
+// Flow: click the RBCB point → click ANY point as the flow-line (FL) reference
+// → a dialog shows the curb code that will be used (editable) and asks for the
+// edge-of-travelway reference: Skip (keep the code's own standard gutter slope
+// off the new FL) or Pick a point. Apply bakes ONLY the point's RBCB segment(s):
+// any H/V already baked there and the segment's curb code are replaced by the
+// freshly computed template; every other token on the point (B/E/BC/…, other
+// stacked codes like RWLK1, filler words) is left exactly where it was.
+// FL = the template's second-to-last V (the V-0.5 slot on the standard 6"
+// codes); edge = its last V. Both use the same V = refZ − ptZ − 0.012 formula
+// the automatic REF reveal (refKdTmpl) and REF1 already use. The REF1 auto pass
+// is deliberately NOT run here, so it can't overwrite a hand-picked edge.
+function curbSegInfo(toks,mi){
+  const end=curbSegEnd(toks,mi,CURB_BOC);
+  let code=null,codeIdx=-1,hvA=-1,hvB=-1;
+  for(let i=mi+1;i<=end;i++){
+    const T=toks[i].toUpperCase();
+    if(CURB_BOC[T]){code=T;codeIdx=i;}
+    if(hPat.test(toks[i])||vPat.test(toks[i])){if(hvA<0)hvA=i;hvB=i;}
+  }
+  let fromHV=null;
+  if(!code&&hvA>=0){
+    const run=toks.slice(hvA,hvB+1).join(' ');
+    const exact=Object.keys(CURB_BOC).filter(k=>CURB_BOC[k]===run);
+    fromHV=exact.length===1?exact[0]:refRevBOC(run);
+  }
+  return {start:mi,end,code,codeIdx,hvA,hvB,fromHV};
 }
-let refKdPick=null;   // {rbcbIdx} while picking — rbcbIdx<0 until the curb point is clicked, then it's the REF point's turn
+function singleKdTmpl(code,p,flRef,edgeRef){
+  const st=CURB_BOC[code].split(' ');
+  const vIdx=st.map((t,i)=>t[0]==='V'?i:-1).filter(i=>i>=0);
+  const flI=vIdx.length>=2?vIdx[vIdx.length-2]:vIdx[0], lastI=vIdx[vIdx.length-1];
+  const fl=flRef.Z-p.Z-0.012;
+  st[flI]='V'+fl.toFixed(3);
+  if(lastI!==flI){
+    const edge=edgeRef?edgeRef.Z-p.Z-0.012:fl+(+CURB_BOC[code].split(' ')[lastI].slice(1))-(+CURB_BOC[code].split(' ')[flI].slice(1));
+    st[lastI]='V'+edge.toFixed(3);
+  }
+  return st.join(' ');
+}
+let refKdPick=null;   // {stage:'curb'|'fl'|'edge',rbcbIdx,flIdx,edgeIdx,segs:[{...curbSegInfo,useCode}]}
 function startRefKdPick(){
   if(!PTS.length){hud('load an FBK first');return;}
-  refKdPick={rbcbIdx:-1};
-  hud('single REF knockdown: click the RBCB/RCFL point to knock down · Esc to cancel');
+  refKdPick={stage:'curb',rbcbIdx:-1,flIdx:-1,edgeIdx:-1,segs:null};
+  hud('REF knockdown (1 pt): click the RBCB point · Esc to cancel');
   draw();
 }
-function cancelRefKdPick(){refKdPick=null;hud('single REF knockdown cancelled');draw();}
+function cancelRefKdPick(){refKdPick=null;$('refKdScrim').classList.remove('show');hud('single REF knockdown cancelled');draw();}
+function refKdPickClick(i){
+  const c=refKdPick;
+  if(i<0){hud(c.stage==='curb'?'click the RBCB point':c.stage==='fl'?'click the point to use for the FL vertical':'click the point to use for the edge-of-travelway vertical');return;}
+  if(c.stage==='curb'){
+    const p=PTS[i],toks=p.desc.split(/\s+/).filter(Boolean);
+    const mis=toks.map((t,k)=>/^RBCB\d*$/i.test(t)?k:-1).filter(k=>k>=0);
+    if(!mis.length){hud('that point has no RBCB marker — click a back-of-curb point (Esc to cancel)');return;}
+    const {forwardMarkerCode,nearestMarkerCode}=buildMarkerCodeIndex();
+    c.segs=mis.map(mi=>{const g=curbSegInfo(toks,mi),key=toks[mi].toUpperCase();
+      let useCode=g.code||g.fromHV,note=g.code?'own code':g.fromHV?'recovered from its baked H/V':'';
+      if(!useCode){const f=forwardMarkerCode(key,i),n=nearestMarkerCode(key,i);
+        if(f&&n&&f.code[0]!==n.code[0]){useCode=n.code;note=`side conflict: carried ${f.code} (pt ${PTS[f.pi].id}) vs nearest ${n.code} (pt ${PTS[n.pi].id}) — check it`;}
+        else if(n||f){useCode=(n||f).code;note=`borrowed from pt ${PTS[(n||f).pi].id}`;}}
+      return {...g,marker:toks[mi],useCode:useCode||'',note:note||'no code found — pick one'};});
+    c.rbcbIdx=i;c.stage='fl';
+    hud(`pt ${p.id} — now click the point for the FL (flow line) vertical (Esc to cancel)`);draw();return;}
+  if(i===c.rbcbIdx){hud('pick a different point than the curb point itself');return;}
+  if(c.stage==='fl'){c.flIdx=i;}else{c.edgeIdx=i;}
+  c.stage='dialog';openRefKdDialog();draw();
+}
+function openRefKdDialog(){
+  const c=refKdPick,p=PTS[c.rbcbIdx],fl=PTS[c.flIdx],ed=c.edgeIdx>=0?PTS[c.edgeIdx]:null;
+  const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const opts=Object.keys(CURB_BOC).sort();
+  $('refKdBody').innerHTML=`
+    <div class="field"><label>Curb point</label><div class="fbk">pt ${esc(p.id)} — ${esc(p.desc)}</div></div>
+    ${c.segs.map((g,k)=>`<div class="field"><label>${esc(g.marker)} curb code <span class="mut">(${esc(g.note)})</span></label>
+      <select data-seg="${k}" class="refKdCode">${opts.map(o=>`<option${o===g.useCode?' selected':''}>${o}</option>`).join('')}${g.useCode?'':'<option value="" selected>— pick a code —</option>'}</select></div>`).join('')}
+    <div class="field"><label>FL vertical — reference pt ${esc(fl.id)} (${esc(fl.desc)})</label>
+      <div class="fbk">V ${(fl.Z-p.Z-0.012).toFixed(3)}</div></div>
+    <div class="field"><label>Edge-of-travelway vertical</label>
+      <div class="fbk">${ed?`reference pt ${esc(ed.id)} (${esc(ed.desc)}) → V ${(ed.Z-p.Z-0.012).toFixed(3)}`:'skipped — keeps the code\'s standard gutter slope off the new FL'}</div>
+      <div class="row" style="justify-content:flex-start;margin-top:6px">
+        <button class="btn ghost" id="refKdEdgePick">📍 ${ed?'Pick a different point':'Pick point'}</button>
+        <button class="btn ghost" id="refKdEdgeSkip" ${ed?'':'disabled'}>Skip</button></div></div>
+    <div class="field"><label>Result</label><div class="fbk" id="refKdPreview"></div></div>`;
+  const preview=()=>{$('refKdPreview').textContent=refKdNewDesc()||'pick a curb code for every RBCB segment';$('refKdApply').disabled=!refKdNewDesc();};
+  document.querySelectorAll('.refKdCode').forEach(sel=>sel.onchange=()=>{c.segs[+sel.dataset.seg].useCode=sel.value;preview();});
+  $('refKdEdgePick').onclick=()=>{$('refKdScrim').classList.remove('show');c.stage='edge';
+    hud(`click the point for the edge-of-travelway vertical (Esc to go back)`);draw();};
+  $('refKdEdgeSkip').onclick=()=>{c.edgeIdx=-1;openRefKdDialog();};
+  preview();
+  $('refKdScrim').classList.add('show');
+}
+function refKdNewDesc(){
+  const c=refKdPick;if(!c||!c.segs)return null;
+  if(c.segs.some(g=>!CURB_BOC[g.useCode]))return null;
+  const p=PTS[c.rbcbIdx],toks=p.desc.split(/\s+/).filter(Boolean);
+  const fl=PTS[c.flIdx],ed=c.edgeIdx>=0?PTS[c.edgeIdx]:null;
+  [...c.segs].sort((x,y)=>y.start-x.start).forEach(g=>{
+    const tmpl=singleKdTmpl(g.useCode,p,fl,ed).split(' ');
+    // remove this segment's old H/V tokens and its curb code; land the new
+    // template where the code (or the old H/V run) sat, else after the last
+    // line-control token — nothing outside this segment is touched.
+    const drop=new Set();
+    for(let i=g.start+1;i<=g.end;i++){if(i===g.codeIdx||hPat.test(toks[i])||vPat.test(toks[i]))drop.add(i);}
+    let at;
+    if(g.codeIdx>=0)at=g.codeIdx;else if(g.hvA>=0)at=g.hvA;
+    else{at=g.start+1;for(let i=g.start+1;i<=g.end;i++)if(KD_LINE_CTRL.has(toks[i].toUpperCase()))at=i+1;}
+    const before=[...drop].filter(i=>i<at).length;
+    for(let i=g.end;i>g.start;i--)if(drop.has(i))toks.splice(i,1);
+    toks.splice(at-before,0,...tmpl);
+  });
+  return toks.join(' ');
+}
+function applyRefKd(){
+  const c=refKdPick,nd=refKdNewDesc();if(!nd)return;
+  const p=PTS[c.rbcbIdx],fl=PTS[c.flIdx],ed=c.edgeIdx>=0?PTS[c.edgeIdx]:null;
+  saveState();
+  logEdit('code',`REF knockdown (1 pt) pt ${p.id}: ${c.segs.map(g=>g.useCode).join(', ')} — FL from pt ${fl.id}, edge ${ed?'from pt '+ed.id:'standard slope'}`);
+  if(!p.kdInfo)p.kdInfo={code:c.segs.map(g=>g.useCode).join(', '),orig:p.desc};
+  p.desc=nd;p.code=(nd.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
+  refKdPick=null;$('refKdScrim').classList.remove('show');
+  buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
+  hud(`pt ${p.id} knocked down — FL from pt ${fl.id}${ed?', edge from pt '+ed.id:''}`);
+}
 function drawRefKdPick(proj){if(!refKdPick||refKdPick.rbcbIdx<0)return;
-  const p=PTS[refKdPick.rbcbIdx];if(!p)return;const s=proj(p.E,p.N,p.Z);
-  ctx.save();ctx.beginPath();ctx.arc(s[0],s[1],10,0,7);ctx.strokeStyle='#F1B434';ctx.lineWidth=2;ctx.stroke();
-  ctx.font='700 10px ui-monospace,monospace';ctx.fillStyle='#F1B434';ctx.fillText('RBCB pt',s[0]+13,s[1]-9);
+  const mark=(i,label)=>{const p=PTS[i];if(!p)return;const s=proj(p.E,p.N,p.Z);
+    ctx.beginPath();ctx.arc(s[0],s[1],10,0,7);ctx.strokeStyle='#F1B434';ctx.lineWidth=2;ctx.stroke();
+    ctx.font='700 10px ui-monospace,monospace';ctx.fillStyle='#F1B434';ctx.fillText(label,s[0]+13,s[1]-9);};
+  ctx.save();mark(refKdPick.rbcbIdx,'RBCB pt');
+  if(refKdPick.flIdx>=0)mark(refKdPick.flIdx,'FL ref');
+  if(refKdPick.edgeIdx>=0)mark(refKdPick.edgeIdx,'edge ref');
   ctx.restore();}
 function segTmpl(s){
   if(s.kind==='ambig')return s.choice==='ref'?s.refTmpl:s.stdTmpl;
@@ -1411,6 +1528,24 @@ function applyKdReview(){
 //     curb code too — the REF reveal is removed and the code put back (see refRevBOC).
 //     Everything else — no match, an ambiguous match — is left completely untouched, never
 //     guessed at, and listed in the report so it's visible rather than silently lost.
+function refRevBOC(run){
+  const bocCodes=Object.keys(CURB_BOC);
+    const rt=run.split(' ');
+    let best=null,bestScore=-1,tie=false;
+    bocCodes.forEach(c=>{
+      const st=CURB_BOC[c].split(' ');
+      if(st.length!==rt.length)return;
+      const mid=st.indexOf('V-0.5'),lastV=st.length-1;
+      let score=0;
+      for(let i=0;i<st.length;i++){
+        if(st[i][0]==='H'){if(st[i]!==rt[i]||rt[i][0]!=='H')return;continue;}
+        if(rt[i][0]!=='V')return;
+        if(+st[i].slice(1)===+rt[i].slice(1)){score++;continue;}
+        if(i===mid||i===lastV)continue;                 // a token REF/REF1 is allowed to rewrite
+        return;}
+      if(score>bestScore){best=c;bestScore=score;tie=false;}
+      else if(score===bestScore)tie=true;});
+    return tie?null:best;}
 function revertKnockdown(){
   if(!PTS.length){hud('load an FBK first');return;}
   const hvRe=/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/;
@@ -1429,24 +1564,6 @@ function revertKnockdown(){
   // REF-consistent when it has the same H steps / step count and every V matches except
   // those REF is allowed to change. Ties go to the code with the most exact V matches;
   // a remaining tie (RD/RDPRK) is still left untouched, never guessed.
-  const bocCodes=Object.keys(CURB_BOC);
-  const refRevBOC=run=>{
-    const rt=run.split(' ');
-    let best=null,bestScore=-1,tie=false;
-    bocCodes.forEach(c=>{
-      const st=CURB_BOC[c].split(' ');
-      if(st.length!==rt.length)return;
-      const mid=st.indexOf('V-0.5'),lastV=st.length-1;
-      let score=0;
-      for(let i=0;i<st.length;i++){
-        if(st[i][0]==='H'){if(st[i]!==rt[i]||rt[i][0]!=='H')return;continue;}
-        if(rt[i][0]!=='V')return;
-        if(+st[i].slice(1)===+rt[i].slice(1)){score++;continue;}
-        if(i===mid||i===lastV)continue;                 // a token REF/REF1 is allowed to rewrite
-        return;}
-      if(score>bestScore){best=c;bestScore=score;tie=false;}
-      else if(score===bestScore)tie=true;});
-    return tie?null:best;};
   const isHV=t=>/^[HV]-?\d+\.?\d*$/i.test(t||'');
   const restored=[],converted=[],skipped=[];
   PTS.forEach(p=>{
@@ -3928,15 +4045,7 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       vs:view.s,os:orbit.s,ox:orbit.ox,oy:orbit.oy};
     pinch.wE=(pinch.mx-view.x)/view.s;pinch.wN=-(pinch.my-view.y)/view.s;return;}
   if(pointers.size>2)return;
-  if(refKdPick){const i=pick(sx,sy);
-    if(i<0){hud(refKdPick.rbcbIdx<0?'click the RBCB/RCFL point to knock down':'click its REF point');return;}
-    if(refKdPick.rbcbIdx<0){
-      if(!/\b(RBCB|RCFL)\d*\b/i.test(PTS[i].desc||'')){hud('that point has no RBCB/RCFL marker — click a curb point (Esc to cancel)');return;}
-      refKdPick.rbcbIdx=i;hud(`pt ${PTS[i].id} — now click its REF point (Esc to cancel)`);draw();return;}
-    if(i===refKdPick.rbcbIdx){hud('click a different point for the REF (Esc to cancel)');return;}
-    if(!isRefPoint(PTS[i])){hud(`pt ${PTS[i].id} isn't a REF shot — click a REF point (Esc to cancel)`);return;}
-    const rbcbIdx=refKdPick.rbcbIdx;refKdPick=null;
-    applySingleRefKnockdown(rbcbIdx,i);draw();return;}
+  if(refKdPick&&refKdPick.stage!=='dialog'){refKdPickClick(pick(sx,sy));return;}
   if(ugwPick!=null){const i=pick(sx,sy);
     if(i>=0)endUgwPick(PTS[i].id);else hud('click a point for the target pole');
     return;}
@@ -4112,6 +4221,8 @@ $('dlDxfBtn').onclick=exportDXF;
 $('kdBtn').onclick=applyKnockdown;
 $('unkdBtn').onclick=revertKnockdown;
 $('refKdBtn').onclick=startRefKdPick;
+$('refKdCancel').onclick=cancelRefKdPick;
+$('refKdApply').onclick=applyRefKd;
 $('unkdReportClose').onclick=closeUnKdReport;
 $('kdReviewApply').onclick=applyKdReview;
 $('kdReviewCancel').onclick=closeKdReview;
@@ -4172,7 +4283,9 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
   if(e.key==='Escape'&&circleCtrCtx){e.preventDefault();closeCircleCtrDialog();return;}
   if(e.key==='Escape'&&circleCtrPick){e.preventDefault();cancelCircleCtrPick();return;}
-  if(e.key==='Escape'&&refKdPick){e.preventDefault();cancelRefKdPick();return;}
+  if(e.key==='Escape'&&refKdPick){e.preventDefault();
+    if(refKdPick.stage==='edge'){refKdPick.stage='dialog';openRefKdDialog();draw();return;}
+    cancelRefKdPick();return;}
   const typing=/^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName||'');
   if(!typing&&selSet.size&&(e.key==='Delete'||e.key==='Backspace')){e.preventDefault();multiDelete(true);return;}
   if(!typing&&e.key==='Escape'&&selSet.size){e.preventDefault();selSet.clear();sel=-1;selFig=null;inspect();draw();hud('selection cleared');}},true);
@@ -4196,6 +4309,7 @@ const HELP_TOOLBAR=[
   ['↻ Refresh','Force a full rebuild of the linework and curb offset lanes from the current point data — use if the drawing (especially the green offset lines) looks stale after an edit.'],
   ['↶ Undo / ↷ Redo','Step edit history back/forward (Ctrl+Z / Ctrl+Y) — covers point moves, code edits, deletes, Knockdown, UGW→CPN, and inserts.'],
   ['⚙ Knockdown','Bake curb codes into real H/V offset coordinates. <b>RBCB</b> (back of curb) — a point with its own code gets that code\'s cross-section; a point with no code derives the reveal from the nearest <b>REF</b> point. <b>RCFL</b> (flow line) — only applies at points that carry their own curb code.'],
+  ['🎯 REF Knockdown (1 pt)','One curb point at a time: click the RBCB point, click <b>any</b> point for the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Clears and replaces only that curb\'s H/V/code — other codes on the point stay as they are.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
   ['↓ Export FBK','Write the current points/edits back out as a field-book file.'],
@@ -4288,7 +4402,7 @@ window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
