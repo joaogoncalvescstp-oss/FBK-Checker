@@ -217,7 +217,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -417,7 +417,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
       Points knocked down this session revert exactly. Any other baked H/V run
       only converts back to a bare code when it matches ONE curb-code template
-      with no ambiguity — everything else stays untouched below.
+      with no ambiguity — a back-of-curb run with a REF-applied reveal has the REF
+      removed and its curb code restored. Everything else stays untouched below.
     </div>
     <div id="unkdReportBody" style="max-height:56vh;overflow:auto"></div>
     <div class="row">
@@ -604,7 +605,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:113};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:114};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1405,9 +1406,11 @@ function applyKdReview(){
 //  2) any other RBCB/RCFL point's baked H/V run converts back to a bare code ONLY when
 //     that exact run matches ONE curb-code template with no ambiguity (a few codes —
 //     RD/RDPRK, LD/LDPRK — share an identical template on purpose and can never be told
-//     apart from the baked text alone). Everything else — no match, an ambiguous match,
-//     a REF-derived reveal with no kdInfo to fall back on — is left completely untouched,
-//     never guessed at, and listed in the report so it's visible rather than silently lost.
+//     apart from the baked text alone). Build 114: a back-of-curb run carrying a REF-derived
+//     reveal (no kdInfo, e.g. a file knocked down in an earlier session) is traced back to its
+//     curb code too — the REF reveal is removed and the code put back (see refRevBOC).
+//     Everything else — no match, an ambiguous match — is left completely untouched, never
+//     guessed at, and listed in the report so it's visible rather than silently lost.
 function revertKnockdown(){
   if(!PTS.length){hud('load an FBK first');return;}
   const hvRe=/\s*H-?\d+\.?\d*\s+V-?\d+\.?\d*(\s+H-?\d+\.?\d*\s+V-?\d+\.?\d*)*/;
@@ -1419,19 +1422,62 @@ function revertKnockdown(){
     return idx;
   };
   const revBOC=buildRevIndex(CURB_BOC), revFL=buildRevIndex(CURB_FL);
+  // Build 114 — a REF-derived bake (refKdTmpl) keeps the curb code's own H steps and
+  // first V, and only rewrites the template's 'V-0.5' reveal plus its final V (REF1,
+  // build 106, can also rewrite just the final V). So a back-of-curb run that no longer
+  // matches any template exactly can still be traced back to its code: a code is
+  // REF-consistent when it has the same H steps / step count and every V matches except
+  // those REF is allowed to change. Ties go to the code with the most exact V matches;
+  // a remaining tie (RD/RDPRK) is still left untouched, never guessed.
+  const bocCodes=Object.keys(CURB_BOC);
+  const refRevBOC=run=>{
+    const rt=run.split(' ');
+    let best=null,bestScore=-1,tie=false;
+    bocCodes.forEach(c=>{
+      const st=CURB_BOC[c].split(' ');
+      if(st.length!==rt.length)return;
+      const mid=st.indexOf('V-0.5'),lastV=st.length-1;
+      let score=0;
+      for(let i=0;i<st.length;i++){
+        if(st[i][0]==='H'){if(st[i]!==rt[i]||rt[i][0]!=='H')return;continue;}
+        if(rt[i][0]!=='V')return;
+        if(+st[i].slice(1)===+rt[i].slice(1)){score++;continue;}
+        if(i===mid||i===lastV)continue;                 // a token REF/REF1 is allowed to rewrite
+        return;}
+      if(score>bestScore){best=c;bestScore=score;tie=false;}
+      else if(score===bestScore)tie=true;});
+    return tie?null:best;};
+  const isHV=t=>/^[HV]-?\d+\.?\d*$/i.test(t||'');
   const restored=[],converted=[],skipped=[];
   PTS.forEach(p=>{
     if(p.deleted)return;
     if(p.kdInfo){restored.push({p,id:p.id,code:p.kdInfo.code,newDesc:p.kdInfo.orig});return;}
-    const isBOC=/\bRBCB\d*\b/.test(p.desc),isFL=/\bRCFL\d*\b/.test(p.desc);
-    if(!isBOC&&!isFL)return;                       // not a curb-code marker at all — out of scope, never reported
-    const m=hvRe.exec(p.desc);
-    if(!m)return;                                  // marker present but nothing baked here — nothing to revert
-    const run=m[0].trim().replace(/\s+/g,' ');
-    const code=(isFL?revFL:revBOC)[run];
-    if(!code){skipped.push({id:p.id,hv:run,p});return;}
-    const newDesc=(p.desc.slice(0,m.index)+' '+code+p.desc.slice(m.index+m[0].length)).replace(/\s+/g,' ').trim();
-    converted.push({p,id:p.id,code,hv:run,newDesc});
+    if(!/\b(RBCB|RCFL)\d*\b/.test(p.desc))return;   // not a curb-code marker at all — out of scope, never reported
+    // Each RBCB/RCFL marker segment on the point is reverted on its own (a point can
+    // carry more than one, e.g. "RBCB3 E <H/V> RBCB1 B BC <H/V>").
+    const toks=p.desc.split(/\s+/).filter(Boolean);
+    const conv=[],unres=[];let ref=false;
+    for(let i=0;i<toks.length;i++){
+      const mk=/^(RBCB|RCFL)\d*$/i.exec(toks[i]);if(!mk)continue;
+      const isFL=mk[1].toUpperCase()==='RCFL',db=isFL?CURB_FL:CURB_BOC;
+      const end=curbSegEnd(toks,i,db);
+      let a=-1;for(let j=i+1;j<=end;j++){if(/^H/i.test(toks[j])&&isHV(toks[j])&&/^V/i.test(toks[j+1]||'')&&isHV(toks[j+1])){a=j;break;}}
+      if(a<0)continue;                               // nothing baked on this segment
+      let b=a;while(b+2<=end&&/^H/i.test(toks[b+2])&&isHV(toks[b+2])&&/^V/i.test(toks[b+3]||'')&&isHV(toks[b+3]))b+=2;
+      b++;                                           // b = index of the run's last V
+      const run=toks.slice(a,b+1).join(' ');
+      let code=(isFL?revFL:revBOC)[run],viaRef=false;
+      if(!code&&!isFL){code=refRevBOC(run);viaRef=!!code;}   // REF is back-of-curb only
+      if(!code){unres.push(run);continue;}
+      conv.push({a,b,code,run});if(viaRef)ref=true;
+    }
+    if(conv.length){
+      const nt=toks.slice();
+      conv.slice().reverse().forEach(c=>nt.splice(c.a,c.b-c.a+1,c.code));
+      converted.push({p,id:p.id,code:conv.map(c=>c.code).join(', '),hv:conv.map(c=>c.run).join(' | '),ref,
+        newDesc:nt.join(' ')});
+    }
+    if(unres.length)skipped.push({id:p.id,hv:unres.join(' | '),hvList:unres,p});
   });
   if(!restored.length&&!converted.length){
     hud(skipped.length?`nothing safely revertible — ${skipped.length} pt(s) left untouched`:'no baked curb-code offsets found');
@@ -1441,7 +1487,7 @@ function revertKnockdown(){
   restored.forEach(r=>{logEdit('code',`un-knockdown pt ${r.id}: restored original ${r.code} line`);
     r.p.desc=r.newDesc;r.p.code=(r.newDesc.split(/\s+/)[0]||'').toUpperCase();r.p.kdInfo=undefined;r.p.edited=true;});
   converted.forEach(c=>{logEdit('code',`un-knockdown pt ${c.id}: H/V -> ${c.code}`);
-    c.p.desc=c.newDesc;c.p.code=c.code;c.p.edited=true;});
+    c.p.desc=c.newDesc;c.p.code=(c.newDesc.split(/\s+/)[0]||'').toUpperCase();c.p.edited=true;});
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
   showUnKdReport(restored,converted,skipped);
   hud(`un-knockdown: ${restored.length+converted.length} pt(s) reverted, ${skipped.length} left untouched`);
@@ -1461,8 +1507,8 @@ function showUnKdReport(restored,converted,skipped){
       <table class="helpTbl"><tbody>${rows.join('')}</tbody></table>`;
   };
   const restoredRows=restored.map(r=>`<tr><td class="key">pt ${esc(r.id)}</td><td>restored original <b>${esc(r.code)}</b> line</td></tr>`);
-  const convertedRows=converted.map(c=>`<tr><td class="key">pt ${esc(c.id)}</td><td>${esc(c.hv||'')}&nbsp;→&nbsp;<b>${esc(c.code)}</b></td></tr>`);
-  unkdSkipCtx={rows:skipped.map(s=>({id:s.id,hv:s.hv,p:s.p})),selected:new Set(),sort:'pt',lastId:null};
+  const convertedRows=converted.map(c=>`<tr><td class="key">pt ${esc(c.id)}</td><td>${esc(c.hv||'')}&nbsp;→&nbsp;<b>${esc(c.code)}</b>${c.ref?' <span class="mut">(REF reveal removed)</span>':''}</td></tr>`);
+  unkdSkipCtx={rows:skipped.map(s=>({id:s.id,hv:s.hv,hvList:s.hvList,p:s.p})),selected:new Set(),sort:'pt',lastId:null};
   const skipSection=skipped.length?
     `<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">Left untouched — no unambiguous match (${skipped.length})</h5>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
@@ -1488,7 +1534,7 @@ function showUnKdReport(restored,converted,skipped){
     :`<h5 style="margin:14px 0 4px;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.08em">Deleted points (0)</h5><div class="mut" style="font-size:11px">none — no points are currently marked deleted</div>`;
   $('unkdReportBody').innerHTML=
     section('Restored — this session\'s own knockdown',restoredRows,'none')+
-    section('Converted — H/V matched one code exactly',convertedRows,'none')+
+    section('Converted — H/V matched one curb code',convertedRows,'none')+
     skipSection+delSection;
   $('unkdReportScrim').classList.add('show');
   if(skipped.length){
@@ -1559,9 +1605,12 @@ function unkdSkipClearSelected(){
   let n=0;
   unkdSkipCtx.rows.forEach(r=>{
     if(!unkdSkipCtx.selected.has(r.id))return;
-    const m=hvRe.exec(r.p.desc);
-    if(!m)return;                                   // description changed since the scan — nothing to clear now
-    const newDesc=(r.p.desc.slice(0,m.index)+r.p.desc.slice(m.index+m[0].length)).replace(/\s+/g,' ').trim();
+    let newDesc=r.p.desc.replace(/\s+/g,' ');
+    if(r.hvList&&r.hvList.length){                  // build 114: clear exactly the unresolved run(s), leave any converted one
+      r.hvList.forEach(hv=>{const i=newDesc.indexOf(hv);if(i>=0)newDesc=newDesc.slice(0,i)+newDesc.slice(i+hv.length);});
+    }else{const m=hvRe.exec(newDesc);if(m)newDesc=newDesc.slice(0,m.index)+newDesc.slice(m.index+m[0].length);}
+    newDesc=newDesc.replace(/\s+/g,' ').trim();
+    if(newDesc===r.p.desc.replace(/\s+/g,' ').trim())return;   // description changed since the scan — nothing to clear now
     logEdit('code',`un-knockdown pt ${r.id}: cleared unresolved H/V "${r.hv}" (point kept, code left blank)`);
     r.p.desc=newDesc;r.p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();r.p.edited=true;
     n++;
