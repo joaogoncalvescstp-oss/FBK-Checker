@@ -174,6 +174,18 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .fbkRow.ed .g{color:var(--gold)}
 .fbkRow input{font:12px var(--mono);background:#13213d;color:var(--ink);border:1px solid var(--gold);border-radius:3px;padding:0 4px;height:17px;width:calc(100% - 64px);box-sizing:border-box}
 .fbkPanelFoot{padding:4px 8px;border-top:1px solid var(--rule);font:11px var(--mono);color:var(--mut)}
+/* build 118 — notepad-style text mode */
+#fbkPanelTA{flex:1;display:none;margin:0;border:0;outline:none;resize:none;background:#0a1426;color:#cfe0ff;caret-color:var(--gold);
+  font:12px/18px var(--mono);white-space:pre;overflow:auto;padding:4px 8px;tab-size:4}
+#fbkPanelTA::selection{background:rgba(241,180,52,.3)}
+.fbkPanel.text #fbkPanelTA{display:block}
+.fbkPanel.text #fbkPanelBody,.fbkPanel.text #fbkPanelFind,.fbkPanel.text #fbkPanelFootList{display:none}
+#fbkPanelFootText{display:none;align-items:center;gap:6px;flex-wrap:wrap}
+.fbkPanel.text #fbkPanelFootText{display:flex}
+#fbkPanelFootText button,#fbkPanelTextBtn{background:none;border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:2px 8px;cursor:pointer;font:12px var(--mono)}
+#fbkPanelFootText button.gold,#fbkPanelTextBtn.gold{background:var(--gold);color:#111;border-color:var(--gold);font-weight:700}
+#fbkPanelTextStat{flex:1;min-width:120px}
+#fbkPanelTextStat.dirty{color:var(--gold)}
 .modal input{width:100%;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:9px 11px;font:14px var(--mono);text-align:center;letter-spacing:.05em}
 .modal input:focus{outline:none;border-color:var(--gold)}
 .modal .hint{font:11px var(--mono);color:var(--mut);margin-top:8px;min-height:14px}
@@ -247,7 +259,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -646,9 +658,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   <div class="fbkPanelHead" id="fbkPanelHead"><span>📜 FBK code</span><span class="info" id="fbkPanelInfo"></span>
     <input type="text" id="fbkPanelFind" placeholder="find… (Enter = next)">
     <label title="Scroll to the selected point's line"><input type="checkbox" id="fbkPanelFollow" checked>follow</label>
+    <button id="fbkPanelTextBtn" title="Edit the whole file as plain text, like Notepad — type, paste, add or delete lines, then Apply (Ctrl+S)">✎ Edit as text</button>
     <button id="fbkPanelClose" title="Close">✕</button></div>
   <div class="fbkPanelBody" id="fbkPanelBody"><div class="fbkPanelSpacer" id="fbkPanelSpacer"></div></div>
-  <div class="fbkPanelFoot" id="fbkPanelFoot">click a line → select that point · double-click to edit · Enter apply · Esc cancel · drag header to move, corner to resize</div>
+  <textarea id="fbkPanelTA" spellcheck="false" autocomplete="off" wrap="off"></textarea>
+  <div class="fbkPanelFoot" id="fbkPanelFoot"><span id="fbkPanelFootList">click a line → select that point · double-click to edit · Enter apply · Esc cancel · drag header to move, corner to resize</span>
+    <span id="fbkPanelFootText"><span id="fbkPanelTextStat"></span><button id="fbkPanelTextRevert" title="Throw away unapplied typing and reload the current file text">Revert</button><button class="gold" id="fbkPanelTextApply" title="Apply your text changes (Ctrl+S)">Apply (Ctrl+S)</button></span></div>
 </div>
 <script>
 "use strict";
@@ -657,7 +672,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:117};
+const VERSION={fruit:'🍇',name:'GRAPE',build:118};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -678,7 +693,7 @@ function deg2dms(v){let neg=v<0;v=Math.abs(v)%360;let d=Math.floor(v);let mf=(v-
 
 /* ---------- state ---------- */
 let RAW=[], PTS=[], CODES={}, CONNECT=[];
-const fbkP={open:false,stale:true,rows:[],rowOfPt:new Map(),hl:new Set(),cur:-1,selKey:null,editK:-1,editVal:'',editCaret:0,raf:0,ver:0,sig:'',lastClick:{k:-1,t:0}};
+const fbkP={open:false,stale:true,rows:[],rowOfPt:new Map(),hl:new Set(),cur:-1,selKey:null,editK:-1,editVal:'',editCaret:0,raf:0,ver:0,sig:'',lastClick:{k:-1,t:0},text:false,textRows:null,textDirty:false};
 let view={x:0,y:0,s:1};                                  // 2D world->screen
 let orbit={az:0.6,el:1.0,s:1,ox:0,oy:0,ve:3,cx:0,cy:0,cz:0}; // 3D
 let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
@@ -3773,13 +3788,14 @@ function fbkPanelHlFromSel(){fbkP.hl.clear();let first=-1;
   return first;}
 /* called at the end of every draw(): cheap unless the data changed or the selection moved */
 function fbkPanelTick(){if(!fbkP.open)return;
+  if(fbkP.text){fbkTextTick();return;}
   if(fbkP.stale)fbkPanelBuild();
   const key=fbkPanelSelKey()+'|'+selSet.size;
   const first=fbkPanelHlFromSel();
   if(key!==fbkP.selKey){fbkP.selKey=key;if(first>=0&&$('fbkPanelFollow').checked)fbkPanelScrollTo(first);}
   fbkPanelRender();}
 function openFbkPanel(){fbkP.open=true;fbkP.stale=true;fbkP.selKey=null;$('fbkPanel').classList.add('show');$('fbkPanelBtn').classList.replace('ghost','gold');fbkPanelTick();}
-function closeFbkPanel(){fbkP.open=false;fbkP.editK=-1;$('fbkPanel').classList.remove('show');$('fbkPanelBtn').classList.replace('gold','ghost');}
+function closeFbkPanel(){if(fbkP.text&&!fbkTextLeave())return;fbkP.open=false;fbkP.editK=-1;$('fbkPanel').classList.remove('show');$('fbkPanelBtn').classList.replace('gold','ghost');}
 function fbkPanelStartEdit(k){const r=fbkP.rows[k];if(!r)return;
   fbkP.editK=k;fbkP.editVal=r.text||'';fbkP.editCaret=fbkP.editVal.length;fbkP.cur=k;fbkPanelRender();}
 function fbkPanelCancelEdit(){fbkP.editK=-1;fbkPanelRender();hud('FBK line edit cancelled');}
@@ -3829,6 +3845,97 @@ function fbkPanelFind(){const q=$('fbkPanelFind').value.trim().toLowerCase();if(
   const endDr=()=>{dr=null;};head.addEventListener('pointerup',endDr);head.addEventListener('pointercancel',endDr);
 })();
 let fbkCtx=null;
+/* ---------- FBK code panel: notepad-style text mode (build 118) ----------
+   "✎ Edit as text" swaps the line list for one plain <textarea> holding the
+   whole file as it stands now (same lines the list shows, added points at the
+   end). Type, paste, cut, add or delete lines freely, then Apply / Ctrl+S:
+   - same number of lines → each changed line is applied on its own (point lines
+     through applyRawLine, other lines straight into RAW) — keeps every session
+     edit, deletion, knockdown record and line order intact. All changed point
+     lines are checked first; if any is not a valid F1/F2 VA or NEZ line nothing
+     is applied and the bad line numbers are listed.
+   - lines added or removed → after a confirm, the whole text is re-read as the
+     file (parse), like opening it fresh; points that were deleted before keep
+     their deleted mark, the view stays where it was, and Undo brings back the
+     previous state.
+   Selecting a point on the map scrolls the text to its line (when follow is on);
+   clicking a line in the text selects its point (until lines are added/removed). */
+function fbkTextOldLines(){return fbkP.textRows.map(r=>r.text||'');}
+function fbkTextFill(keepScroll){const ta=$('fbkPanelTA');fbkPanelBuild();
+  fbkP.textRows=fbkP.rows.map(r=>({L:r.L,pi:r.pi,text:r.text||''}));
+  const st=ta.scrollTop,sl=ta.scrollLeft,ss=ta.selectionStart;
+  ta.value=fbkTextOldLines().join('\n');fbkP.textDirty=false;
+  if(keepScroll){ta.scrollTop=st;ta.scrollLeft=sl;try{ta.setSelectionRange(ss,ss);}catch(_){}}
+  fbkTextStatus();}
+function fbkTextStatus(msg){const el=$('fbkPanelTextStat'),n=$('fbkPanelTA').value.split('\n').length;
+  el.classList.toggle('dirty',fbkP.textDirty);
+  el.textContent=msg||(`${n} lines`+(fbkP.textDirty?' · ● modified — Apply to save':' · no changes'));}
+function fbkTextScrollToRow(k){const ta=$('fbkPanelTA');if(k<0)return;const top=k*18;
+  if(top<ta.scrollTop+18||top>ta.scrollTop+ta.clientHeight-36)ta.scrollTop=Math.max(0,top-ta.clientHeight/2);}
+function fbkTextTick(){
+  if(fbkP.stale&&!fbkP.textDirty)fbkTextFill(true);else if(fbkP.stale)fbkPanelBuild();
+  const key=fbkPanelSelKey()+'|'+selSet.size;
+  if(key!==fbkP.selKey){fbkP.selKey=key;const first=fbkPanelHlFromSel();
+    if(first>=0&&$('fbkPanelFollow').checked&&!fbkP.textDirty)fbkTextScrollToRow(first);}}
+function fbkTextEnter(){if(fbkP.text)return;fbkP.editK=-1;fbkP.text=true;
+  $('fbkPanel').classList.add('text');$('fbkPanelTextBtn').textContent='☰ Back to list';$('fbkPanelTextBtn').classList.add('gold');
+  fbkTextFill(false);fbkP.selKey=null;fbkTextTick();
+  const ta=$('fbkPanelTA');ta.focus({preventScroll:true});}
+/* leave text mode; returns false if the user chose to keep their unapplied typing */
+function fbkTextLeave(){if(!fbkP.text)return true;
+  if(fbkP.textDirty&&!confirm('Discard your unapplied text changes?'))return false;
+  fbkP.text=false;fbkP.textDirty=false;fbkP.textRows=null;
+  $('fbkPanel').classList.remove('text');$('fbkPanelTextBtn').textContent='✎ Edit as text';$('fbkPanelTextBtn').classList.remove('gold');
+  fbkP.stale=true;fbkP.sig='';fbkP.selKey=null;fbkPanelTick();return true;}
+function fbkTextApply(){if(!fbkP.text)return;
+  const nl=$('fbkPanelTA').value.replace(/\r/g,'').split('\n'),ol=fbkTextOldLines();
+  let p=0;while(p<nl.length&&p<ol.length&&nl[p]===ol[p])p++;
+  let s=0;while(s<nl.length-p&&s<ol.length-p&&nl[nl.length-1-s]===ol[ol.length-1-s])s++;
+  if(p===nl.length&&p===ol.length){fbkP.textDirty=false;fbkTextStatus('no changes to apply');return;}
+  if(nl.length===ol.length){                    // edits only — apply line by line
+    const ch=[];for(let k=p;k<ol.length-s;k++)if(nl[k].replace(/\s+$/,'')!==ol[k].replace(/\s+$/,''))ch.push(k);
+    const bad=ch.filter(k=>{const r=fbkP.textRows[k];return r.pi!=null&&!applyRawLine(JSON.parse(JSON.stringify(PTS[r.pi])),nl[k]);});
+    if(bad.length){fbkTextStatus(`not applied — line ${bad.slice(0,8).map(k=>k+1).join(', ')}${bad.length>8?'…':''} is not a valid F1/F2 VA or NEZ point line`);
+      const ta=$('fbkPanelTA');fbkTextScrollToRow(bad[0]);return;}
+    if(!ch.length){fbkTextFill(true);return;}
+    saveState();let np=0,nr=0;
+    ch.forEach(k=>{const r=fbkP.textRows[k],txt=nl[k].replace(/\s+$/,'');
+      if(r.pi!=null){applyRawLine(PTS[r.pi],txt);np++;}else{RAW[r.L]=txt;nr++;}});
+    logEdit('code',`FBK text edit: ${np} point line(s), ${nr} other line(s) changed`);
+    buildLinework();if(sel>=0)inspect();fbkTextFill(true);draw();flagDirty();
+    fbkTextStatus(`applied — ${np} point line(s), ${nr} other line(s) changed`);
+    hud(`FBK text applied: ${ch.length} line(s)`);return;}
+  const d=nl.length-ol.length;
+  if(!confirm(`${Math.abs(d)} line(s) ${d>0?'added':'removed'}. The app will re-read the whole file from this text (like opening it fresh). Points you deleted keep their deleted mark; Undo brings back the previous state. Continue?`))return;
+  saveState();
+  const delKeys=new Set(PTS.filter(q=>q.deleted).map(q=>q.kind+'|'+q.id));
+  const v={x:view.x,y:view.y,s:view.s};
+  parse(nl.join('\n'));
+  PTS.forEach(q=>{if(delKeys.has(q.kind+'|'+q.id))q.deleted=true;});
+  figOrder={};figExtra={};figNEZ={};addPt=null;
+  view.x=v.x;view.y=v.y;view.s=v.s;
+  sel=-1;selFig=null;selSet.clear();buildLinework();inspect();
+  logEdit('code',`FBK text edit: file re-read from text (${d>0?'+':''}${d} line(s), ${RAW.length} lines total)`);
+  fbkTextFill(true);draw();flagDirty();fbkTextStatus(`applied — file re-read (${RAW.length} lines, ${PTS.length} points)`);
+  hud(`FBK text applied: file re-read, ${PTS.length} pts`);}
+(function wireFbkText(){
+  const ta=$('fbkPanelTA');
+  $('fbkPanelTextBtn').onclick=()=>fbkP.text?fbkTextLeave():fbkTextEnter();
+  $('fbkPanelTextApply').onclick=fbkTextApply;
+  $('fbkPanelTextRevert').onclick=()=>{if(fbkP.textDirty&&!confirm('Throw away your unapplied text changes?'))return;fbkTextFill(true);};
+  ta.addEventListener('input',()=>{if(!fbkP.textDirty){fbkP.textDirty=true;}fbkTextStatus();});
+  ta.addEventListener('keydown',e=>{e.stopPropagation();
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();fbkTextApply();}
+    else if(e.key==='Tab'){e.preventDefault();const a=ta.selectionStart,b=ta.selectionEnd;ta.setRangeText('\t',a,b,'end');ta.dispatchEvent(new Event('input'));}});
+  // click a line → select its point on the map (only while line numbers still line up)
+  ta.addEventListener('click',()=>{if(!fbkP.textRows)return;
+    const v=ta.value;if(v.split('\n').length!==fbkP.textRows.length)return;
+    const k=v.slice(0,ta.selectionStart).split('\n').length-1,r=fbkP.textRows[k];
+    if(!r||r.pi==null||!PTS[r.pi])return;
+    sel=r.pi;selFig=null;selSet.clear();fbkP.selKey=fbkPanelSelKey()+'|0';inspect();
+    flash={i:r.pi,t0:performance.now()};draw();hud(`pt ${PTS[r.pi].id} — line ${k+1}`);});
+})();
+
 /* ---------- movable pop-ups and toolboxes (build 117) ----------
    makeDraggable(el,handle,container): drag `handle` to move `el`. Uses the CSS
    `translate` property, so it stacks on top of whatever transform/position the
@@ -4504,7 +4611,7 @@ const HELP_TOOLBAR=[
   ['↓ Export FBK','Write the current points/edits back out as a field-book file.'],
   ['↓ Export (codes)','Same export, but keeps the original curb-code names instead of the baked Knockdown offsets.'],
   ['↓ Export CSV','Write every non-deleted point as a comma-delimited PNEZD file — round-trips with Import CSV.'],
-  ['📜 FBK code','Floating panel listing every line of the file (with your edits). Selecting a point or line on the canvas scrolls to and highlights its line(s); click a point line to select it; double-click any line to edit (Enter applies, Esc cancels). Find box jumps to the next match. Drag the header to move, the corner to resize.'],
+  ['📜 FBK code','Floating panel listing every line of the file (with your edits). Selecting a point or line on the canvas scrolls to and highlights its line(s); click a point line to select it; double-click any line to edit (Enter applies, Esc cancels). Find box jumps to the next match. ✎ Edit as text switches to a Notepad-style text box for the whole file — type, paste, add or delete lines, then Apply (Ctrl+S). Drag the header to move, the corner to resize.'],
   ['🏷 Labels','Choose which of Point #, Code, Elevation show next to each point on the canvas, and their text size.'],
   ['☰ Inspector','(narrow screens only) opens the Inspector as a slide-in drawer.'],
 ];
@@ -4589,6 +4696,8 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('helpScrim').classList.contains('show')){e.preventDefault();closeHelp();return;}
   if(e.key==='Escape'&&$('unkdReportScrim').classList.contains('show')){e.preventDefault();closeUnKdReport();return;}
   if(e.key==='Escape'&&$('kdReviewScrim').classList.contains('show')){e.preventDefault();closeKdReview();return;}
+  // typing in a text box/area: leave Ctrl+Z, letters etc. to the box itself (build 118)
+  {const t=e.target;if(t&&(/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)||t.isContentEditable))return;}
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
