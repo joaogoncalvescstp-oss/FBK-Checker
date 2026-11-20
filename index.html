@@ -265,7 +265,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -489,6 +489,22 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 </div>
 
 <!-- insert point by COGO -->
+<div class="scrim" id="npScrim">
+  <div class="modal">
+    <h4 id="npTitle">Add new point</h4>
+    <div class="field"><label>Goes after point</label>
+      <div style="display:flex;gap:6px"><select id="npAfter" style="flex:1;background:var(--panel2);color:var(--ink);border:1px solid var(--rule);border-radius:6px;padding:6px;font:12px var(--mono)"></select>
+      <button class="btn" id="npPickAfter" title="Click the point on the map">📍</button></div></div>
+    <div class="field"><label>New point # <span id="npIdNote" style="color:var(--mut)"></span></label>
+      <input type="text" id="npId" autocomplete="off"></div>
+    <button class="btn" id="npPickLoc" style="width:100%;justify-content:center;margin-bottom:8px" title="Click on the map — snaps to points, line crossings, midpoints, lines">📍 Pick location on map (snap)</button>
+    <div class="field"><label>Northing (N)</label><input type="number" id="npN" step="0.001" autocomplete="off"></div>
+    <div class="field"><label>Easting (E)</label><input type="number" id="npE" step="0.001" autocomplete="off"></div>
+    <div class="field"><label>Elevation (Z)</label><input type="number" id="npZ" step="0.001" autocomplete="off"></div>
+    <div class="note" id="npHint" style="margin-bottom:8px"></div>
+    <div class="chgrp"><button class="btn ghost" id="npCancel">Cancel</button><button class="btn gold" id="npApply">Add point</button></div>
+  </div>
+</div>
 <div class="scrim" id="cogoScrim">
   <div class="modal">
     <h4>Insert Point by COGO</h4>
@@ -681,7 +697,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:121};
+const VERSION={fruit:'🍌',name:'BANANA',build:122};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -711,6 +727,7 @@ let figOrder={};                                          // figId -> [ptIdx,...
 let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
 let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
 let ordPick=null;                                        // build 119 — reorder a line by clicking its points in order: {figId, seq:[ptIdx...]}
+let npAdd=null;                                           // build 122 — add a NEW point after a chosen vertex: {figId,afterIdx,stage:'after'|'loc'|'dlg',snap,ret}
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
 let insertSnap=null;                                      // current CAD snap result under the cursor while inserting a point on a line
@@ -2194,7 +2211,75 @@ function applyOrdPick(){if(!ordPick)return;const f=getFig(ordPick.figId);if(!f){
   saveState();figOrder[f.id]=seq.concat(rest);
   logEdit('code',`reorder ${f.code} by map pick: ${seq.map(i=>PTS[i].id).join(' → ')}${rest.length?` (+${rest.length} after)`:''}`);
   ordPick=null;draw();inspectFig(getFig(f.id));flagDirty();hud(`${f.code} reordered (${seq.length} picked)`);}
+/* ---------- build 122: add a NEW point after a chosen vertex (2D and 3D) ----------
+   1) click the line's point the new one goes after, 2) click where it goes (snaps)
+   or key the coordinates in. The point # is filled with the next free number and
+   a number already in use is refused, so no duplicate ids. Uses insertCogoPoint
+   (same figure code / B/E hand-off / export placement as Insert by COGO). */
+function npIdTaken(id){return PTS.some(p=>!p.deleted&&String(p.id)===String(id));}
+function npVerts(f){return f.verts.filter(v=>PTS[v.i]&&!PTS[v.i].deleted).map(v=>v.i);}
+function startNpAdd(figId){const f=getFig(figId);if(!f)return;
+  ordPick=null;addPt=null;insertPt=null;npAdd={figId,afterIdx:null,stage:'after',snap:null,ret:false};
+  prevCursor=cv.style.cursor;cv.style.cursor='crosshair';
+  hud(`➕ click the ${f.code} point the new point goes AFTER (Esc cancels)`);inspectFig(f);draw();}
+function cancelNpAdd(msg){const id=npAdd&&npAdd.figId;npAdd=null;$('npScrim').classList.remove('show');cv.style.cursor=prevCursor||'crosshair';
+  hud(msg||'add point cancelled');draw();if(id){const f=getFig(id);if(f)inspectFig(f);}}
+/* snap for the location click: 2D uses the full OSNAP engine; 3D snaps to points,
+   then to the nearest spot on any drawn line (screen-space projection, real Z kept) */
+function snap3D(sx,sy){let best=null,bd=12;
+  PTS.forEach(p=>{if(p.deleted)return;const[x,y]=P3(p.E,p.N,p.Z),d=Math.hypot(x-sx,y-sy);
+    if(d<bd){bd=d;best={E:p.E,N:p.N,Z:p.Z,sx:x,sy:y,type:'endpoint',label:'endpoint · pt '+p.id};}});
+  if(best)return best;bd=8;
+  figures().forEach(f=>{const pl=figurePolyline(f).pts;for(let k=0;k+1<pl.length;k++){const a=pl[k],b=pl[k+1];
+    const[ax,ay]=P3(a.E,a.N,a.Z),[bx,by]=P3(b.E,b.N,b.Z);let t=projParam(sx,sy,ax,ay,bx,by);t=Math.max(0,Math.min(1,t));
+    const x=ax+t*(bx-ax),y=ay+t*(by-ay),d=Math.hypot(x-sx,y-sy);
+    if(d<bd){bd=d;best={E:a.E+t*(b.E-a.E),N:a.N+t*(b.N-a.N),Z:a.Z+t*(b.Z-a.Z),sx:x,sy:y,type:'nearest',label:'nearest · '+f.code};}}});
+  return best;}
+function npSnapAt(sx,sy){return is3D?snap3D(sx,sy):snapPoint(sx,sy);}
+function npClick(sx,sy){const f=getFig(npAdd.figId);if(!f){cancelNpAdd();return;}
+  if(npAdd.stage==='after'){const i=pick(sx,sy);
+    if(i<0||!npVerts(f).includes(i)){hud(`click a point that is ON ${f.code} (Esc cancels)`);return;}
+    npAdd.afterIdx=i;
+    if(npAdd.ret){openNpDialog();return;}
+    npAdd.stage='loc';hud(`after pt ${PTS[i].id} — now click where the new point goes (snaps) · Enter = key in coordinates · Esc cancels`);draw();return;}
+  if(npAdd.stage==='loc'){const s=npSnapAt(sx,sy);let E,N,Z=NaN;
+    if(s){E=s.E;N=s.N;Z=s.Z;}
+    else if(!is3D){[E,N]=S2W(sx,sy);}
+    else{hud('3D: move onto a point or a line until a snap shows, or press Enter to key it in');return;}
+    openNpDialog({E,N,Z,label:s?s.label:'free pick'});}}
+function openNpDialog(loc){const f=getFig(npAdd.figId);if(!f){cancelNpAdd();return;}
+  npAdd.stage='dlg';npAdd.snap=null;cv.style.cursor=prevCursor||'crosshair';
+  $('npTitle').innerHTML=`Add new point · <span style="color:${codeColor(f.code)}">${f.code}</span>`;
+  const sel_=$('npAfter');const vs=npVerts(f);
+  sel_.innerHTML=`<option value="-1">— at the start (new first point)</option>`+vs.map((i,k)=>`<option value="${i}">${k+1}. pt ${PTS[i].id} — ${PTS[i].desc.replace(/</g,'&lt;')}</option>`).join('');
+  sel_.value=String(npAdd.afterIdx!=null?npAdd.afterIdx:vs[vs.length-1]);
+  if(!npAdd.keepId){$('npId').value=getNextPointNumber();$('npN').value='';$('npE').value='';$('npZ').value='';
+    $('npHint').textContent='key in the coordinates, or pick a location on the map';}
+  else if(npIdTaken($('npId').value.trim()))$('npId').value=getNextPointNumber();
+  npAdd.keepId=true;npAdd.ret=false;
+  if(loc){$('npN').value=loc.N.toFixed(3);$('npE').value=loc.E.toFixed(3);$('npZ').value=isFinite(loc.Z)?loc.Z.toFixed(3):'';
+    $('npHint').textContent=`picked: ${loc.label}${isFinite(loc.Z)?'':' — no elevation there, type the Z'}`;}
+  npIdCheck();$('npScrim').classList.add('show');(loc&&!isFinite(loc.Z)?$('npZ'):loc?$('npApply'):$('npN')).focus();draw();}
+function npIdCheck(){const id=$('npId').value.trim(),bad=!id||npIdTaken(id);
+  $('npIdNote').textContent=!id?'(required)':bad?`— pt ${id} already exists, next free is ${getNextPointNumber()}`:'— free ✓';
+  $('npIdNote').style.color=bad?'#ff7a7a':'var(--mut)';$('npApply').disabled=bad;return!bad;}
+function npReturnPick(stage){npAdd.stage=stage;npAdd.ret=stage==='after';$('npScrim').classList.remove('show');
+  prevCursor=cv.style.cursor;cv.style.cursor='crosshair';
+  hud(stage==='after'?'click the line point the new one goes after (Esc = back)':'click where the new point goes (snaps) · Esc = back');draw();}
+function applyNpAdd(){if(!npAdd||!npIdCheck())return;const f=getFig(npAdd.figId);if(!f){cancelNpAdd();return;}
+  const N=parseFloat($('npN').value),E=parseFloat($('npE').value),Z=parseFloat($('npZ').value);
+  if(!isFinite(N)||!isFinite(E)||!isFinite(Z)){hud('enter N, E and Z (or pick a location)');return;}
+  const vs=f.verts.map(v=>v.i),after=+$('npAfter').value,k=vs.indexOf(after);
+  const atEnd=after>=0&&k===vs.length-1,pos=after<0?0:k+1;
+  $('cogoN').value=N;$('cogoE').value=E;$('cogoZ').value=Z;$('cogoPos').value=String(pos);$('cogoAtEnd').checked=atEnd;
+  const id=$('npId').value.trim();cogoCtx={figId:f.id,newId:id};
+  $('npScrim').classList.remove('show');npAdd=null;cv.style.cursor=prevCursor||'crosshair';
+  const ni=insertCogoPoint();
+  if(ni!=null){flash={i:ni,t0:performance.now()};draw();hud(`pt ${id} added after ${after<0?'(start)':'pt '+PTS[after].id}`);}}
 function cancelOrdPick(){const id=ordPick&&ordPick.figId;ordPick=null;hud('pick order cancelled');draw();if(id){const f=getFig(id);if(f)inspectFig(f);}}
+function drawNpAdd(proj){if(!npAdd||npAdd.afterIdx==null)return;const p=PTS[npAdd.afterIdx];if(!p)return;
+  const s=proj(p.E,p.N,p.Z);ctx.save();ctx.strokeStyle='#F1B434';ctx.lineWidth=2;ctx.beginPath();ctx.arc(s[0],s[1],11,0,7);ctx.stroke();
+  ctx.font='600 11px ui-monospace,monospace';ctx.fillStyle='#F1B434';ctx.fillText('after',s[0]+13,s[1]-8);ctx.restore();}
 function drawOrdPick(proj){if(!ordPick)return;const f=getFig(ordPick.figId);if(!f)return;
   ctx.save();
   // faint ring on every point still to pick, numbered gold badge on picked ones
@@ -2301,7 +2386,7 @@ function insertCogoPoint(){
   if(!isFinite(N)||!isFinite(E)||!isFinite(Z)){hud('enter valid coordinates');return;}
   const f=getFig(cogoCtx.figId);if(!f)return;
   saveState();
-  const newId=getNextPointNumber();
+  const newId=cogoCtx.newId||getNextPointNumber();
   // The inserted point must carry the figure code so CAD reads it as part of the
   // linework. When it becomes the new first/last vertex it also takes the begin
   // (B) / end (E) token, MOVED off the old endpoint so the figure keeps exactly
@@ -2335,8 +2420,9 @@ function insertCogoPoint(){
     delete figExtra[cogoCtx.figId];cogoCtx.figId=nf.id;}
   logEdit('code',`inserted COGO pt ${newId} at position ${atEnd?'end':pos} on ${f.code}`);
   logEdit('code',`NEZ ${newId} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${newDesc}"`);
-  draw();closeCogoDialog();selFig=cogoCtx.figId;sel=-1;const sf=getFig(cogoCtx.figId);if(sf)inspectFig(sf);flagDirty();
-  hud(`COGO point ${newId} inserted`);}
+  const doneFig=cogoCtx.figId;
+  draw();closeCogoDialog();selFig=doneFig;sel=-1;const sf=getFig(doneFig);if(sf)inspectFig(sf);flagDirty();
+  hud(`COGO point ${newId} inserted`);return newIdx;}
 
 function openSimplCogoDialog(){
   $('simplCogoN').value='';$('simplCogoE').value='';$('simplCogoZ').value='';$('simplCogoCode').value='';
@@ -2492,7 +2578,7 @@ function snapPoint(sx,sy){
     if(d<bnd){bnd=d;const[E,N]=S2W(x,y);best={E,N,Z:s.aZ+t*(s.bZ-s.aZ),sx:x,sy:y,type:'nearest',label:'nearest'};}});
   return best;}
 function drawSnapMarker(){
-  const s=cogoPick?cogoSnap:(insertPt&&!is3D?insertSnap:null);
+  const s=cogoPick?cogoSnap:(insertPt&&!is3D?insertSnap:(npAdd&&npAdd.stage==='loc'?npAdd.snap:null));
   if(!s)return;const x=s.sx,y=s.sy,r=7;ctx.save();
   ctx.lineWidth=2;ctx.strokeStyle='#35c184';ctx.fillStyle='rgba(53,193,132,.18)';
   if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}   // box = endpoint (any point/vertex)
@@ -2512,10 +2598,10 @@ function drawSnapMarker(){
    it always reflects current tool/mode state, not just pointermove ticks. */
 function syncSnapBox(){
   const box=$('snapBox');if(!box)return;
-  const live=cogoPick||(insertPt&&!is3D);
+  const live=cogoPick||(insertPt&&!is3D)||(npAdd&&npAdd.stage==='loc'&&!is3D);
   box.classList.toggle('show',!!live);
   if(!live)return;
-  const s=cogoPick?cogoSnap:insertSnap;
+  const s=cogoPick?cogoSnap:insertPt?insertSnap:npAdd.snap;
   const active=s&&(s.type==='center'||s.type==='quadrant'?'endpoint':s.type);   // circle center/quadrant fold under the endpoint toggle — see snapEnabled/collectCircles (build 107)
   ['endpoint','intersection','midpoint','nearest'].forEach(t=>{
     const lbl=$('snapLbl_'+t);if(lbl)lbl.classList.toggle('active',active===t);});
@@ -3209,7 +3295,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -3237,7 +3323,7 @@ function draw3D(){
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
       const lbl=pointLabelText(p);
       if(lbl){ctx.font=`600 ${labelSize}px ui-monospace,monospace`;ctx.fillText(lbl,x+7,y-6);}}});
-  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N,Z)=>P3(E,N,Z));drawRefKdPick((E,N,Z)=>P3(E,N,Z));
+  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N,Z)=>P3(E,N,Z));drawNpAdd((E,N,Z)=>P3(E,N,Z));if(npAdd)drawSnapMarker();drawRefKdPick((E,N,Z)=>P3(E,N,Z));
 }
 /* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
    center), keyed off the point's own description — square for any point
@@ -3629,11 +3715,13 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
       <button class="btn" id="revBtn">⇄ Reverse</button>
       <button class="btn" id="resetBtn" ${moved?'':'disabled'}>↺ Reset order</button>
     </div>
-    ${is3D?'':`<button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>`}
+    <button class="btn ${npAdd&&npAdd.figId===f.id?'gold':''}" id="npBtn" style="width:100%;justify-content:center;margin-top:7px" title="Add a NEW point: pick the point it goes after, then click where it goes (snaps) or key in N/E/Z — point # is auto-numbered">${npAdd&&npAdd.figId===f.id?'✕ Cancel new point':'➕ Add new point after…'}</button>
+    ${npAdd&&npAdd.figId===f.id&&npAdd.stage!=='dlg'?`<div class="warnbox">${npAdd.stage==='after'?'<b>Step 1:</b> click the point on this line that the new point goes <b>after</b>.':`<b>Step 2:</b> after pt <b>${PTS[npAdd.afterIdx].id}</b> — click where the new point goes (it snaps${is3D?' to points/lines':' — see the OSNAP box'}), or press <b>Enter</b> to key in coordinates.`} Works in 2D and 3D. <b>Esc</b> cancels.</div>`:''}
+    <button class="btn ${adding?'gold':''}" id="addBtn" style="width:100%;justify-content:center;margin-top:7px">${adding?'✕ Cancel add':'＋ Add existing point to line'}</button>
     ${adding?`<div class="warnbox">${addPt.anchor<0?'Click a point <b>already on this line</b> (the insert anchor).':'Now click the <b>existing point</b> to add — it drops in right after the anchor.'}</div>`:''}
     ${is3D?'':`<button class="btn ${insertPt?.figId===f.id?'gold':''}" id="insertModeBtn" style="width:100%;justify-content:center;margin-top:7px">${insertPt?.figId===f.id?'✕ Cancel insert':'⊕ Click line to insert point'}</button>`}
     ${insertPt?.figId===f.id?`<div class="warnbox">Click anywhere on the line where you want to insert a new point. The new <b>NEZ point</b> will be created at that location. The <b>OSNAP</b> toolbox (bottom-right of the canvas) shows which snap types are live and lights up whichever one is currently engaged under the cursor — untick a type there to stop landing on it. Snapping onto an <b>intersection</b> asks which <b>Z</b> to use, since the two lines can sit at different elevations.</div>`:''}
-    ${is3D?'':`<button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>`}
+    <button class="btn" id="cogoBtn" style="width:100%;justify-content:center;margin-top:6px;margin-bottom:6px">◈ Insert by COGO (N/E/Z)</button>
     <button class="btn gold" id="fbkBtn" style="width:100%;justify-content:center;margin-top:7px">⟨ ⟩ Review / edit FBK code</button>
     <label class="opt" style="display:flex;align-items:center;gap:8px;margin-top:9px;cursor:pointer;font:12px var(--mono);color:var(--ink)">
       <input type="checkbox" id="nezChk" ${figNEZ[f.id]?'checked':''} style="width:15px;height:15px;cursor:pointer">
@@ -3676,6 +3764,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
   if($('insertModeBtn'))$('insertModeBtn').onclick=()=>{insertPt=insertPt?.figId===f.id?null:{figId:f.id};insertSnap=null;
     hud(insertPt?.figId===f.id?'click on the line to insert point':'insert cancelled');inspectFig(getFig(f.id));draw();};
   if($('cogoBtn'))$('cogoBtn').onclick=()=>openCogoDialog(f.id);
+  $('npBtn').onclick=()=>{if(npAdd&&npAdd.figId===f.id)cancelNpAdd();else startNpAdd(f.id);};
   if($('nezChk'))$('nezChk').onchange=()=>{saveState();
     if($('nezChk').checked)figNEZ[f.id]=true;else delete figNEZ[f.id];
     logEdit('code',`${f.code}: render as NEZ ${figNEZ[f.id]?'ON':'OFF'}`);flagDirty();draw();inspectFig(getFig(f.id));};
@@ -4476,14 +4565,8 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     $('simplCogoN').value=N.toFixed(3);$('simplCogoE').value=E.toFixed(3);
     if(isFinite(Z))$('simplCogoZ').value=Z.toFixed(3);
     endCogoPick(snap);return;}
+  if(npAdd&&(npAdd.stage==='after'||npAdd.stage==='loc')){npClick(sx,sy);return;}
   if(ordPick){ordPickClick(pick(sx,sy));return;}
-  if(is3D){
-    if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
-    const i=pick(sx,sy);
-    if(!e.shiftKey)retargetOrbitPivot(sx,sy,i>=0?PTS[i]:null);   // rotate around whatever's under the cursor, not a fixed far-off pivot
-    drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey};
-    if(i>=0){sel=i;selFig=null;inspect();draw();}
-    else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}}return;}
   if(addPt){const i=pick(sx,sy);const f=getFig(addPt.figId);
     if(i<0||!f){addPt=null;hud('add-point cancelled');if(f)inspectFig(f);draw();return;}
     if(addPt.anchor<0){
@@ -4491,6 +4574,14 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       else hud('pick a point already ON the line as the anchor');
       inspectFig(getFig(addPt.figId));draw();return;}
     addPointToFig(addPt.figId,addPt.anchor,i);addPt=null;return;}
+  if(is3D){
+    if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
+    const i=pick(sx,sy);
+    if(!e.shiftKey)retargetOrbitPivot(sx,sy,i>=0?PTS[i]:null);   // rotate around whatever's under the cursor, not a fixed far-off pivot
+    drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey};
+    if(i>=0){sel=i;selFig=null;inspect();draw();}
+    else{const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;inspectFig(f);draw();}}return;}
+
   if(insertPt){const seg=pickSegmentForInsert(sx,sy);
     if(seg){const i1=PTS.indexOf(seg.p1),i2=PTS.indexOf(seg.p2);
       if(seg.type==='intersection'){                      // this line crosses another — ask which elevation before inserting
@@ -4527,6 +4618,11 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
   if(cogoPick){cogoSnap=snapPoint(sx,sy);
     if(cogoSnap)hud(`${cogoSnap.label} · E ${cogoSnap.E.toFixed(2)} N ${cogoSnap.N.toFixed(2)}${isFinite(cogoSnap.Z)?' Z '+cogoSnap.Z.toFixed(2):''}`);
     else{const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Esc to cancel`);}
+    draw();return;}
+  if(npAdd&&npAdd.stage==='loc'){npAdd.snap=npSnapAt(sx,sy);const s_=npAdd.snap;
+    if(s_)hud(`${s_.label} · E ${s_.E.toFixed(2)} N ${s_.N.toFixed(2)}${isFinite(s_.Z)?' Z '+s_.Z.toFixed(2):''} · Enter = key in`);
+    else if(!is3D){const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Enter = key in · Esc cancels`);}
+    else hud('3D: move onto a point or line to snap · Enter = key in · Esc cancels');
     draw();return;}
   if(insertPt&&!is3D){insertSnap=pickSegmentForInsert(sx,sy);
     if(insertSnap)hud(`${insertSnap.label} · E ${insertSnap.E.toFixed(2)} N ${insertSnap.N.toFixed(2)}${isFinite(insertSnap.Z)?' Z '+insertSnap.Z.toFixed(2):''}`);
@@ -4592,7 +4688,7 @@ function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
 function setMode(m){
-  const wasOrbit=is3D;addPt=null;if(ordPick&&m!=='orbit'&&m!=='sel'&&m!=='zoom'&&m!=='pan')ordPick=null;
+  const wasOrbit=is3D;addPt=null;if(npAdd&&!['orbit','sel','zoom','pan'].includes(m))cancelNpAdd();if(ordPick&&m!=='orbit'&&m!=='sel'&&m!=='zoom'&&m!=='pan')ordPick=null;
   if(m==='orbit')is3D=true;else if(m!=='zoom')is3D=false;   // 'zoom' leaves the view as-is — window-zoom works in whichever view (2D or 3D) is already active
   mode=(m==='orbit')?'orbit':m;
   ['Sel','Move','Pan','Zoom','Orbit','Inv'].forEach(x=>$('t'+x).classList.remove('on'));
@@ -4656,6 +4752,10 @@ $('gotoCancel').onclick=closeGoto;
 $('gotoInput').onkeydown=e=>{if(e.key==='Enter')gotoPoint();if(e.key==='Escape')closeGoto();};
 $('scrim').onclick=e=>{if(e.target===$('scrim'))closeGoto();};
 $('fbkApply').onclick=applyFbk;
+$('npApply').onclick=applyNpAdd;$('npCancel').onclick=()=>cancelNpAdd();
+$('npPickAfter').onclick=()=>npReturnPick('after');$('npPickLoc').onclick=()=>npReturnPick('loc');
+$('npId').addEventListener('input',npIdCheck);
+['npN','npE','npZ','npId'].forEach(id=>$(id).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();applyNpAdd();}else if(e.key==='Escape')cancelNpAdd();}));
 $('fbkCancel').onclick=cancelFbk;
 $('fbkKdToggle').onclick=()=>{showPreKd=!showPreKd;
   $('fbkKdToggle').classList.toggle('gold',showPreKd);
@@ -4698,6 +4798,9 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
   if(e.key==='Escape'&&circleCtrCtx){e.preventDefault();closeCircleCtrDialog();return;}
   if(e.key==='Escape'&&circleCtrPick){e.preventDefault();cancelCircleCtrPick();return;}
+  if(npAdd&&!$('npScrim').classList.contains('show')){
+    if(e.key==='Escape'){e.preventDefault();if(npAdd.keepId){openNpDialog();}else cancelNpAdd();return;}
+    if(e.key==='Enter'&&npAdd.stage==='loc'){e.preventDefault();openNpDialog();return;}}
   if(e.key==='Escape'&&ordPick){e.preventDefault();cancelOrdPick();return;}
   if(e.key==='Escape'&&refKdPick){e.preventDefault();
     if(refKdPick.stage==='edge'){refKdPick.stage='dialog';openRefKdDialog();draw();return;}
@@ -4809,7 +4912,7 @@ $('helpScrim').onclick=e=>{if(e.target===$('helpScrim'))closeHelp();};
 document.querySelectorAll('.helpTab').forEach(b=>b.onclick=()=>setHelpTab(b.dataset.pane));
 
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
-  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
+  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
 $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{importCSV(rd.result);e.target.value='';};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{
