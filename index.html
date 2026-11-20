@@ -259,7 +259,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -615,6 +615,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <li><b>3D (⟲ Orbit)</b> shows the survey by elevation — drag to orbit (it re-centers on whatever you click, so a far corner of a large site orbits smoothly instead of swinging wildly), wheel to zoom toward the cursor, Shift-drag <i>or</i> middle-mouse-drag to pan, and the <b>VERT EXAG</b> slider exaggerates elevation differences. <b>⊡ Fit</b> always resets to the whole-survey view. Clicking a point or line opens the same editable Inspector/figure editor as 2D — only dragging to move a point, and clicking to insert a brand-new one, still need a 2D tool.</li>
         <li><b>🗺 MAP</b> toggles an aerial imagery background (2D only) — county imagery with an Esri/USGS fallback chain.</li>
         <li><b>🏷 Labels</b> lets you choose whether each point shows its number, code, elevation (any combination) and at what text size.</li>
+        <li><b>Reorder a line by clicking:</b> in the line editor click <b>🔢 Pick order on map</b>, then click the line's points on the map in the order you want — it applies once all are picked (or <b>Apply now</b> keeps the rest after your picks). Click a picked point again to back up to it; Esc cancels.</li>
         <li><b>Moving panels:</b> every pop-up dialog drags by its title bar, and the tool column (⠿ grip), legend, OSNAP box, Labels box and 3D VERT EXAG bar (⠿ grip) drag anywhere in the drawing area. Double-click the title/grip to put it back. The 📜 FBK code panel drags by its header.</li>
       </ul>
     </div>
@@ -672,7 +673,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:118};
+const VERSION={fruit:'🍊',name:'ORANGE',build:119};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -701,6 +702,7 @@ let selSet=new Set();                                     // box-selected point 
 let figOrder={};                                          // figId -> [ptIdx,...] override
 let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
 let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
+let ordPick=null;                                        // build 119 — reorder a line by clicking its points in order: {figId, seq:[ptIdx...]}
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
 let insertSnap=null;                                      // current CAD snap result under the cursor while inserting a point on a line
@@ -2160,6 +2162,45 @@ function reorderFig(id,from,to){const f=getFig(id);if(!f)return;
   const order=f.verts.map(v=>v.i);const[m]=order.splice(from,1);order.splice(to,0,m);
   figOrder[id]=order;logEdit('code',`reorder ${f.code}: vtx ${from+1}→${to+1}`);
   draw();inspectFig(getFig(id));flagDirty();}
+/* ---------- reorder a line by picking its points on the map (build 119) ----------
+   🔢 Pick order on map (line editor): click the figure's own points on the canvas
+   in the wanted draw order. Each pick gets a gold number badge on the map and a
+   →n tag in the vertex list. Clicking a point that's already picked rolls the
+   sequence back to it (undo to there). When every vertex is picked the new
+   order applies automatically; Apply now puts the unpicked rest after the picks
+   in their current order. Uses the same figOrder path as ▲▼/drag (reorderFig),
+   so export / NEZ-on-cross-setup handling is unchanged. Works in 2D and 3D. */
+function ordPickVerts(f){return f.verts.filter(v=>PTS[v.i]&&!PTS[v.i].deleted).map(v=>v.i);}
+function ordPickClick(i){const f=getFig(ordPick.figId);if(!f){ordPick=null;draw();return;}
+  if(i<0){hud('pick order: click one of this line\'s points (Esc cancels)');return;}
+  const members=ordPickVerts(f);
+  if(!members.includes(i)){hud(`pt ${PTS[i].id} is not on ${f.code} — pick one of its own points`);return;}
+  const at=ordPick.seq.indexOf(i);
+  if(at>=0){ordPick.seq.length=at;hud(`rolled back to ${at} picked`);}
+  else{ordPick.seq.push(i);hud(`#${ordPick.seq.length}: pt ${PTS[i].id} (${ordPick.seq.length} of ${members.length})`);}
+  if(ordPick.seq.length===members.length){applyOrdPick();return;}
+  inspectFig(f);draw();}
+function applyOrdPick(){if(!ordPick)return;const f=getFig(ordPick.figId);if(!f){ordPick=null;return;}
+  const seq=ordPick.seq.slice();if(!seq.length)return;
+  const rest=f.verts.map(v=>v.i).filter(i=>!seq.includes(i));
+  saveState();figOrder[f.id]=seq.concat(rest);
+  logEdit('code',`reorder ${f.code} by map pick: ${seq.map(i=>PTS[i].id).join(' → ')}${rest.length?` (+${rest.length} after)`:''}`);
+  ordPick=null;draw();inspectFig(getFig(f.id));flagDirty();hud(`${f.code} reordered (${seq.length} picked)`);}
+function cancelOrdPick(){const id=ordPick&&ordPick.figId;ordPick=null;hud('pick order cancelled');draw();if(id){const f=getFig(id);if(f)inspectFig(f);}}
+function drawOrdPick(proj){if(!ordPick)return;const f=getFig(ordPick.figId);if(!f)return;
+  ctx.save();
+  // faint ring on every point still to pick, numbered gold badge on picked ones
+  ordPickVerts(f).forEach(i=>{if(ordPick.seq.includes(i))return;const p=PTS[i],s=proj(p.E,p.N,p.Z);
+    ctx.beginPath();ctx.arc(s[0],s[1],8,0,7);ctx.strokeStyle='rgba(241,180,52,.45)';ctx.lineWidth=1.5;ctx.stroke();});
+  let prev=null;
+  ordPick.seq.forEach((i,n)=>{const p=PTS[i],s=proj(p.E,p.N,p.Z);
+    if(prev){ctx.beginPath();ctx.moveTo(prev[0],prev[1]);ctx.lineTo(s[0],s[1]);ctx.strokeStyle='rgba(241,180,52,.8)';ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.stroke();ctx.setLineDash([]);}
+    prev=s;});
+  ordPick.seq.forEach((i,n)=>{const p=PTS[i],s=proj(p.E,p.N,p.Z);
+    ctx.beginPath();ctx.arc(s[0],s[1],9,0,7);ctx.fillStyle='#F1B434';ctx.fill();
+    ctx.font='700 10px ui-monospace,monospace';ctx.fillStyle='#111';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(String(n+1),s[0],s[1]+0.5);});
+  ctx.textAlign='start';ctx.textBaseline='alphabetic';ctx.restore();}
 function reverseFig(id){const f=getFig(id);if(!f)return;
   saveState();
   figOrder[id]=f.verts.map(v=>v.i).reverse();logEdit('code',`reverse ${f.code}`);
@@ -3160,7 +3201,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
+  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -3188,7 +3229,7 @@ function draw3D(){
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
       const lbl=pointLabelText(p);
       if(lbl){ctx.font=`600 ${labelSize}px ui-monospace,monospace`;ctx.fillText(lbl,x+7,y-6);}}});
-  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawRefKdPick((E,N,Z)=>P3(E,N,Z));
+  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N,Z)=>P3(E,N,Z));drawRefKdPick((E,N,Z)=>P3(E,N,Z));
 }
 /* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
    center), keyed off the point's own description — square for any point
@@ -3554,7 +3595,7 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     const raw=(figNEZ[f.id]?`NEZ ${o.p.id} ${o.p.N.toFixed(3)} ${o.p.E.toFixed(3)} ${o.p.Z.toFixed(3)} "${addCodeToDesc(o.p.desc,f.code)}"`:pointFbkLine(o.p)).trim();
     rows+=`<div class="vrow draggable" draggable="true" data-k="${k}">
       <div class="vhd">
-        <span class="ord grip" title="drag to reorder">${k+1}</span>
+        <span class="ord grip" title="drag to reorder">${k+1}</span>${ordPick&&ordPick.figId===f.id&&ordPick.seq.includes(o.i)?` <span class="arc" style="background:#3a2f12;color:#F1B434" title="new position">→${ordPick.seq.indexOf(o.i)+1}</span>`:''}
         <span class="vpt">pt ${o.p.id}${arc}${tag}${anc}</span>
         <span class="vln">L${o.p.srcLine+1}</span>
         <span class="vbtns">
@@ -3573,6 +3614,9 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
       <div class="fighead"><span class="figname" style="color:${codeColor(f.code)}">${f.code}</span>
         <span class="figmeta">${vs.length} vtx · ${f.closed?'closed':'open'}${moved?' · reordered':''}${figNEZ[f.id]?' · NEZ':''}</span></div></div>
     ${vs.length?`<button class="btn gold" id="svWalkBtn" style="width:100%;justify-content:center;margin-bottom:9px">📷 Walk line in Street View</button>`:''}
+    <button class="btn ${ordPick&&ordPick.figId===f.id?'gold':''}" id="ordPickBtn" style="width:100%;justify-content:center;margin-bottom:7px" title="Click this line's points on the map in the order you want them drawn">${ordPick&&ordPick.figId===f.id?'✕ Cancel pick order':'🔢 Pick order on map'}</button>
+    ${ordPick&&ordPick.figId===f.id?`<div class="warnbox">Click this line's points <b>on the map</b> in the order you want — <b>${ordPick.seq.length} of ${vs.length}</b> picked${ordPick.seq.length?` (last: pt ${PTS[ordPick.seq[ordPick.seq.length-1]].id})`:''}. It applies automatically once every point is picked; <b>Apply now</b> puts the rest after your picks in their current order. Click a picked point again to undo back to it. <b>Esc</b> cancels.</div>
+    <div class="chgrp" style="margin-bottom:7px"><button class="btn" id="ordUndoBtn" ${ordPick.seq.length?'':'disabled'}>↶ Undo last</button><button class="btn gold" id="ordApplyBtn" ${ordPick.seq.length?'':'disabled'}>✓ Apply now</button></div>`:''}
     <div class="chgrp">
       <button class="btn" id="revBtn">⇄ Reverse</button>
       <button class="btn" id="resetBtn" ${moved?'':'disabled'}>↺ Reset order</button>
@@ -3614,6 +3658,10 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
       if(to!==from)reorderFig(f.id,from,to);});
   });
   $('revBtn').onclick=()=>reverseFig(f.id);
+  $('ordPickBtn').onclick=()=>{if(ordPick&&ordPick.figId===f.id){cancelOrdPick();return;}
+    addPt=null;insertPt=null;ordPick={figId:f.id,seq:[]};hud(`pick order: click the ${f.code} points on the map in order (Esc cancels)`);inspectFig(getFig(f.id));draw();};
+  if($('ordUndoBtn'))$('ordUndoBtn').onclick=()=>{ordPick.seq.pop();inspectFig(getFig(f.id));draw();};
+  if($('ordApplyBtn'))$('ordApplyBtn').onclick=()=>applyOrdPick();
   $('fbkBtn').onclick=()=>openFbk(f.id);
   if($('addBtn'))$('addBtn').onclick=()=>{addPt=adding?null:{figId:f.id,anchor:-1};
     hud(adding?'add-point cancelled':'click a point already on the line as the anchor');inspectFig(getFig(f.id));};
@@ -3912,7 +3960,7 @@ function fbkTextApply(){if(!fbkP.text)return;
   const v={x:view.x,y:view.y,s:view.s};
   parse(nl.join('\n'));
   PTS.forEach(q=>{if(delKeys.has(q.kind+'|'+q.id))q.deleted=true;});
-  figOrder={};figExtra={};figNEZ={};addPt=null;
+  figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;
   view.x=v.x;view.y=v.y;view.s=v.s;
   sel=-1;selFig=null;selSet.clear();buildLinework();inspect();
   logEdit('code',`FBK text edit: file re-read from text (${d>0?'+':''}${d} line(s), ${RAW.length} lines total)`);
@@ -4359,6 +4407,7 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     $('simplCogoN').value=N.toFixed(3);$('simplCogoE').value=E.toFixed(3);
     if(isFinite(Z))$('simplCogoZ').value=Z.toFixed(3);
     endCogoPick(snap);return;}
+  if(ordPick){ordPickClick(pick(sx,sy));return;}
   if(is3D){
     if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
     const i=pick(sx,sy);
@@ -4474,7 +4523,7 @@ function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
 function setMode(m){
-  const wasOrbit=is3D;addPt=null;
+  const wasOrbit=is3D;addPt=null;if(ordPick&&m!=='orbit'&&m!=='sel'&&m!=='zoom'&&m!=='pan')ordPick=null;
   if(m==='orbit')is3D=true;else if(m!=='zoom')is3D=false;   // 'zoom' leaves the view as-is — window-zoom works in whichever view (2D or 3D) is already active
   mode=(m==='orbit')?'orbit':m;
   ['Sel','Move','Pan','Zoom','Orbit','Inv'].forEach(x=>$('t'+x).classList.remove('on'));
@@ -4579,6 +4628,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
   if(e.key==='Escape'&&circleCtrCtx){e.preventDefault();closeCircleCtrDialog();return;}
   if(e.key==='Escape'&&circleCtrPick){e.preventDefault();cancelCircleCtrPick();return;}
+  if(e.key==='Escape'&&ordPick){e.preventDefault();cancelOrdPick();return;}
   if(e.key==='Escape'&&refKdPick){e.preventDefault();
     if(refKdPick.stage==='edge'){refKdPick.stage='dialog';openRefKdDialog();draw();return;}
     cancelRefKdPick();return;}
@@ -4689,7 +4739,7 @@ $('helpScrim').onclick=e=>{if(e.target===$('helpScrim'))closeHelp();};
 document.querySelectorAll('.helpTab').forEach(b=>b.onclick=()=>setHelpTab(b.dataset.pane));
 
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
-  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
+  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
 $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{importCSV(rd.result);e.target.value='';};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{
