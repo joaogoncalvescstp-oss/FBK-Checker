@@ -259,7 +259,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -673,7 +673,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:119};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:120};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1335,7 +1335,7 @@ function applyRefKd(){
   saveState();
   logEdit('code',`REF knockdown (1 pt) pt ${p.id}: ${c.segs.map(g=>g.useCode).join(', ')} — FL from pt ${fl.id}, edge ${ed?'from pt '+ed.id:'standard slope'}`);
   if(!p.kdInfo)p.kdInfo={code:c.segs.map(g=>g.useCode).join(', '),orig:p.desc};
-  p.desc=nd;p.code=(nd.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
+  p.desc=nd;p.code=(nd.split(/\s+/)[0]||'').toUpperCase();p.edited=true;
   refKdPick=null;$('refKdScrim').classList.remove('show');
   buildLinework();draw();if(sel>=0)inspect();else if(selFig)inspectFig(getFig(selFig));flagDirty();
   hud(`pt ${p.id} knocked down — FL from pt ${fl.id}${ed?', edge from pt '+ed.id:''}`);
@@ -1468,7 +1468,7 @@ function commitKnockdown(pointWork){
     // remember the pre-knockdown description so the line-code review can toggle
     // back to the original curb code(s) (before the offset was baked in).
     p.kdInfo={code:segs.map(segActiveCode).join(', '),orig:p.desc};
-    p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
+    p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.edited=true;
     applied++;
   });
   const ref1Adjusted=applyRef1Adjustment();
@@ -1970,7 +1970,7 @@ function applyUgwReview(){
   saveState();
   changes.forEach(({p,newDesc,target,ang})=>{
     logEdit('code',`UGW pt ${p.id}: paired with pole ${target}, angle ${ang.toFixed(2)} (0=W)`);
-    p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;
+    p.desc=newDesc;p.code=(newDesc.split(/\s+/)[0]||'').toUpperCase();p.edited=true;
   });
   const applied=changes.length,total=ugwReviewRows.length;
   closeUgwReview();
@@ -3707,7 +3707,7 @@ function inspectInverse(){const box=$('insp');
 function applyDesc(p){const v=$('fDesc').value.trim();if(v===p.desc)return;
   saveState();
   logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${v}"`);
-  p.desc=v;p.code=(v.split(/\s+/)[0]||'').toUpperCase();p.rawOverride=undefined;p.edited=true;p.kdInfo=undefined;
+  p.desc=v;p.code=(v.split(/\s+/)[0]||'').toUpperCase();p.edited=true;p.kdInfo=undefined;
   buildLinework();draw();inspect();flagDirty();}
 /* Back-solve a shot's HA/SD/ZA so the VA observation reproduces an exact N/E/Z.
    Inverse of reduce(): uses the stored station origin, orientation, HI & prism. */
@@ -3742,10 +3742,9 @@ function applyPointEdit(p){
     }else if(rodChg){
       reduce(p);                                       // rod-height-only edit → same HA/SD/ZA observation, just recompute Z
     }
-    p.rawOverride=undefined;
   }else{                                               // ctrl / NEZ / inserted point
     p.N=N;p.E=E;p.Z=Z;
-    if(p.srcLine>=0)p.rawOverride=`NEZ ${id} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${desc}"`;
+    if(p.srcLine>=0){p.rawOverride=`NEZ ${id} ${N.toFixed(3)} ${E.toFixed(3)} ${Z.toFixed(3)} "${desc}"`;p.id=id;p.desc=desc;p.rawSig=ptSig(p);}
   }
   p.id=id;p.desc=desc;p.code=(desc.split(/\s+/)[0]||'').toUpperCase()||p.code;p.edited=true;p.kdInfo=undefined;
   const rodNote=(p.kind==='shot'&&p.prism!==p.origPrism)?`, rod HT ${p.origPrism.toFixed(3)}→${p.prism.toFixed(3)}`:'';
@@ -3762,11 +3761,11 @@ function applyRawLine(p,raw){const t=raw.trim().split(/\s+/);const m=raw.match(/
     let ha=dms2deg(+t[3]);const sd=+t[4];let za=dms2deg(+t[5]);
     if(t[0]==='F2'&&za>180){za=360-za;ha=(ha+180)%360;}
     p.ha=ha;p.sd=sd;p.za=za;p.desc=m?m[1]:'';p.code=(p.desc.split(/\s+/)[0]||'').toUpperCase();
-    reduce(p);p.edited=true;p.kdInfo=undefined;return true;}
+    reduce(p);p.edited=true;p.kdInfo=undefined;p.rawSig=ptSig(p);return true;}
   if(t[0]==='NEZ'&&t.length>=5){                       // NEZ record — edits a control / inserted point
     p.id=t[1];p.N=+t[2];p.E=+t[3];p.Z=+t[4];p.desc=m?m[1]:'';p.code=(p.desc.split(/\s+/)[0]||'').toUpperCase();p.kdInfo=undefined;
     if(p.srcLine>=0)p.rawOverride=raw.trim();           // existing line → override; inserted pts export from p fields
-    p.edited=true;return true;}
+    p.edited=true;p.rawSig=ptSig(p);return true;}
   return false;}
 function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   if(/^(Deleted|Used last|Converted|JOB|UNITS|ANGLES|ATMOS|CR|PRISM CONSTANT|PRISM OFFSET|EDM)/.test(ln.trim()))
@@ -3818,14 +3817,18 @@ function fbkPanelRender(){if(!fbkP.open)return;
     if(k===fbkP.editK)html+=`<div class="${cls}" data-k="${k}" style="top:${k*H}px"><span class="g">${g}</span><input id="fbkRowEd" spellcheck="false" value="${fbkEsc(fbkP.editVal)}"></div>`;
     else html+=`<div class="${cls}" data-k="${k}" style="top:${k*H}px" title="${p?`pt ${fbkEsc(p.id)}${p.deleted?' (deleted)':''} — click to select, double-click to edit`:'double-click to edit'}"><span class="g">${g}</span>${hlLine(r.text||'')}</div>`;}
   sp.style.width=Math.max(body.clientWidth,(maxLen+8)*7.3+60)+'px';
-  sp.innerHTML=html;
+  fbkP.rendering=true;sp.innerHTML=html;fbkP.rendering=false;
   const ed=$('fbkRowEd');
   if(ed){ed.focus({preventScroll:true});try{ed.setSelectionRange(fbkP.editCaret,fbkP.editCaret);}catch(_){}
     ed.oninput=()=>{fbkP.editVal=ed.value;fbkP.editCaret=ed.selectionStart;};
     ed.onkeyup=ed.onclick=()=>{fbkP.editCaret=ed.selectionStart;};
     ed.onkeydown=e=>{e.stopPropagation();
       if(e.key==='Enter'){e.preventDefault();fbkPanelCommit();}
-      else if(e.key==='Escape'){e.preventDefault();fbkPanelCancelEdit();}};}}
+      else if(e.key==='Escape'){e.preventDefault();fbkPanelCancelEdit();}};
+    // build 120: clicking away (canvas, another row, a button) used to leave the typed line
+    // un-applied, and it was silently thrown away later — leaving the box now applies it
+    ed.onblur=()=>{if(fbkP.rendering||fbkP.editK!==+ed.parentNode.dataset.k)return;
+      setTimeout(()=>{if(fbkP.editK>=0&&document.activeElement!==$('fbkRowEd'))fbkPanelCommit();},0);};}}
 function fbkPanelScrollTo(k){if(k<0)return;const body=$('fbkPanelBody'),H=FBKP_ROWH;
   const top=k*H;if(top<body.scrollTop+H||top>body.scrollTop+body.clientHeight-2*H)body.scrollTop=Math.max(0,top-body.clientHeight/2+H/2);}
 function fbkPanelSelKey(){return sel+'|'+(selFig||'');}
@@ -3843,8 +3846,10 @@ function fbkPanelTick(){if(!fbkP.open)return;
   if(key!==fbkP.selKey){fbkP.selKey=key;if(first>=0&&$('fbkPanelFollow').checked)fbkPanelScrollTo(first);}
   fbkPanelRender();}
 function openFbkPanel(){fbkP.open=true;fbkP.stale=true;fbkP.selKey=null;$('fbkPanel').classList.add('show');$('fbkPanelBtn').classList.replace('ghost','gold');fbkPanelTick();}
-function closeFbkPanel(){if(fbkP.text&&!fbkTextLeave())return;fbkP.open=false;fbkP.editK=-1;$('fbkPanel').classList.remove('show');$('fbkPanelBtn').classList.replace('gold','ghost');}
+function closeFbkPanel(){if(fbkP.text&&!fbkTextLeave())return;
+  if(fbkP.editK>=0){fbkPanelCommit();if(fbkP.editK>=0)return;}fbkP.open=false;fbkP.editK=-1;$('fbkPanel').classList.remove('show');$('fbkPanelBtn').classList.replace('gold','ghost');}
 function fbkPanelStartEdit(k){const r=fbkP.rows[k];if(!r)return;
+  if(fbkP.editK>=0&&fbkP.editK!==k){fbkPanelCommit();if(fbkP.editK>=0)return;}   // apply the pending edit first (stays open if invalid)
   fbkP.editK=k;fbkP.editVal=r.text||'';fbkP.editCaret=fbkP.editVal.length;fbkP.cur=k;fbkPanelRender();}
 function fbkPanelCancelEdit(){fbkP.editK=-1;fbkPanelRender();hud('FBK line edit cancelled');}
 function fbkPanelCommit(){const k=fbkP.editK,r=fbkP.rows[k];if(!r){fbkP.editK=-1;return;}
@@ -3867,6 +3872,10 @@ function fbkPanelFind(){const q=$('fbkPanelFind').value.trim().toLowerCase();if(
     fbkP.cur=k;fbkPanelScrollTo(k);fbkPanelRender();hud(`found "${q}" on ${fbkP.rows[k].L!=null?'line '+(fbkP.rows[k].L+1):'an added point'}`);return;}}
   hud(`"${q}" not found`);}
 (function wireFbkPanel(){
+  // the canvas swallows focus (preventDefault on pointerdown) so blur alone isn't enough:
+  // any press outside the line being edited applies it
+  document.addEventListener('pointerdown',e=>{if(fbkP.editK<0)return;const ed=$('fbkRowEd');
+    if(ed&&(e.target===ed))return;fbkPanelCommit();},true);
   $('fbkPanelBtn').onclick=()=>fbkP.open?closeFbkPanel():openFbkPanel();
   $('fbkPanelClose').onclick=closeFbkPanel;
   const body=$('fbkPanelBody');
@@ -3925,7 +3934,8 @@ function fbkTextTick(){
   const key=fbkPanelSelKey()+'|'+selSet.size;
   if(key!==fbkP.selKey){fbkP.selKey=key;const first=fbkPanelHlFromSel();
     if(first>=0&&$('fbkPanelFollow').checked&&!fbkP.textDirty)fbkTextScrollToRow(first);}}
-function fbkTextEnter(){if(fbkP.text)return;fbkP.editK=-1;fbkP.text=true;
+function fbkTextEnter(){if(fbkP.text)return;
+  if(fbkP.editK>=0){fbkPanelCommit();if(fbkP.editK>=0)return;}fbkP.text=true;
   $('fbkPanel').classList.add('text');$('fbkPanelTextBtn').textContent='☰ Back to list';$('fbkPanelTextBtn').classList.add('gold');
   fbkTextFill(false);fbkP.selKey=null;fbkTextTick();
   const ta=$('fbkPanelTA');ta.focus({preventScroll:true});}
@@ -4054,7 +4064,11 @@ function applyFbk(){if(!fbkCtx)return;saveState();const lines=$('fbkTA').value.s
   if(n)logEdit('code',`FBK edit: ${n} line(s) updated on figure`);
   if(bad)logEdit('del',`${bad} line(s) not valid F1/F2 VA — skipped`);
   buildLinework();draw();const f=getFig(fbkCtx.id);if(f)inspectFig(f);flagDirty();closeFbk();}
+function fbkModalDirty(){if(!fbkCtx)return false;return $('fbkTA').value!==fbkCtx.pts.map(p=>displayLine(p)).join('\n');}
 function closeFbk(){$('fscrim').classList.remove('show');fbkCtx=null;}
+/* build 120: Esc / Cancel / a backdrop click (incl. a text-selection drag that ended outside the
+   box) used to throw away everything typed with no warning — now ask first */
+function cancelFbk(){if(fbkModalDirty()&&!confirm('Discard your changes to these FBK lines?\n\nOK = discard · Cancel = keep editing (Apply or Ctrl+Enter saves)'))return;closeFbk();}
 function moveTo(p,E,N){const S=PTS.find(c=>c.kind==='ctrl'&&c.id===p.stn);if(!S)return;
   saveState();
   const hd=Math.hypot(N-S.N,E-S.E),az=(Math.atan2(E-S.E,N-S.N)*180/Math.PI+360)%360;
@@ -4067,8 +4081,17 @@ function logEdit(type,msg){log.push({type,msg});$('logn').textContent=log.length
   const d=document.createElement('div');d.className='le '+type;
   d.innerHTML=msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);}
 function flagDirty(){$('dlBtn').classList.add('gold');$('dlRawBtn').classList.add('gold');}
-function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
-  let ln=RAW[p.srcLine];if(ln===undefined)return ln;
+/* Build 120: a line typed in an FBK code editor is kept verbatim (rawOverride) only while
+   the point still matches what that line says. Any later change to the point (drag-move,
+   Knockdown, inspector edit, UGW…) used to either be ignored (override returned verbatim,
+   so the later change vanished) or wipe the override and rebuild from the ORIGINAL file
+   line (so the typed edit vanished — e.g. a NEZ coordinate edit). Now a stale override is
+   used as the base line and the point's current fields are written into it. */
+function ptSig(p){return [p.id,p.ha,p.sd,p.za,p.N,p.E,p.Z,p.desc].join('|');}
+function finalLine(p){
+  if(p.rawOverride!==undefined&&(p.rawSig===undefined||p.rawSig===ptSig(p)))return p.rawOverride;
+  const fromOv=p.rawOverride!==undefined;
+  let ln=fromOv?p.rawOverride:RAW[p.srcLine];if(ln===undefined)return ln;
   // strip a REF_HIDE marker left over from an older (build 84-108) export so an
   // edited, previously-hidden REF point still tokenizes correctly (t[1]==='VA'
   // would otherwise miss, shifted by the marker token) — build 109 no longer
@@ -4093,7 +4116,8 @@ function finalLine(p){if(p.rawOverride!==undefined)return p.rawOverride;
     const outHa=flipped?(p.ha+180)%360:p.ha,outZa=flipped?(360-p.za)%360:p.za;
     t[3]=deg2dms(outHa);t[4]=p.sd.toFixed(3);t[5]=deg2dms(outZa);
     out=t.slice(0,6).join(' ')+' "'+p.desc+'"';}
-  else out=body.replace(/"([^"]*)"/,`"${p.desc}"`);
+  else if(t[0]==='NEZ'&&(fromOv||p.edited)&&t.length>=5)out=`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${p.desc}"`;
+  else out=/"([^"]*)"/.test(body)?body.replace(/"([^"]*)"/,`"${p.desc}"`):body;
   return out;}
 function addCodeToDesc(desc,code){const toks=(desc||'').split(/\s+/).filter(Boolean);
   return toks.some(t=>t.toUpperCase()===code)?desc:(desc?desc+' ':'')+code;}   // ensure the line carries the figure code
@@ -4587,15 +4611,16 @@ $('gotoCancel').onclick=closeGoto;
 $('gotoInput').onkeydown=e=>{if(e.key==='Enter')gotoPoint();if(e.key==='Escape')closeGoto();};
 $('scrim').onclick=e=>{if(e.target===$('scrim'))closeGoto();};
 $('fbkApply').onclick=applyFbk;
-$('fbkCancel').onclick=closeFbk;
+$('fbkCancel').onclick=cancelFbk;
 $('fbkKdToggle').onclick=()=>{showPreKd=!showPreKd;
   $('fbkKdToggle').classList.toggle('gold',showPreKd);
   $('fbkKdToggle').textContent=showPreKd?'⚙ Show knockdown offsets':'⏮ Show codes (before knockdown)';
   fillFbkTA();};
-$('fscrim').onclick=e=>{if(e.target===$('fscrim'))closeFbk();};
+{let downOnScrim=false;$('fscrim').addEventListener('mousedown',e=>{downOnScrim=e.target===$('fscrim');});
+ $('fscrim').onclick=e=>{if(e.target===$('fscrim')&&downOnScrim)cancelFbk();downOnScrim=false;};}
 $('fbkTA').addEventListener('input',syncHL);
 $('fbkTA').addEventListener('scroll',()=>{$('fbkHL').scrollTop=$('fbkTA').scrollTop;$('fbkHL').scrollLeft=$('fbkTA').scrollLeft;});
-$('fbkTA').addEventListener('keydown',e=>{if(e.key==='Escape')closeFbk();
+$('fbkTA').addEventListener('keydown',e=>{if(e.key==='Escape')cancelFbk();
   if((e.ctrlKey||e.metaKey)&&e.key==='Enter')applyFbk();});
 $('tCircle').onclick=()=>{circleTool={centerPt:-1};openCircleTool();};
 $('circleCancel').onclick=closeCircleTool;
