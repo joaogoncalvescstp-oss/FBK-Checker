@@ -256,6 +256,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
     <button class="btn ghost" id="refKdBtn" disabled title="Single-point REF knockdown: click the RBCB point, then click ANY point to set the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Replaces only the curb's own H/V/code — every other code on the point is left alone. Works in 2D or 3D.">🎯 REF Knockdown (1 pt)</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
+    <button class="btn ghost" id="dupBtn" disabled title="Check for duplicate point numbers: lists every point # used by more than one live point, keeps the first one in file order, proposes the next free number for the others (editable), or delete a true duplicate shot — nothing changes until Apply">🔢 Dup #</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
@@ -265,7 +266,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -424,6 +425,24 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 </div>
 
 <!-- UGW→CPN pairing review -->
+<div class="scrim" id="dupScrim">
+  <div class="modal wide">
+    <h4>Duplicate Point Numbers</h4>
+    <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
+      Each group below is one point # used by more than one live point. The first one in
+      file order (or the control point, if one is in the group) keeps its number; the others get the next free number (edit it if you want).
+      Tick <b>Delete</b> for a true duplicate shot. Nothing changes until <b>Apply</b>.
+    </div>
+    <div id="dupList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
+    <div id="dupMsg" style="font-size:11px;color:var(--mut);margin-top:6px"></div>
+    <div class="row">
+      <button class="btn ghost" id="dupAuto" title="Refill every renamed row with the next free numbers">Auto-number</button>
+      <button class="btn ghost" id="dupCancel">Cancel</button>
+      <button class="btn gold" id="dupApply">Apply</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim" id="ugwReviewScrim">
   <div class="modal wide">
     <h4>UGW → Pole Pairing Review</h4>
@@ -697,7 +716,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:123};
+const VERSION={fruit:'🍊',name:'ORANGE',build:124};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -863,7 +882,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','dupBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -1933,6 +1952,75 @@ function computeUgwPairs(){
     poles.forEach(u=>{const d=Math.hypot(u.E-p.E,u.N-p.N);if(d<bd){bd=d;best=u;}});
     return {i,targetId:best?best.id:'',auto:best?best.id:null};});
 }
+/* ---- Duplicate point numbers (build 124) ---- */
+let dupCtx=null;
+function dupSetupIds(){const s=new Set();RAW.forEach(ln=>{const t=(ln||'').trim().split(/\s+/);if((t[0]==='STN'||t[0]==='BS')&&t[1])s.add(t[1]);});return s;}
+function findDupGroups(){const m=new Map();
+  PTS.forEach((p,i)=>{if(p.deleted)return;const k=String(p.id).trim();(m.get(k)||m.set(k,[]).get(k)).push(i);});
+  const ord=i=>{const p=PTS[i];return p.srcLine>=0?p.srcLine:1e9+i;};
+  return [...m.entries()].filter(([,a])=>a.length>1).map(([id,a])=>({id,idx:a.sort((x,y)=>ord(x)-ord(y))}))
+    .sort((a,b)=>numCmp(a.id,b.id));}
+function dupAutoNumber(){if(!dupCtx)return;
+  const used=new Set(PTS.filter(p=>!p.deleted).map(p=>String(p.id)));
+  let n=parseInt(getNextPointNumber());
+  dupCtx.rows.forEach(r=>{if(r.keep||r.del)return;while(used.has(String(n)))n++;r.newId=String(n);used.add(r.newId);n++;});}
+function openDupCheck(){
+  if(!PTS.length){hud('load an FBK first');return;}
+  const groups=findDupGroups();
+  if(!groups.length){hud('no duplicate point numbers ✓');return;}
+  const setup=dupSetupIds(),cpnRef=new Set();
+  PTS.forEach(p=>{if(p.deleted)return;(p.desc||'').replace(/\b[CR]PN\s*(\d+)\b/gi,(_,n)=>cpnRef.add(n));});
+  const rows=[];
+  groups.forEach((g,gi)=>{
+    // exactly one keeper per group: the first control point (STN/BS lines refer to it by #), else the first in file order
+    const keeper=g.idx.find(i=>PTS[i].kind==='ctrl')??g.idx[0];
+    g.idx.forEach(i=>{const p=PTS[i];rows.push({g:gi,i,keep:i===keeper,del:false,newId:String(p.id),orig:String(p.id)});});});
+  dupCtx={groups,rows,setup,cpnRef};
+  dupAutoNumber();
+  $('dupScrim').classList.add('show');renderDupList();
+  hud(`${groups.length} duplicate point # — review, then Apply`);}
+function dupValidate(){const r=dupCtx.rows,bad=new Set();
+  const final=new Map();
+  PTS.forEach((p,i)=>{if(!p.deleted)final.set(i,String(p.id));});
+  r.forEach(x=>{if(x.del)final.delete(x.i);else final.set(x.i,x.newId.trim());});
+  const cnt=new Map();final.forEach(v=>cnt.set(v,(cnt.get(v)||0)+1));
+  r.forEach((x,ri)=>{if(x.del)return;const v=x.newId.trim();if(!v||/\s/.test(v)||cnt.get(v)>1)bad.add(ri);});
+  return bad;}
+function renderDupList(){const c=dupCtx,box=$('dupList');
+  const esc=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  box.innerHTML=c.groups.map((g,gi)=>{
+    const notes=[];if(c.setup.has(g.id))notes.push('used as STN/BS setup');if(c.cpnRef.has(g.id))notes.push('referenced by CPN/RPN');
+    const rowsH=c.rows.map((r,ri)=>({r,ri})).filter(o=>o.r.g===gi).map(({r,ri})=>{const p=PTS[r.i];
+      return `<div class="fbk" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font:600 11px var(--mono);color:var(--mut);min-width:64px">${p.srcLine>=0?'line '+(p.srcLine+1):'added'}</span>
+        <span style="font-size:11px;min-width:34px">${p.kind}</span>
+        <span style="font:11px var(--mono);flex:1;min-width:140px">"${esc(p.desc||'')}" · N ${p.N.toFixed(2)} E ${p.E.toFixed(2)} Z ${p.Z.toFixed(2)}</span>
+        <button class="vb" data-act="dupzoom" data-row="${ri}" title="Zoom to this point">⌖</button>
+        <label style="margin:0;font-size:11px;color:var(--mut)">New #</label>
+        <input type="text" class="dupId" data-row="${ri}" value="${esc(r.newId)}" ${r.del?'disabled':''} style="width:80px;background:#13213f;color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:3px 6px;font:600 12px var(--mono)">
+        <label style="margin:0;font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" class="dupDel" data-row="${ri}" ${r.del?'checked':''}>Delete</label>
+        ${p.kind==='ctrl'&&r.newId!==r.orig?'<span style="font-size:10px;color:#ff8a7a">control pt — setups may refer to it</span>':''}
+      </div>`;}).join('');
+    return `<div class="vrow"><div class="vhd"><span class="vpt">pt ${esc(g.id)} ×${g.idx.length}</span>${notes.length?`<span style="font-size:10px;color:#ffb35c">${notes.join(' · ')} — keep the right one</span>`:''}</div>${rowsH}</div>`;}).join('');
+  box.querySelectorAll('.dupId').forEach(inp=>inp.oninput=()=>{dupCtx.rows[+inp.dataset.row].newId=inp.value;dupMark();});
+  box.querySelectorAll('.dupDel').forEach(ch=>ch.onchange=()=>{const r=dupCtx.rows[+ch.dataset.row];r.del=ch.checked;if(!r.del&&r.newId.trim()==='')r.newId=r.orig;renderDupList();});
+  box.querySelectorAll('[data-act="dupzoom"]').forEach(b=>b.onclick=()=>{const i=dupCtx.rows[+b.dataset.row].i;if(is3D)setMode('sel');zoomToPoint(i);});
+  dupMark();}
+function dupMark(){const bad=dupValidate();
+  $('dupList').querySelectorAll('.dupId').forEach(inp=>{inp.style.borderColor=bad.has(+inp.dataset.row)?'#ff6b5a':'var(--rule)';});
+  const ch=dupCtx.rows.filter(r=>r.del||r.newId.trim()!==r.orig).length;
+  $('dupApply').disabled=bad.size>0||!ch;
+  $('dupMsg').textContent=bad.size?`${bad.size} number(s) still clash or are blank (red) — fix before Apply`:`${ch} change(s) ready`;}
+function closeDupCheck(){dupCtx=null;$('dupScrim').classList.remove('show');}
+function applyDupCheck(){if(!dupCtx||dupValidate().size)return;
+  const ch=dupCtx.rows.filter(r=>r.del||r.newId.trim()!==r.orig);if(!ch.length){closeDupCheck();return;}
+  saveState();let ren=0,del=0;
+  ch.forEach(r=>{const p=PTS[r.i];
+    if(r.del){p.deleted=true;p.edited=true;del++;logEdit('del',`pt ${p.id} line ${p.srcLine+1} deleted (duplicate #)`);}
+    else{const nid=r.newId.trim();logEdit('code',`pt ${p.id} line ${p.srcLine+1}: duplicate # → ${nid}`);p.id=nid;p.edited=true;ren++;}});
+  closeDupCheck();buildLinework();draw();if(sel>=0)inspect();flagDirty();
+  hud(`duplicates fixed: ${ren} renumbered, ${del} deleted`);}
+
 function openUgwCpnReview(){
   if(!PTS.length){hud('load an FBK first');return;}
   ugwReviewRows=computeUgwPairs();
@@ -2359,7 +2447,7 @@ function importCSV(text){
   buildLinework();
   if(wasEmpty){
     $('jobpill').textContent='CSV import';
-    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','dupBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
     is3D=false;setMode('sel');fit();
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
@@ -4751,6 +4839,11 @@ $('kdSetStdBtn').onclick=()=>kdReviewSetChoice('std');
 $('kdReviewScrim').onclick=e=>{if(e.target===$('kdReviewScrim'))closeKdReview();};
 $('unkdReportScrim').onclick=e=>{if(e.target===$('unkdReportScrim'))closeUnKdReport();};
 $('ugwCpnBtn').onclick=openUgwCpnReview;
+$('dupBtn').onclick=openDupCheck;
+$('dupAuto').onclick=()=>{dupAutoNumber();renderDupList();};
+$('dupCancel').onclick=closeDupCheck;
+$('dupApply').onclick=applyDupCheck;
+$('dupScrim').onclick=e=>{if(e.target===$('dupScrim'))closeDupCheck();};
 $('simplCogoBtn').onclick=()=>{if(!$('simplCogoBtn').disabled)openSimplCogoDialog();};
 $('undoBtn').onclick=performUndo;
 $('redoBtn').onclick=performRedo;
@@ -4801,6 +4894,7 @@ $('zpickUse').onclick=()=>applyZPick(parseFloat($('zpickCustom').value));
 $('zpickCancel').onclick=closeZPick;
 $('zpickScrim').onclick=e=>{if(e.target===$('zpickScrim'))closeZPick();};
 window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&dupCtx){e.preventDefault();closeDupCheck();return;}
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);return;}
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
@@ -4837,6 +4931,7 @@ const HELP_TOOLBAR=[
   ['↶ Undo / ↷ Redo','Step edit history back/forward (Ctrl+Z / Ctrl+Y) — covers point moves, code edits, deletes, Knockdown, UGW→CPN, and inserts.'],
   ['⚙ Knockdown','Bake curb codes into real H/V offset coordinates. <b>RBCB</b> (back of curb) — a point with its own code gets that code\'s cross-section; a point with no code derives the reveal from the nearest <b>REF</b> point. <b>RCFL</b> (flow line) — only applies at points that carry their own curb code.'],
   ['🎯 REF Knockdown (1 pt)','One curb point at a time: click the RBCB point, click <b>any</b> point for the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Clears and replaces only that curb\'s H/V/code — other codes on the point stay as they are.'],
+  ['🔢 Dup #','Check for duplicate point numbers. Lists each point # used by more than one live point; the first in file order keeps it, the others get the next free number (editable), or tick Delete for a true duplicate shot. Nothing changes until Apply.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
   ['↓ Export FBK','Write the current points/edits back out as a field-book file.'],
