@@ -179,7 +179,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   font:12px/18px var(--mono);white-space:pre;overflow:auto;padding:4px 8px;tab-size:4}
 #fbkPanelTA::selection{background:rgba(241,180,52,.3)}
 .fbkPanel.text #fbkPanelTA{display:block}
-.fbkPanel.text #fbkPanelBody,.fbkPanel.text #fbkPanelFind,.fbkPanel.text #fbkPanelFootList{display:none}
+.fbkPanel.text #fbkPanelBody,.fbkPanel.text #fbkPanelFootList{display:none}
+/* build 121 — go to line + current-line band in text mode */
+#fbkPanelGoto{width:64px}
+#fbkPanelTAHL{position:absolute;left:0;right:0;height:18px;background:rgba(241,180,52,.16);box-shadow:inset 3px 0 0 var(--gold);pointer-events:none;display:none;z-index:0}
+.fbkPanel.text #fbkPanelTAHL.on{display:block}
+.fbkPanel.text #fbkPanelTA{position:relative;z-index:1;background:transparent}
+.fbkPanel.text{background:#0a1426}
 #fbkPanelFootText{display:none;align-items:center;gap:6px;flex-wrap:wrap}
 .fbkPanel.text #fbkPanelFootText{display:flex}
 #fbkPanelFootText button,#fbkPanelTextBtn{background:none;border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:2px 8px;cursor:pointer;font:12px var(--mono)}
@@ -259,7 +265,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -658,10 +664,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 <div class="fbkPanel" id="fbkPanel">
   <div class="fbkPanelHead" id="fbkPanelHead"><span>📜 FBK code</span><span class="info" id="fbkPanelInfo"></span>
     <input type="text" id="fbkPanelFind" placeholder="find… (Enter = next)">
+    <input type="text" id="fbkPanelGoto" inputmode="numeric" placeholder="line #" title="Go to line (Ctrl+G): type a line number and press Enter — jumps there and, on a point line, selects that point and zooms the map to it">
     <label title="Scroll to the selected point's line"><input type="checkbox" id="fbkPanelFollow" checked>follow</label>
     <button id="fbkPanelTextBtn" title="Edit the whole file as plain text, like Notepad — type, paste, add or delete lines, then Apply (Ctrl+S)">✎ Edit as text</button>
     <button id="fbkPanelClose" title="Close">✕</button></div>
   <div class="fbkPanelBody" id="fbkPanelBody"><div class="fbkPanelSpacer" id="fbkPanelSpacer"></div></div>
+  <div id="fbkPanelTAHL"></div>
   <textarea id="fbkPanelTA" spellcheck="false" autocomplete="off" wrap="off"></textarea>
   <div class="fbkPanelFoot" id="fbkPanelFoot"><span id="fbkPanelFootList">click a line → select that point · double-click to edit · Enter apply · Esc cancel · drag header to move, corner to resize</span>
     <span id="fbkPanelFootText"><span id="fbkPanelTextStat"></span><button id="fbkPanelTextRevert" title="Throw away unapplied typing and reload the current file text">Revert</button><button class="gold" id="fbkPanelTextApply" title="Apply your text changes (Ctrl+S)">Apply (Ctrl+S)</button></span></div>
@@ -673,7 +681,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:120};
+const VERSION={fruit:'🍑',name:'PEACH',build:121};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -3891,7 +3899,8 @@ function fbkPanelFind(){const q=$('fbkPanelFind').value.trim().toLowerCase();if(
     if(r.pi!=null){sel=r.pi;selFig=null;selSet.clear();fbkP.selKey=fbkPanelSelKey()+'|0';inspect();zoomToPoint(r.pi);
       hud(`pt ${PTS[r.pi].id} — line ${r.L!=null?r.L+1:'(added)'}`);}
     else fbkPanelRender();});
-  $('fbkPanelFind').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();fbkPanelFind();}else if(e.key==='Escape')e.target.blur();});
+  $('fbkPanelFind').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();fbkP.text?fbkTextFind():fbkPanelFind();}else if(e.key==='Escape')e.target.blur();});
+  $('fbkPanelGoto').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();fbkPanelGoto();}else if(e.key==='Escape')e.target.blur();});
   // drag the panel by its header
   const head=$('fbkPanelHead'),pan=$('fbkPanel');let dr=null;
   head.addEventListener('pointerdown',e=>{if(/^(INPUT|BUTTON|LABEL)$/.test(e.target.tagName))return;
@@ -3929,11 +3938,46 @@ function fbkTextStatus(msg){const el=$('fbkPanelTextStat'),n=$('fbkPanelTA').val
   el.textContent=msg||(`${n} lines`+(fbkP.textDirty?' · ● modified — Apply to save':' · no changes'));}
 function fbkTextScrollToRow(k){const ta=$('fbkPanelTA');if(k<0)return;const top=k*18;
   if(top<ta.scrollTop+18||top>ta.scrollTop+ta.clientHeight-36)ta.scrollTop=Math.max(0,top-ta.clientHeight/2);}
+/* build 121 — select a whole line in the text box and keep a highlight band on it */
+function fbkTextLineRange(v,k){let a=0;for(let i=0;i<k;i++){const j=v.indexOf('\n',a);if(j<0)return null;a=j+1;}
+  let b=v.indexOf('\n',a);if(b<0)b=v.length;return [a,b];}
+function fbkTextCaretRow(){const ta=$('fbkPanelTA');return ta.value.slice(0,ta.selectionStart).split('\n').length-1;}
+function fbkTextHL(k){const ta=$('fbkPanelTA'),hl=$('fbkPanelTAHL');if(k==null)k=fbkP.textHLRow;
+  fbkP.textHLRow=k;if(k==null||k<0){hl.classList.remove('on');return;}
+  hl.style.top=(ta.offsetTop+4+k*18-ta.scrollTop)+'px';
+  const vis=k*18-ta.scrollTop>-18&&k*18-ta.scrollTop<ta.clientHeight;hl.classList.toggle('on',vis);}
+function fbkTextSelectRow(k,focus){const ta=$('fbkPanelTA');const r=fbkTextLineRange(ta.value,k);if(!r)return false;
+  if(focus)ta.focus({preventScroll:true});try{ta.setSelectionRange(r[0],r[1]);}catch(_){}
+  fbkTextScrollToRow(k);fbkTextHL(k);return true;}
+/* the text row under the caret → select that point and jump the map to it */
+function fbkTextPickRow(k,quiet){if(!fbkP.textRows)return;fbkTextHL(k);
+  if($('fbkPanelTA').value.split('\n').length!==fbkP.textRows.length){if(!quiet)hud(`line ${k+1} — lines were added/removed: Apply first to link lines to points`);return;}
+  const r=fbkP.textRows[k];
+  if(!r||r.pi==null||!PTS[r.pi]){if(!quiet)hud(`line ${k+1}`);return;}
+  if(sel===r.pi&&quiet)return;
+  sel=r.pi;selFig=null;selSet.clear();fbkP.selKey=fbkPanelSelKey()+'|0';inspect();zoomToPoint(r.pi);
+  hud(`pt ${PTS[r.pi].id} — line ${k+1}`);}
+function fbkPanelGoto(){const n=parseInt($('fbkPanelGoto').value,10);
+  const total=fbkP.text?$('fbkPanelTA').value.split('\n').length:fbkP.rows.length;
+  if(!(n>=1)||!total){hud('type a line number');return;}
+  const k=Math.min(n,total)-1;
+  if(fbkP.text){fbkTextSelectRow(k,true);fbkTextPickRow(k,false);return;}
+  fbkP.cur=k;fbkPanelScrollTo(k);const r=fbkP.rows[k];
+  if(r&&r.pi!=null&&PTS[r.pi]){sel=r.pi;selFig=null;selSet.clear();fbkP.selKey=fbkPanelSelKey()+'|0';inspect();zoomToPoint(r.pi);
+    hud(`pt ${PTS[r.pi].id} — line ${k+1}`);}
+  else{fbkPanelRender();hud(`line ${k+1}`);}}
+/* find in text mode: select the next match after the caret */
+function fbkTextFind(){const q=$('fbkPanelFind').value.trim().toLowerCase();if(!q)return;
+  const ta=$('fbkPanelTA'),v=ta.value.toLowerCase();let i=v.indexOf(q,ta.selectionEnd);if(i<0)i=v.indexOf(q);
+  if(i<0){hud(`"${q}" not found`);return;}
+  ta.focus({preventScroll:true});ta.setSelectionRange(i,i+q.length);
+  const k=ta.value.slice(0,i).split('\n').length-1;fbkTextScrollToRow(k);fbkTextHL(k);hud(`found "${q}" on line ${k+1}`);}
 function fbkTextTick(){
   if(fbkP.stale&&!fbkP.textDirty)fbkTextFill(true);else if(fbkP.stale)fbkPanelBuild();
   const key=fbkPanelSelKey()+'|'+selSet.size;
   if(key!==fbkP.selKey){fbkP.selKey=key;const first=fbkPanelHlFromSel();
-    if(first>=0&&$('fbkPanelFollow').checked&&!fbkP.textDirty)fbkTextScrollToRow(first);}}
+    if(first>=0&&$('fbkPanelFollow').checked&&!fbkP.textDirty){
+      if(document.activeElement!==$('fbkPanelTA'))fbkTextSelectRow(first,false);else{fbkTextScrollToRow(first);fbkTextHL(first);}}}}
 function fbkTextEnter(){if(fbkP.text)return;
   if(fbkP.editK>=0){fbkPanelCommit();if(fbkP.editK>=0)return;}fbkP.text=true;
   $('fbkPanel').classList.add('text');$('fbkPanelTextBtn').textContent='☰ Back to list';$('fbkPanelTextBtn').classList.add('gold');
@@ -3984,14 +4028,15 @@ function fbkTextApply(){if(!fbkP.text)return;
   ta.addEventListener('input',()=>{if(!fbkP.textDirty){fbkP.textDirty=true;}fbkTextStatus();});
   ta.addEventListener('keydown',e=>{e.stopPropagation();
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();fbkTextApply();}
+    else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='g'){e.preventDefault();const g=$('fbkPanelGoto');g.value=fbkTextCaretRow()+1;g.focus();g.select();}
+    else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'){e.preventDefault();$('fbkPanelFind').focus();$('fbkPanelFind').select();}
     else if(e.key==='Tab'){e.preventDefault();const a=ta.selectionStart,b=ta.selectionEnd;ta.setRangeText('\t',a,b,'end');ta.dispatchEvent(new Event('input'));}});
-  // click a line → select its point on the map (only while line numbers still line up)
-  ta.addEventListener('click',()=>{if(!fbkP.textRows)return;
-    const v=ta.value;if(v.split('\n').length!==fbkP.textRows.length)return;
-    const k=v.slice(0,ta.selectionStart).split('\n').length-1,r=fbkP.textRows[k];
-    if(!r||r.pi==null||!PTS[r.pi])return;
-    sel=r.pi;selFig=null;selSet.clear();fbkP.selKey=fbkPanelSelKey()+'|0';inspect();
-    flash={i:r.pi,t0:performance.now()};draw();hud(`pt ${PTS[r.pi].id} — line ${k+1}`);});
+  // click a line → select its point and jump the map to it; moving the caret with the
+  // arrow / Page keys follows along (only while line numbers still line up with points)
+  ta.addEventListener('click',()=>fbkTextPickRow(fbkTextCaretRow(),false));
+  let kt=0;ta.addEventListener('keyup',e=>{if(!/^(ArrowUp|ArrowDown|PageUp|PageDown|Home|End)$/.test(e.key)){fbkTextHL(fbkTextCaretRow());return;}
+    clearTimeout(kt);kt=setTimeout(()=>fbkTextPickRow(fbkTextCaretRow(),true),200);});
+  ta.addEventListener('scroll',()=>fbkTextHL());
 })();
 
 /* ---------- movable pop-ups and toolboxes (build 117) ----------
