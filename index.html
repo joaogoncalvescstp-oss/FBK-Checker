@@ -80,6 +80,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .snapbox label.active{background:rgba(53,193,132,.24);color:#9ff0c8}
 .snapbox input{width:13px;height:13px;cursor:pointer}
 .labelbox{left:64px;right:auto;bottom:44px}
+/* build 117 — movable pop-ups and toolboxes (makeDraggable) */
+.dragHandle{cursor:move;touch-action:none;user-select:none;-webkit-user-select:none}
+.snapbox .sbTitle.dragHandle{pointer-events:auto}
+.dragGrip{display:flex;align-items:center;justify-content:center;color:var(--gold-dim);font:700 13px var(--mono);line-height:1;padding:2px 0;flex-shrink:0}
+.tools .dragGrip{background:rgba(7,11,22,.72);border:1px solid var(--rule);border-radius:6px;height:16px}
 .vex input{width:130px;accent-color:var(--gold)}
 .side{background:var(--panel);border-left:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
 .side h3{font:700 10px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--gold);padding:12px 14px 8px;border-bottom:1px solid var(--rule)}
@@ -242,7 +247,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -251,6 +256,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <canvas id="cv"></canvas>
       <div class="zwbox" id="zwbox"></div>
       <div class="tools">
+        <div class="dragGrip" id="toolsGrip" title="Drag to move the tool column · double-click to put it back">⠿</div>
         <button class="tool on" id="tSel" title="Select / edit (V)"><span>▦</span><span class="sub">SEL</span></button>
         <button class="tool" id="tMove" title="Move point — rewrites HA/SD (M)"><span>✥</span><span class="sub">MOVE</span></button>
         <button class="tool" id="tPan" title="Pan (space-drag)"><span>✋</span><span class="sub">PAN</span></button>
@@ -292,7 +298,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         </div>
       </div>
       <div class="vex" id="vex">
-        <span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
+        <span class="dragGrip" id="vexGrip" title="Drag to move · double-click to put it back">⠿</span><span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
         <span id="vexV">3×</span><span style="color:var(--gold-dim)">·</span><span id="orbHint">drag orbit (re-centers on click) · wheel zoom · shift-drag or middle-drag pan</span>
       </div>
       <div class="hud" id="hud">load a .fbk to begin</div>
@@ -597,6 +603,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <li><b>3D (⟲ Orbit)</b> shows the survey by elevation — drag to orbit (it re-centers on whatever you click, so a far corner of a large site orbits smoothly instead of swinging wildly), wheel to zoom toward the cursor, Shift-drag <i>or</i> middle-mouse-drag to pan, and the <b>VERT EXAG</b> slider exaggerates elevation differences. <b>⊡ Fit</b> always resets to the whole-survey view. Clicking a point or line opens the same editable Inspector/figure editor as 2D — only dragging to move a point, and clicking to insert a brand-new one, still need a 2D tool.</li>
         <li><b>🗺 MAP</b> toggles an aerial imagery background (2D only) — county imagery with an Esri/USGS fallback chain.</li>
         <li><b>🏷 Labels</b> lets you choose whether each point shows its number, code, elevation (any combination) and at what text size.</li>
+        <li><b>Moving panels:</b> every pop-up dialog drags by its title bar, and the tool column (⠿ grip), legend, OSNAP box, Labels box and 3D VERT EXAG bar (⠿ grip) drag anywhere in the drawing area. Double-click the title/grip to put it back. The 📜 FBK code panel drags by its header.</li>
       </ul>
     </div>
 
@@ -650,7 +657,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:116};
+const VERSION={fruit:'🍌',name:'BANANA',build:117};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -3822,6 +3829,47 @@ function fbkPanelFind(){const q=$('fbkPanelFind').value.trim().toLowerCase();if(
   const endDr=()=>{dr=null;};head.addEventListener('pointerup',endDr);head.addEventListener('pointercancel',endDr);
 })();
 let fbkCtx=null;
+/* ---------- movable pop-ups and toolboxes (build 117) ----------
+   makeDraggable(el,handle,container): drag `handle` to move `el`. Uses the CSS
+   `translate` property, so it stacks on top of whatever transform/position the
+   element already has (centered dialogs, the vert-exag bar's translateX(-50%)).
+   Clicks on buttons/inputs/labels inside the handle still work normally.
+   The element is kept fully inside its container (viewport for dialogs, the
+   canvas area for toolboxes) so its buttons stay reachable. Double-click the handle to put
+   it back. Positions last for the session; a dialog reopens where you left it. */
+function makeDraggable(el,handle,contFn){
+  if(!el||!handle||el.dataset.drag)return;el.dataset.drag='1';
+  handle.classList.add('dragHandle');
+  if(!handle.title)handle.title='Drag to move · double-click to put it back';
+  const skip=e=>e.target!==handle&&e.target.closest('button,input,select,textarea,label,a');
+  let d=null;
+  handle.addEventListener('pointerdown',e=>{
+    if(e.button!==0||skip(e))return;
+    const t=(el.style.translate||'0px 0px').split(/\s+/).map(parseFloat);
+    d={x0:e.clientX,y0:e.clientY,tx:t[0]||0,ty:t[1]||0,r:el.getBoundingClientRect(),c:contFn()};
+    try{handle.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();e.stopPropagation();});
+  handle.addEventListener('pointermove',e=>{if(!d)return;
+    const r=d.r,c=d.c;
+    // keep the whole panel inside its container (so its buttons stay reachable);
+    // a panel bigger than the container just keeps its top-left corner inside
+    const L=Math.min(Math.max(r.left+e.clientX-d.x0,c.left),Math.max(c.left,c.right-r.width));
+    const T=Math.min(Math.max(r.top+e.clientY-d.y0,c.top),Math.max(c.top,c.bottom-r.height));
+    el.style.translate=`${d.tx+L-r.left}px ${d.ty+T-r.top}px`;});
+  const end=()=>{d=null;};
+  handle.addEventListener('pointerup',end);handle.addEventListener('pointercancel',end);
+  handle.addEventListener('dblclick',e=>{if(skip(e))return;el.style.translate='';});}
+(function wireDraggables(){
+  const vp=()=>({left:0,top:0,right:innerWidth,bottom:innerHeight});
+  const stage=()=>document.querySelector('.stage').getBoundingClientRect();
+  document.querySelectorAll('.scrim .modal').forEach(m=>{const h=m.querySelector('h4');if(h)makeDraggable(m,h,vp);});
+  const tools=document.querySelector('.tools');makeDraggable(tools,$('toolsGrip'),stage);
+  makeDraggable($('legend'),$('legend'),stage);
+  makeDraggable($('snapBox'),$('snapBox').querySelector('.sbTitle'),stage);
+  makeDraggable($('labelBox'),$('labelBox').querySelector('.sbTitle'),stage);
+  makeDraggable($('vex'),$('vexGrip'),stage);
+})();
+
 /* The line to SHOW in the review/edit window for a point: the original curb code
    (pre-knockdown) when the toggle is on and the point was knocked down, else the
    current line. Apply uses the same baseline so an untouched toggle is a no-op. */
