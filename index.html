@@ -146,6 +146,29 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .t-kw{color:#f0b429;font-weight:700} .t-num{color:#7fb3ff} .t-str{color:#5a7a4a}
 .t-code{color:#35c184;font-weight:600} .t-mod{color:#ff8f5d;font-weight:700}
 .t-rev{color:#bf8fff} .t-cmt{color:#566} 
+/* build 116 — floating FBK code panel */
+.fbkPanel{position:fixed;top:64px;right:336px;width:min(560px,94vw);height:min(380px,60vh);min-width:260px;min-height:160px;
+  display:none;flex-direction:column;background:#0a1426;border:1px solid var(--rule);border-radius:8px;
+  box-shadow:0 10px 32px rgba(0,0,0,.55);z-index:15;resize:both;overflow:hidden}
+.fbkPanel.show{display:flex}
+.fbkPanelHead{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--panel);border-bottom:1px solid var(--rule);
+  cursor:move;user-select:none;font:600 12px var(--mono);color:var(--ink);flex-wrap:wrap}
+.fbkPanelHead .info{color:var(--mut);font-weight:400}
+.fbkPanelHead input[type=text]{flex:1;min-width:90px;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:3px 6px;font:12px var(--mono)}
+.fbkPanelHead label{color:var(--mut);font-weight:400;display:flex;align-items:center;gap:3px;cursor:pointer}
+.fbkPanelHead button{background:none;border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:2px 7px;cursor:pointer;font:12px var(--mono)}
+.fbkPanelBody{flex:1;overflow:auto;position:relative}
+.fbkPanelSpacer{position:relative;min-width:100%}
+.fbkRow{position:absolute;left:0;right:0;height:18px;font:12px/18px var(--mono);white-space:pre;color:#cfe0ff;cursor:default;padding-right:10px}
+.fbkRow.pt{cursor:pointer}
+.fbkRow:hover{background:rgba(127,179,255,.08)}
+.fbkRow.on{background:rgba(241,180,52,.2);box-shadow:inset 3px 0 0 var(--gold)}
+.fbkRow.cur{box-shadow:inset 3px 0 0 #7fb3ff}
+.fbkRow.del{opacity:.45;text-decoration:line-through}
+.fbkRow .g{display:inline-block;width:52px;text-align:right;padding-right:8px;color:#4a5d80;user-select:none}
+.fbkRow.ed .g{color:var(--gold)}
+.fbkRow input{font:12px var(--mono);background:#13213d;color:var(--ink);border:1px solid var(--gold);border-radius:3px;padding:0 4px;height:17px;width:calc(100% - 64px);box-sizing:border-box}
+.fbkPanelFoot{padding:4px 8px;border-top:1px solid var(--rule);font:11px var(--mono);color:var(--mut)}
 .modal input{width:100%;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:9px 11px;font:14px var(--mono);text-align:center;letter-spacing:.05em}
 .modal input:focus{outline:none;border-color:var(--gold)}
 .modal .hint{font:11px var(--mono);color:var(--mut);margin-top:8px;min-height:14px}
@@ -179,6 +202,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .sideScrim{display:none}
 .sideClose{display:none}
 @media(max-width:840px){
+  .fbkPanel{right:3vw;top:56px}
   .main{grid-template-columns:1fr}
   .side{position:fixed;top:0;right:0;bottom:0;width:min(340px,88vw);z-index:12;
     transform:translateX(100%);transition:transform .22s ease;box-shadow:-8px 0 24px rgba(0,0,0,.4)}
@@ -214,10 +238,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
     <button class="btn ghost" id="dlDxfBtn" disabled title="Export a DXF drawing: points + labels, all figure linework (curves/circles/jogs rendered exactly as drawn on screen), standalone CTR circles, CPN/RPN tie lines, and the curb offset cross-section lane lines">↓ Export DXF</button>
+    <button class="btn ghost" id="fbkPanelBtn" title="Floating FBK code panel: every line of the loaded file (with your edits). Selecting a point on the canvas scrolls to and highlights its line; click a line to select that point; double-click a line to edit it (Enter applies, Esc cancels).">📜 FBK code</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -610,6 +635,14 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   </div>
 </div>
 
+<div class="fbkPanel" id="fbkPanel">
+  <div class="fbkPanelHead" id="fbkPanelHead"><span>📜 FBK code</span><span class="info" id="fbkPanelInfo"></span>
+    <input type="text" id="fbkPanelFind" placeholder="find… (Enter = next)">
+    <label title="Scroll to the selected point's line"><input type="checkbox" id="fbkPanelFollow" checked>follow</label>
+    <button id="fbkPanelClose" title="Close">✕</button></div>
+  <div class="fbkPanelBody" id="fbkPanelBody"><div class="fbkPanelSpacer" id="fbkPanelSpacer"></div></div>
+  <div class="fbkPanelFoot" id="fbkPanelFoot">click a line → select that point · double-click to edit · Enter apply · Esc cancel · drag header to move, corner to resize</div>
+</div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -617,7 +650,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:115};
+const VERSION={fruit:'🥝',name:'KIWI',build:116};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -638,6 +671,7 @@ function deg2dms(v){let neg=v<0;v=Math.abs(v)%360;let d=Math.floor(v);let mf=(v-
 
 /* ---------- state ---------- */
 let RAW=[], PTS=[], CODES={}, CONNECT=[];
+const fbkP={open:false,stale:true,rows:[],rowOfPt:new Map(),hl:new Set(),cur:-1,selKey:null,editK:-1,editVal:'',editCaret:0,raf:0,ver:0,sig:'',lastClick:{k:-1,t:0}};
 let view={x:0,y:0,s:1};                                  // 2D world->screen
 let orbit={az:0.6,el:1.0,s:1,ox:0,oy:0,ve:3,cx:0,cy:0,cz:0}; // 3D
 let is3D=false, mode='sel', sel=-1, selFig=null, log=[];
@@ -697,15 +731,15 @@ let zpickCtx=null;                                         // elevation-chooser 
 let undoStack=[], redoStack=[];                           // history for undo/redo
 function saveState(){
   redoStack=[];
-  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
+  undoStack.push({RAW:RAW.slice(),PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   if(undoStack.length>50)undoStack.shift();               // limit history to 50 states
   updateUndoRedoButtons();
 }
 function performUndo(){
   if(undoStack.length===0)return;
-  redoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
+  redoStack.push({RAW:RAW.slice(),PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   const state=undoStack.pop();
-  PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
+  if(state.RAW)RAW=state.RAW;PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
   sel=-1;selFig=null;selSet.clear();buildLinework();inspect();draw();
   $('logn').textContent=log.length;
   $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
@@ -713,9 +747,9 @@ function performUndo(){
 }
 function performRedo(){
   if(redoStack.length===0)return;
-  undoStack.push({PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
+  undoStack.push({RAW:RAW.slice(),PTS:JSON.parse(JSON.stringify(PTS)),figOrder:JSON.parse(JSON.stringify(figOrder)),figNEZ:JSON.parse(JSON.stringify(figNEZ)),log:JSON.parse(JSON.stringify(log))});
   const state=redoStack.pop();
-  PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
+  if(state.RAW)RAW=state.RAW;PTS=state.PTS;figOrder=state.figOrder;figNEZ=state.figNEZ||{};log=state.log;
   sel=-1;selFig=null;selSet.clear();buildLinework();inspect();draw();
   $('logn').textContent=log.length;
   $('logbox').innerHTML='';log.forEach(e=>{const d=document.createElement('div');d.className='le '+e.type;d.innerHTML=e.msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);});
@@ -1971,7 +2005,7 @@ function parseDesc(desc){const map={};let cur=null,pend=null,inJog=false;
       if(lastRt)m.rect=lastRt.v;                          // bare RECT with no value of its own → defaults to the LAST rt-turn leg's own distance (single-jog rectangle case)
       else if(!m.jogs.length)m.closeL=true;}}             // bare RECT with NO rt/x at all → close the plain 3-point L (prior-prior/prior/this) into a box off their own real geometry, no distance needed
   return map;}
-function buildLinework(){CODES={};CONNECT=[];
+function buildLinework(){fbkP.stale=true;CODES={};CONNECT=[];
   PTS.forEach((p,i)=>{if(p.deleted)return;            // shots AND coded NEZ/control points
     const m=parseDesc(expandCurb(p.desc));
     for(const code in m){const f=m[code];
@@ -3084,7 +3118,7 @@ function zoomOrbit(f,sx,sy){
 function resize(){const r=cv.parentElement.getBoundingClientRect();
   cv.width=r.width*devicePixelRatio;cv.height=r.height*devicePixelRatio;
   ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);draw();}
-function draw(){syncSnapBox();is3D?draw3D():draw2D();}
+function draw(){syncSnapBox();is3D?draw3D():draw2D();fbkPanelTick();}
 
 function draw2D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -3680,6 +3714,113 @@ function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
       return `<span class="t-code">${t}</span>`;}).join(' ');
     out+=' <span class="t-str">"</span>'+dd+'<span class="t-str">"</span>';}
   return out;}
+/* ---------- floating FBK code panel (build 116) ----------
+   Shows every line of the loaded file as it stands now (point lines via
+   pointFbkLine, so edits show live; inserted/COGO/CSV points with no source line
+   are listed at the end with a "+" gutter). Rows are virtualized (only the visible
+   window is in the DOM) so a 7000+ line job scrolls smoothly. Selecting a point
+   (or a line) on the canvas scrolls here; clicking a point line selects it;
+   double-click edits — a point line goes through applyRawLine (same path as the
+   Review/edit FBK window), any other line edits RAW directly (exported as typed). */
+const FBKP_ROWH=18;
+function fbkPanelBuild(){
+  const byLine=new Map();PTS.forEach((p,i)=>{if(p.srcLine>=0&&!byLine.has(p.srcLine))byLine.set(p.srcLine,i);});
+  const rows=[];
+  for(let L=0;L<RAW.length;L++){const pi=byLine.get(L);
+    rows.push(pi!=null?{L,pi,text:pointFbkLine(PTS[pi])}:{L,pi:null,text:RAW[L]});}
+  PTS.forEach((p,i)=>{if(p.srcLine<0)rows.push({L:null,pi:i,text:pointFbkLine(p)});});
+  fbkP.rows=rows;fbkP.rowOfPt=new Map();rows.forEach((r,k)=>{if(r.pi!=null)fbkP.rowOfPt.set(r.pi,k);});
+  if(fbkP.editK>=rows.length)fbkP.editK=-1;
+  fbkP.stale=false;fbkP.ver++;
+  $('fbkPanelInfo').textContent=rows.length?`${RAW.length} lines${rows.length>RAW.length?` + ${rows.length-RAW.length} added`:''}`:'no file loaded';}
+function fbkEsc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fbkPanelRender(){if(!fbkP.open)return;
+  const body=$('fbkPanelBody'),sp=$('fbkPanelSpacer'),rows=fbkP.rows,H=FBKP_ROWH;
+  sp.style.height=(rows.length*H)+'px';
+  const first=Math.max(0,Math.floor(body.scrollTop/H)-8),last=Math.min(rows.length,Math.ceil((body.scrollTop+body.clientHeight)/H)+8);
+  const sig=`${first}|${last}|${fbkP.ver}|${[...fbkP.hl].join(',')}|${fbkP.cur}|${fbkP.editK}|${body.clientWidth}`;
+  if(sig===fbkP.sig)return;fbkP.sig=sig;
+  let html='',maxLen=0;
+  for(let k=first;k<last;k++){const r=rows[k],p=r.pi!=null?PTS[r.pi]:null;
+    maxLen=Math.max(maxLen,(r.text||'').length);
+    const cls='fbkRow'+(p?' pt':'')+(fbkP.hl.has(k)?' on':'')+(k===fbkP.cur?' cur':'')+(p&&p.deleted?' del':'')+((p&&p.edited)||r.rawEdited?' ed':'');
+    const g=r.L!=null?r.L+1:'+';
+    if(k===fbkP.editK)html+=`<div class="${cls}" data-k="${k}" style="top:${k*H}px"><span class="g">${g}</span><input id="fbkRowEd" spellcheck="false" value="${fbkEsc(fbkP.editVal)}"></div>`;
+    else html+=`<div class="${cls}" data-k="${k}" style="top:${k*H}px" title="${p?`pt ${fbkEsc(p.id)}${p.deleted?' (deleted)':''} — click to select, double-click to edit`:'double-click to edit'}"><span class="g">${g}</span>${hlLine(r.text||'')}</div>`;}
+  sp.style.width=Math.max(body.clientWidth,(maxLen+8)*7.3+60)+'px';
+  sp.innerHTML=html;
+  const ed=$('fbkRowEd');
+  if(ed){ed.focus({preventScroll:true});try{ed.setSelectionRange(fbkP.editCaret,fbkP.editCaret);}catch(_){}
+    ed.oninput=()=>{fbkP.editVal=ed.value;fbkP.editCaret=ed.selectionStart;};
+    ed.onkeyup=ed.onclick=()=>{fbkP.editCaret=ed.selectionStart;};
+    ed.onkeydown=e=>{e.stopPropagation();
+      if(e.key==='Enter'){e.preventDefault();fbkPanelCommit();}
+      else if(e.key==='Escape'){e.preventDefault();fbkPanelCancelEdit();}};}}
+function fbkPanelScrollTo(k){if(k<0)return;const body=$('fbkPanelBody'),H=FBKP_ROWH;
+  const top=k*H;if(top<body.scrollTop+H||top>body.scrollTop+body.clientHeight-2*H)body.scrollTop=Math.max(0,top-body.clientHeight/2+H/2);}
+function fbkPanelSelKey(){return sel+'|'+(selFig||'');}
+function fbkPanelHlFromSel(){fbkP.hl.clear();let first=-1;
+  if(sel>=0){const k=fbkP.rowOfPt.get(sel);if(k!=null){fbkP.hl.add(k);first=k;}}
+  else if(selFig){const f=getFig(selFig);if(f)f.verts.forEach(v=>{const k=fbkP.rowOfPt.get(v.i);if(k!=null){fbkP.hl.add(k);if(first<0||k<first)first=k;}});}
+  selSet.forEach(i=>{const k=fbkP.rowOfPt.get(i);if(k!=null){fbkP.hl.add(k);if(first<0)first=k;}});
+  return first;}
+/* called at the end of every draw(): cheap unless the data changed or the selection moved */
+function fbkPanelTick(){if(!fbkP.open)return;
+  if(fbkP.stale)fbkPanelBuild();
+  const key=fbkPanelSelKey()+'|'+selSet.size;
+  const first=fbkPanelHlFromSel();
+  if(key!==fbkP.selKey){fbkP.selKey=key;if(first>=0&&$('fbkPanelFollow').checked)fbkPanelScrollTo(first);}
+  fbkPanelRender();}
+function openFbkPanel(){fbkP.open=true;fbkP.stale=true;fbkP.selKey=null;$('fbkPanel').classList.add('show');$('fbkPanelBtn').classList.replace('ghost','gold');fbkPanelTick();}
+function closeFbkPanel(){fbkP.open=false;fbkP.editK=-1;$('fbkPanel').classList.remove('show');$('fbkPanelBtn').classList.replace('gold','ghost');}
+function fbkPanelStartEdit(k){const r=fbkP.rows[k];if(!r)return;
+  fbkP.editK=k;fbkP.editVal=r.text||'';fbkP.editCaret=fbkP.editVal.length;fbkP.cur=k;fbkPanelRender();}
+function fbkPanelCancelEdit(){fbkP.editK=-1;fbkPanelRender();hud('FBK line edit cancelled');}
+function fbkPanelCommit(){const k=fbkP.editK,r=fbkP.rows[k];if(!r){fbkP.editK=-1;return;}
+  const txt=fbkP.editVal.replace(/\s+$/,'');
+  if(txt.trim()===(r.text||'').trim()){fbkP.editK=-1;fbkPanelRender();return;}
+  if(r.pi!=null){const p=PTS[r.pi];
+    if(!applyRawLine(JSON.parse(JSON.stringify(p)),txt)){hud('not a valid F1/F2 VA or NEZ line — not applied (Esc to cancel)');return;}
+    saveState();applyRawLine(p,txt);
+    logEdit('code',`pt ${p.id} line ${p.srcLine>=0?p.srcLine+1:'(added)'}: FBK panel edit → ${txt}`);
+    fbkP.editK=-1;buildLinework();if(sel===r.pi)inspect();draw();flagDirty();hud(`pt ${p.id} updated from FBK line`);}
+  else{saveState();RAW[r.L]=txt;r.rawEdited=true;
+    logEdit('code',`line ${r.L+1} edited in FBK panel: ${txt}`);
+    fbkP.editK=-1;fbkP.stale=true;draw();flagDirty();
+    hud(/^\s*(STN|BS|PRISM|NEZ|F1|F2)\b/i.test(txt)
+      ?`line ${r.L+1} saved — exported as typed; setup/shot lines aren't re-reduced until the exported file is reloaded`
+      :`line ${r.L+1} saved — exported as typed`);}}
+function fbkPanelFind(){const q=$('fbkPanelFind').value.trim().toLowerCase();if(!q||!fbkP.rows.length)return;
+  const n=fbkP.rows.length;
+  for(let d=1;d<=n;d++){const k=(fbkP.cur+d+n)%n;if((fbkP.rows[k].text||'').toLowerCase().includes(q)){
+    fbkP.cur=k;fbkPanelScrollTo(k);fbkPanelRender();hud(`found "${q}" on ${fbkP.rows[k].L!=null?'line '+(fbkP.rows[k].L+1):'an added point'}`);return;}}
+  hud(`"${q}" not found`);}
+(function wireFbkPanel(){
+  $('fbkPanelBtn').onclick=()=>fbkP.open?closeFbkPanel():openFbkPanel();
+  $('fbkPanelClose').onclick=closeFbkPanel;
+  const body=$('fbkPanelBody');
+  body.addEventListener('scroll',()=>{if(fbkP.raf)return;fbkP.raf=requestAnimationFrame(()=>{fbkP.raf=0;fbkPanelRender();});});
+  if(window.ResizeObserver)new ResizeObserver(()=>fbkPanelRender()).observe(body);
+  const rowK=e=>{const d=e.target.closest('.fbkRow');return d?+d.dataset.k:-1;};
+  $('fbkPanelSpacer').addEventListener('click',e=>{if(e.target.tagName==='INPUT')return;const k=rowK(e);if(k<0)return;
+    // double-click detected by hand: the first click re-renders the rows (selection
+    // highlight), so a native dblclick would land on a replaced element and never fire
+    const now=performance.now(),lc=fbkP.lastClick;fbkP.lastClick={k,t:now};
+    if(lc.k===k&&now-lc.t<450){fbkP.lastClick={k:-1,t:0};fbkPanelStartEdit(k);return;}
+    fbkP.cur=k;const r=fbkP.rows[k];
+    if(r.pi!=null){sel=r.pi;selFig=null;selSet.clear();fbkP.selKey=fbkPanelSelKey()+'|0';inspect();zoomToPoint(r.pi);
+      hud(`pt ${PTS[r.pi].id} — line ${r.L!=null?r.L+1:'(added)'}`);}
+    else fbkPanelRender();});
+  $('fbkPanelFind').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){e.preventDefault();fbkPanelFind();}else if(e.key==='Escape')e.target.blur();});
+  // drag the panel by its header
+  const head=$('fbkPanelHead'),pan=$('fbkPanel');let dr=null;
+  head.addEventListener('pointerdown',e=>{if(/^(INPUT|BUTTON|LABEL)$/.test(e.target.tagName))return;
+    const b=pan.getBoundingClientRect();dr={dx:e.clientX-b.left,dy:e.clientY-b.top};head.setPointerCapture(e.pointerId);e.preventDefault();});
+  head.addEventListener('pointermove',e=>{if(!dr)return;
+    const x=Math.min(Math.max(0,e.clientX-dr.dx),innerWidth-80),y=Math.min(Math.max(0,e.clientY-dr.dy),innerHeight-40);
+    pan.style.left=x+'px';pan.style.top=y+'px';pan.style.right='auto';});
+  const endDr=()=>{dr=null;};head.addEventListener('pointerup',endDr);head.addEventListener('pointercancel',endDr);
+})();
 let fbkCtx=null;
 /* The line to SHOW in the review/edit window for a point: the original curb code
    (pre-knockdown) when the toggle is on and the point was knocked down, else the
@@ -4315,6 +4456,7 @@ const HELP_TOOLBAR=[
   ['↓ Export FBK','Write the current points/edits back out as a field-book file.'],
   ['↓ Export (codes)','Same export, but keeps the original curb-code names instead of the baked Knockdown offsets.'],
   ['↓ Export CSV','Write every non-deleted point as a comma-delimited PNEZD file — round-trips with Import CSV.'],
+  ['📜 FBK code','Floating panel listing every line of the file (with your edits). Selecting a point or line on the canvas scrolls to and highlights its line(s); click a point line to select it; double-click any line to edit (Enter applies, Esc cancels). Find box jumps to the next match. Drag the header to move, the corner to resize.'],
   ['🏷 Labels','Choose which of Point #, Code, Elevation show next to each point on the canvas, and their text size.'],
   ['☰ Inspector','(narrow screens only) opens the Inspector as a slide-in drawer.'],
 ];
