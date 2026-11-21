@@ -244,6 +244,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   <div class="bar">
     <div class="brand"><img src="https://www.governmentjobs.com/AgencyPages/stpaul/agencyImages/download/stpaul-logo-vertical-sky-tinted-blue.png" alt="City of Saint Paul" class="brandLogo"><div><span class="k">Saint Paul · Public Works</span><span class="t">FBK Canvas</span></div></div>
     <span class="pill" id="jobpill">no file</span>
+    <span id="asStatus" title="Local auto-save: your work is copied into this browser after every change" style="font:600 10px var(--mono);color:var(--mut);white-space:nowrap"></span>
     <div class="grow"></div>
     <button class="btn ghost" id="gotoBtn" disabled>⌖ Go to point</button>
     <label class="btn file">↥ Load FBK<input type="file" id="fileInput" accept=".fbk,.txt"></label>
@@ -264,9 +265,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="dlDxfBtn" disabled title="Export a DXF drawing: points + labels, all figure linework (curves/circles/jogs rendered exactly as drawn on screen), standalone CTR circles, CPN/RPN tie lines, and the curb offset cross-section lane lines">↓ Export DXF</button>
     <button class="btn ghost" id="fbkPanelBtn" title="Floating FBK code panel: every line of the loaded file (with your edits). Selecting a point on the canvas scrolls to and highlights its line; click a line to select that point; double-click a line to edit it (Enter applies, Esc cancels).">📜 FBK code</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
+    <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -425,6 +427,21 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 </div>
 
 <!-- UGW→CPN pairing review -->
+<div class="scrim" id="asScrim">
+  <div class="modal wide">
+    <h4>Restore auto-saved work</h4>
+    <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
+      Copies of your work saved in <b>this browser</b> after each change (last 5 jobs).
+      Restore loads the job as it was at that time. They stay only on this computer and
+      browser — Export FBK is still your real copy.
+    </div>
+    <div id="asList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
+    <div class="row">
+      <button class="btn ghost" id="asClose">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim" id="dupScrim">
   <div class="modal wide">
     <h4>Duplicate Point Numbers</h4>
@@ -718,7 +735,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:125};
+const VERSION={fruit:'🍑',name:'PEACH',build:126};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -4388,7 +4405,52 @@ function moveTo(p,E,N){const S=PTS.find(c=>c.kind==='ctrl'&&c.id===p.stn);if(!S)
 function logEdit(type,msg){log.push({type,msg});$('logn').textContent=log.length;
   const d=document.createElement('div');d.className='le '+type;
   d.innerHTML=msg.replace(/line (\d+)/,'line <span class="ln">$1</span>');$('logbox').prepend(d);}
-function flagDirty(){$('dlBtn').classList.add('gold');$('dlRawBtn').classList.add('gold');}
+function flagDirty(){$('dlBtn').classList.add('gold');$('dlRawBtn').classList.add('gold');scheduleAutosave();}
+/* ---- Local auto-save (build 126) ----
+   After every change (flagDirty) the job is written into this browser's
+   localStorage ~2 s later, as the same text Export FBK writes with curb codes left
+   as typed (exportFBK(false,true)). Last 5 jobs kept. On page open, a restore
+   prompt lists them; 🕘 Restore opens it any time. */
+const AS_KEY='fbkCanvasAutosave',AS_MAX=5;
+let asTimer=null,curFile='';
+function asRead(){try{const a=JSON.parse(localStorage.getItem(AS_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}}
+function asWrite(a){
+  while(true){try{localStorage.setItem(AS_KEY,JSON.stringify(a));return true;}
+    catch(e){if(a.length<=1)return false;a=a.slice(0,a.length-1);}}}       // out of room → drop the oldest and retry
+function asJobKey(){return ($('jobpill').textContent||'job')+'|'+(curFile||'');}
+function scheduleAutosave(){clearTimeout(asTimer);asTimer=setTimeout(autosaveNow,2000);}
+function autosaveNow(){clearTimeout(asTimer);asTimer=null;
+  if(!PTS.length)return;
+  let text;try{text=exportFBK(false,true);}catch(e){console.warn('autosave failed',e);return;}
+  const key=asJobKey(),now=Date.now();
+  let a=asRead().filter(x=>x.key!==key);
+  a.unshift({key,job:$('jobpill').textContent||'job',file:curFile||'',time:now,text,lines:text.split(/\r?\n/).length,pts:PTS.filter(p=>!p.deleted).length});
+  a=a.slice(0,AS_MAX);
+  const ok=asWrite(a);
+  $('asStatus').textContent=ok?'● autosaved '+new Date(now).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):'⚠ autosave failed (browser storage full or blocked)';
+  $('asStatus').style.color=ok?'var(--mut)':'#ff8a7a';}
+function asFmt(t){const d=new Date(t);return d.toLocaleDateString('en-US')+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});}
+function openAutosaveList(auto){
+  const a=asRead();
+  if(!a.length){if(!auto)hud('nothing auto-saved in this browser yet');return;}
+  const esc=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  $('asList').innerHTML=a.map((x,i)=>`<div class="vrow"><div class="vhd"><span class="vpt">${esc(x.job)}</span><span style="font-size:10px;color:var(--mut)">${esc(x.file)}</span></div>
+    <div class="fbk" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font:11px var(--mono)">saved ${asFmt(x.time)} · ${x.pts} pts · ${x.lines} lines</span>
+      <button class="btn gold" data-as="restore" data-i="${i}" style="margin-left:auto">Restore</button>
+      <button class="btn ghost" data-as="discard" data-i="${i}">Discard</button></div></div>`).join('');
+  $('asList').querySelectorAll('[data-as]').forEach(b=>b.onclick=()=>{const x=asRead()[+b.dataset.i];if(!x)return;
+    if(b.dataset.as==='discard'){asWrite(asRead().filter(y=>y.key!==x.key));if(!asRead().length)closeAutosaveList();else openAutosaveList(true);return;}
+    if(PTS.length&&!confirm('Replace the job that is open now with the auto-saved copy?'))return;
+    restoreAutosave(x);});
+  $('asScrim').classList.add('show');}
+function closeAutosaveList(){$('asScrim').classList.remove('show');}
+function restoreAutosave(x){
+  closeAutosaveList();
+  loadFbkText(x.text,x.file);
+  $('dlBtn').classList.add('gold');$('dlRawBtn').classList.add('gold');   // not exported to a file yet
+  $('asStatus').textContent='● restored copy from '+asFmt(x.time);$('asStatus').style.color='var(--mut)';
+  hud(`restored ${x.job} (auto-saved ${asFmt(x.time)}) — use Export FBK to save it to a file`);}
 /* Build 120: a line typed in an FBK code editor is kept verbatim (rawOverride) only while
    the point still matches what that line says. Any later change to the point (drag-move,
    Knockdown, inspector edit, UGW…) used to either be ignored (override returned verbatim,
@@ -4453,7 +4515,7 @@ function expandDescForExport(desc){
   }
   return expanded;
 }
-function exportFBK(expandCodes=true){
+function exportFBK(expandCodes=true,textOnly=false){
   const editedContent={};          // lineIdx -> replacement string
   const deletedAfter=new Set();     // lineIdx -> append a Deleted marker
   const nezBefore={};               // lineIdx -> [NEZ strings]
@@ -4605,6 +4667,7 @@ function exportFBK(expandCodes=true){
   PTS.forEach(p=>{if(p.deleted||p.srcLine>=0)return;if(nezDone.has(p.id)||alreadyNEZ.has(p.id))return;
     const d=expandCodes?expandDescForExport(p.desc):p.desc;
     result.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);});
+  if(textOnly)return result.join('\r\n');          // local auto-save: same text, no download, no log
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
   logEdit('code',`exported ${result.length} lines · ${log.length} edits${expandCodes?'':' (codes unapplied)'}`);
@@ -5009,6 +5072,7 @@ const HELP_TOOLBAR=[
   ['↶ Undo / ↷ Redo','Step edit history back/forward (Ctrl+Z / Ctrl+Y) — covers point moves, code edits, deletes, Knockdown, UGW→CPN, and inserts.'],
   ['⚙ Knockdown','Bake curb codes into real H/V offset coordinates. <b>RBCB</b> (back of curb) — a point with its own code gets that code\'s cross-section; a point with no code derives the reveal from the nearest <b>REF</b> point. <b>RCFL</b> (flow line) — only applies at points that carry their own curb code.'],
   ['🎯 REF Knockdown (1 pt)','One curb point at a time: click the RBCB point, click <b>any</b> point for the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Clears and replaces only that curb\'s H/V/code — other codes on the point stay as they are.'],
+  ['🕘 Restore','Local auto-save: after every change the job is copied into this browser (last 5 jobs). If the page closes or crashes, it offers to restore on the next open; this button opens the list any time. Only on this computer/browser — Export FBK is still the real copy.'],
   ['🔢 Dup #','Check for duplicate point numbers. Face 1/face 2 pairs, repeat sets and re-shots from other setups are normal and left alone. A # used for two different things (different code, NEZ with different coords, a different spot from the same setup, a control # reused) is listed; the control point or first in file order keeps it, the others get the next free number (editable), or tick Delete. Identical NEZ re-entries are shown as harmless. Nothing changes until Apply.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
@@ -5092,11 +5156,22 @@ $('helpCloseBtn').onclick=closeHelp;
 $('helpScrim').onclick=e=>{if(e.target===$('helpScrim'))closeHelp();};
 document.querySelectorAll('.helpTab').forEach(b=>b.onclick=()=>setHelpTab(b.dataset.pane));
 
+function loadFbkText(text,name){
+  clearTimeout(asTimer);asTimer=null;curFile=name||'';
+  parse(text);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
+  $('asStatus').textContent='';}
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
-  rd.onload=()=>{parse(rd.result);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();};rd.readAsText(f);};
+  rd.onload=()=>{loadFbkText(rd.result,f.name);};rd.readAsText(f);};
+$('asBtn').onclick=()=>openAutosaveList(false);
+$('asClose').onclick=closeAutosaveList;
+$('asScrim').onclick=e=>{if(e.target===$('asScrim'))closeAutosaveList();};
+window.addEventListener('pagehide',()=>{if(asTimer)autosaveNow();});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&asTimer)autosaveNow();});
+setTimeout(()=>{if(!PTS.length)openAutosaveList(true);},300);
 $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   rd.onload=()=>{importCSV(rd.result);e.target.value='';};rd.readAsText(f);};
 window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&$('asScrim').classList.contains('show')){e.preventDefault();closeAutosaveList();return;}
   if(e.key==='Escape'&&$('helpScrim').classList.contains('show')){e.preventDefault();closeHelp();return;}
   if(e.key==='Escape'&&$('unkdReportScrim').classList.contains('show')){e.preventDefault();closeUnKdReport();return;}
   if(e.key==='Escape'&&$('kdReviewScrim').classList.contains('show')){e.preventDefault();closeKdReview();return;}
