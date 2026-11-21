@@ -256,7 +256,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
     <button class="btn ghost" id="refKdBtn" disabled title="Single-point REF knockdown: click the RBCB point, then click ANY point to set the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Replaces only the curb's own H/V/code — every other code on the point is left alone. Works in 2D or 3D.">🎯 REF Knockdown (1 pt)</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
-    <button class="btn ghost" id="dupBtn" disabled title="Check for duplicate point numbers: lists every point # used by more than one live point, keeps the first one in file order, proposes the next free number for the others (editable), or delete a true duplicate shot — nothing changes until Apply">🔢 Dup #</button>
+    <button class="btn ghost" id="dupBtn" disabled title="Check for duplicate point numbers: face pairs, repeat sets and re-shots are normal and ignored; a # used for two different things (different code, different NEZ coords, or a different spot from the same setup) is listed with the next free number proposed — nothing changes until Apply">🔢 Dup #</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
@@ -266,7 +266,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -429,9 +429,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   <div class="modal wide">
     <h4>Duplicate Point Numbers</h4>
     <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
-      Each group below is one point # used by more than one live point. The first one in
-      file order (or the control point, if one is in the group) keeps its number; the others get the next free number (edit it if you want).
-      Tick <b>Delete</b> for a true duplicate shot. Nothing changes until <b>Apply</b>.
+      A repeated point # is usually normal (face 1 + face 2, repeat sets, the same point
+      re-shot from another setup) and is left alone. Only a # used for two <b>different</b>
+      things is listed as a real duplicate: the control point (or the first in file order)
+      keeps the number, the others get the next free number (renamed together with their
+      face pair). Edit it if you want, or tick <b>Delete</b>. Nothing changes until <b>Apply</b>.
     </div>
     <div id="dupList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px"></div>
     <div id="dupMsg" style="font-size:11px;color:var(--mut);margin-top:6px"></div>
@@ -716,7 +718,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:124};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:125};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -1952,74 +1954,150 @@ function computeUgwPairs(){
     poles.forEach(u=>{const d=Math.hypot(u.E-p.E,u.N-p.N);if(d<bd){bd=d;best=u;}});
     return {i,targetId:best?best.id:'',auto:best?best.id:null};});
 }
-/* ---- Duplicate point numbers (build 124) ---- */
+/* ---- Duplicate point numbers (build 124, classified build 125) ----
+   A repeated point # is usually NORMAL in a field book (face 1 + face 2, repeat
+   sets, the same point re-shot from another setup). Only flag a number used for
+   two DIFFERENT things:
+     3a  same #, different description
+     3b  NEZ defined twice with different coordinates (> 0.01)
+     3c  same #, same STN setup, same description, but a clearly different spot
+     3d  a control # (NEZ before the first STN) reused in the body for something
+         that isn't "CP <#>"
+   An NEZ repeated with identical coords + description is a harmless re-entry. */
 let dupCtx=null;
+const DUP_XY=0.2,DUP_Z=0.2,DUP_NEZ=0.01;
+function dupNorm(d){return String(d||'').trim().replace(/\s+/g,' ').toUpperCase();}
 function dupSetupIds(){const s=new Set();RAW.forEach(ln=>{const t=(ln||'').trim().split(/\s+/);if((t[0]==='STN'||t[0]==='BS')&&t[1])s.add(t[1]);});return s;}
-function findDupGroups(){const m=new Map();
+function dupFirstStn(){return RAW.findIndex(ln=>/^\s*STN\s/.test(ln||''));}
+function dupLineNo(p){return p.srcLine>=0?p.srcLine+1:null;}
+function dupOrd(i){const p=PTS[i];return p.srcLine>=0?p.srcLine:1e9+i;}
+/* Classify every point # used by more than one live point. */
+function classifyDups(){
+  const firstStn=dupFirstStn();
+  const isControl=p=>p.kind==='ctrl'&&p.srcLine>=0&&(firstStn<0||p.srcLine<firstStn);
+  const m=new Map();
   PTS.forEach((p,i)=>{if(p.deleted)return;const k=String(p.id).trim();(m.get(k)||m.set(k,[]).get(k)).push(i);});
-  const ord=i=>{const p=PTS[i];return p.srcLine>=0?p.srcLine:1e9+i;};
-  return [...m.entries()].filter(([,a])=>a.length>1).map(([id,a])=>({id,idx:a.sort((x,y)=>ord(x)-ord(y))}))
-    .sort((a,b)=>numCmp(a.id,b.id));}
+  const out={normal:[],harmless:[],real:[]};
+  [...m.entries()].filter(([,a])=>a.length>1).sort((a,b)=>numCmp(a[0],b[0])).forEach(([id,idx])=>{
+    idx.sort((x,y)=>dupOrd(x)-dupOrd(y));
+    // 1. clusters = one physical observation (face pair / repeat set at one setup, or one NEZ record)
+    const clusters=[];
+    idx.forEach(i=>{const p=PTS[i],d=dupNorm(p.desc);
+      if(p.kind==='shot'){
+        const c=clusters.find(c=>c.kind==='shot'&&c.stn===p.stn&&c.desc===d&&
+          Math.hypot(PTS[c.pts[0]].E-p.E,PTS[c.pts[0]].N-p.N)<=DUP_XY&&Math.abs(PTS[c.pts[0]].Z-p.Z)<=DUP_Z);
+        if(c){c.pts.push(i);return;}
+        clusters.push({kind:'shot',stn:p.stn,desc:d,pts:[i]});
+      }else clusters.push({kind:'nez',control:isControl(p),desc:d,pts:[i]});});
+    // 2. features = clusters that are the same thing
+    const feats=[],harmless=[],reasons=new Set();
+    clusters.forEach(c=>{const p=PTS[c.pts[0]];let f=null;
+      if(c.kind==='nez'){
+        f=feats.find(f=>f.nez&&f.desc===c.desc&&Math.abs(PTS[f.nez].N-p.N)<=DUP_NEZ&&Math.abs(PTS[f.nez].E-p.E)<=DUP_NEZ&&Math.abs(PTS[f.nez].Z-p.Z)<=DUP_NEZ);
+        if(f){harmless.push({keep:f.nez,extra:c.pts[0]});return;}          // identical re-entry
+        if(feats.some(f=>f.nez&&f.desc===c.desc))reasons.add('3b');          // same code, different coords
+      }
+      if(!f)f=feats.find(f=>{
+        if(f.control&&/^CP\b/.test(c.desc)&&new RegExp('^CP\\s+'+id.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b').test(c.desc))return true;   // control re-shot "CP <#>"
+        if(f.desc!==c.desc)return false;
+        if(c.kind==='shot'&&f.stns.has(c.stn))return false;                 // same setup, same code, different spot → 3c
+        if(c.kind==='nez'&&f.nez)return false;                               // second NEZ, different coords → 3b
+        return true;});                                                     // re-shot from another setup / shot of an NEZ
+      if(!f){
+        if(c.kind==='shot'&&feats.some(f=>f.desc===c.desc&&f.stns.has(c.stn)))reasons.add('3c');
+        if(feats.some(f=>f.desc!==c.desc))reasons.add(feats.some(f=>f.control)?'3d':'3a');
+        f={desc:c.desc,control:!!c.control,nez:c.kind==='nez'?c.pts[0]:null,stns:new Set(),pts:[]};feats.push(f);}
+      if(c.kind==='shot')f.stns.add(c.stn);
+      if(c.kind==='nez'&&f.nez==null)f.nez=c.pts[0];
+      if(c.control)f.control=true;
+      f.pts.push(...c.pts);});
+    if(feats.length>1){
+      feats.forEach(f=>f.pts.sort((x,y)=>dupOrd(x)-dupOrd(y)));
+      out.real.push({id,feats,reasons:[...reasons],count:idx.length});}
+    harmless.forEach(h=>out.harmless.push({id,keep:h.keep,extra:h.extra}));
+    if(feats.length===1&&!harmless.length)out.normal.push({id,count:idx.length,clusters:clusters.length});
+  });
+  return out;}
+const DUP_WHY={'3a':'same # used for a different description','3b':'NEZ defined twice with different coordinates',
+  '3c':'same setup + description but a clearly different spot (not a face/repeat pair)','3d':'control # reused in the body for something other than "CP '};
 function dupAutoNumber(){if(!dupCtx)return;
   const used=new Set(PTS.filter(p=>!p.deleted).map(p=>String(p.id)));
-  let n=parseInt(getNextPointNumber());
-  dupCtx.rows.forEach(r=>{if(r.keep||r.del)return;while(used.has(String(n)))n++;r.newId=String(n);used.add(r.newId);n++;});}
+  let n=parseInt(getNextPointNumber());if(!isFinite(n))n=1;
+  dupCtx.rows.forEach(r=>{if(r.harmless||r.keep||r.del)return;while(used.has(String(n)))n++;r.newId=String(n);used.add(r.newId);n++;});}
 function openDupCheck(){
   if(!PTS.length){hud('load an FBK first');return;}
-  const groups=findDupGroups();
-  if(!groups.length){hud('no duplicate point numbers ✓');return;}
-  const setup=dupSetupIds(),cpnRef=new Set();
+  const cls=classifyDups(),setup=dupSetupIds(),cpnRef=new Set();
   PTS.forEach(p=>{if(p.deleted)return;(p.desc||'').replace(/\b[CR]PN\s*(\d+)\b/gi,(_,n)=>cpnRef.add(n));});
+  const nRep=cls.normal.length+cls.real.length+new Set(cls.harmless.map(h=>h.id).filter(id=>!cls.real.some(r=>r.id===id))).size;
+  if(!cls.real.length&&!cls.harmless.length){
+    hud(nRep?`${nRep} point # repeat — all normal (face pairs / repeat sets / re-shots), no real duplicates ✓`:'no repeated point numbers ✓');return;}
   const rows=[];
-  groups.forEach((g,gi)=>{
-    // exactly one keeper per group: the first control point (STN/BS lines refer to it by #), else the first in file order
-    const keeper=g.idx.find(i=>PTS[i].kind==='ctrl')??g.idx[0];
-    g.idx.forEach(i=>{const p=PTS[i];rows.push({g:gi,i,keep:i===keeper,del:false,newId:String(p.id),orig:String(p.id)});});});
-  dupCtx={groups,rows,setup,cpnRef};
+  cls.real.forEach((g,gi)=>{
+    // keeper: the control feature if any (STN/BS refer to it), else the one first in file order
+    let kf=g.feats.findIndex(f=>f.control);if(kf<0){kf=0;g.feats.forEach((f,fi)=>{if(dupOrd(f.pts[0])<dupOrd(g.feats[kf].pts[0]))kf=fi;});}
+    g.feats.forEach((f,fi)=>rows.push({g:gi,pts:f.pts,keep:fi===kf,del:false,newId:String(g.id),orig:String(g.id),control:f.control}));});
+  cls.harmless.forEach(h=>rows.push({harmless:true,id:h.id,keepPt:h.keep,pts:[h.extra],del:false,newId:String(h.id),orig:String(h.id)}));
+  dupCtx={cls,rows,setup,cpnRef,nRep};
   dupAutoNumber();
   $('dupScrim').classList.add('show');renderDupList();
-  hud(`${groups.length} duplicate point # — review, then Apply`);}
-function dupValidate(){const r=dupCtx.rows,bad=new Set();
-  const final=new Map();
-  PTS.forEach((p,i)=>{if(!p.deleted)final.set(i,String(p.id));});
-  r.forEach(x=>{if(x.del)final.delete(x.i);else final.set(x.i,x.newId.trim());});
-  const cnt=new Map();final.forEach(v=>cnt.set(v,(cnt.get(v)||0)+1));
-  r.forEach((x,ri)=>{if(x.del)return;const v=x.newId.trim();if(!v||/\s/.test(v)||cnt.get(v)>1)bad.add(ri);});
+  hud(`${nRep} point # repeat: ${cls.normal.length} normal, ${cls.harmless.length} harmless, ${cls.real.length} real duplicate(s)`);}
+function dupFinalIds(){const f=new Map();
+  PTS.forEach((p,i)=>{if(!p.deleted)f.set(i,String(p.id));});
+  dupCtx.rows.forEach(r=>r.pts.forEach(i=>{if(r.del)f.delete(i);else if(!r.harmless)f.set(i,r.newId.trim());}));
+  return f;}
+function dupValidate(){const bad=new Set(),fin=dupFinalIds();
+  dupCtx.rows.forEach((r,ri)=>{if(r.del||r.harmless)return;const v=r.newId.trim();
+    if(!v||/\s/.test(v)){bad.add(ri);return;}
+    const mine=new Set(r.pts);
+    for(const [i,id] of fin)if(id===v&&!mine.has(i)){bad.add(ri);break;}});
+  // a keeper still clashes only if another row was left on the same #
   return bad;}
 function renderDupList(){const c=dupCtx,box=$('dupList');
   const esc=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  box.innerHTML=c.groups.map((g,gi)=>{
-    const notes=[];if(c.setup.has(g.id))notes.push('used as STN/BS setup');if(c.cpnRef.has(g.id))notes.push('referenced by CPN/RPN');
-    const rowsH=c.rows.map((r,ri)=>({r,ri})).filter(o=>o.r.g===gi).map(({r,ri})=>{const p=PTS[r.i];
-      return `<div class="fbk" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font:600 11px var(--mono);color:var(--mut);min-width:64px">${p.srcLine>=0?'line '+(p.srcLine+1):'added'}</span>
-        <span style="font-size:11px;min-width:34px">${p.kind}</span>
-        <span style="font:11px var(--mono);flex:1;min-width:140px">"${esc(p.desc||'')}" · N ${p.N.toFixed(2)} E ${p.E.toFixed(2)} Z ${p.Z.toFixed(2)}</span>
-        <button class="vb" data-act="dupzoom" data-row="${ri}" title="Zoom to this point">⌖</button>
-        <label style="margin:0;font-size:11px;color:var(--mut)">New #</label>
-        <input type="text" class="dupId" data-row="${ri}" value="${esc(r.newId)}" ${r.del?'disabled':''} style="width:80px;background:#13213f;color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:3px 6px;font:600 12px var(--mono)">
-        <label style="margin:0;font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" class="dupDel" data-row="${ri}" ${r.del?'checked':''}>Delete</label>
-        ${p.kind==='ctrl'&&r.newId!==r.orig?'<span style="font-size:10px;color:#ff8a7a">control pt — setups may refer to it</span>':''}
-      </div>`;}).join('');
-    return `<div class="vrow"><div class="vhd"><span class="vpt">pt ${esc(g.id)} ×${g.idx.length}</span>${notes.length?`<span style="font-size:10px;color:#ffb35c">${notes.join(' · ')} — keep the right one</span>`:''}</div>${rowsH}</div>`;}).join('');
+  const ptLine=i=>{const p=PTS[i];return `<div style="font:11px var(--mono);color:var(--ink)">${dupLineNo(p)?'line '+dupLineNo(p):'added'} · ${p.kind==='shot'?(p.face||'F1')+' VA from STN '+esc(p.stn):'NEZ'} · "${esc(p.desc||'')}" · N ${p.N.toFixed(3)} E ${p.E.toFixed(3)} Z ${p.Z.toFixed(3)}</div>`;};
+  const sum=`<div class="field" style="font-size:11px;line-height:1.5;margin-bottom:6px">${c.nRep} point # repeat: <b>${c.cls.normal.length}</b> normal (face pairs, repeat sets, re-shots — ignored), <b>${c.cls.harmless.length}</b> harmless (identical NEZ re-entry), <b style="color:#ff8a7a">${c.cls.real.length}</b> real duplicate(s).</div>`;
+  const realH=c.cls.real.map((g,gi)=>{
+    const notes=[];if(c.setup.has(g.id))notes.push('used on a STN/BS line — those lines are not changed');if(c.cpnRef.has(g.id))notes.push('referenced by CPN/RPN');
+    const why=g.reasons.map(k=>DUP_WHY[k]+(k==='3d'?esc(g.id)+'"':'')).join('; ');
+    const fr=c.rows.map((r,ri)=>({r,ri})).filter(o=>!o.r.harmless&&o.r.g===gi).map(({r,ri})=>`
+      <div class="fbk" style="display:flex;flex-direction:column;gap:3px">
+        ${r.pts.map(ptLine).join('')}
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px">
+          <span style="font-size:10px;color:var(--mut)">${r.pts.length>1?r.pts.length+' lines (face/repeat set) — renamed together':'1 line'}${r.keep?' · keeps the number':''}</span>
+          <button class="vb" data-act="dupzoom" data-row="${ri}" title="Zoom to this point" style="margin-left:auto">⌖</button>
+          <label style="margin:0;font-size:11px;color:var(--mut)">New #</label>
+          <input type="text" class="dupId" data-row="${ri}" value="${esc(r.newId)}" ${r.del?'disabled':''} style="width:80px;background:#13213f;color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:3px 6px;font:600 12px var(--mono)">
+          <label style="margin:0;font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" class="dupDel" data-row="${ri}" ${r.del?'checked':''}>Delete</label>
+          ${r.control&&r.newId.trim()!==r.orig?'<span style="font-size:10px;color:#ff8a7a">control pt — setups refer to it</span>':''}
+        </div></div>`).join('');
+    return `<div class="vrow"><div class="vhd"><span class="vpt">pt ${esc(g.id)} ×${g.count}</span><span style="font-size:10px;color:#ff8a7a">${esc(why)}</span></div>${notes.length?`<div style="font-size:10px;color:#ffb35c;padding:0 8px">${notes.join(' · ')} — keep the right one</div>`:''}${fr}</div>`;}).join('');
+  const harmH=c.rows.map((r,ri)=>({r,ri})).filter(o=>o.r.harmless).map(({r,ri})=>`
+    <div class="vrow"><div class="vhd"><span class="vpt">pt ${esc(r.id)}</span><span style="font-size:10px;color:var(--mut)">identical NEZ entered twice — harmless</span></div>
+      <div class="fbk" style="display:flex;flex-direction:column;gap:3px">${ptLine(r.keepPt)}${ptLine(r.pts[0])}
+        <div style="display:flex;align-items:center;gap:8px"><button class="vb" data-act="dupzoom" data-row="${ri}" style="margin-left:auto">⌖</button>
+        <label style="margin:0;font-size:11px;display:flex;align-items:center;gap:3px"><input type="checkbox" class="dupDel" data-row="${ri}" ${r.del?'checked':''}>Delete the second copy</label></div></div></div>`).join('');
+  const normH=c.cls.normal.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:11px;color:var(--mut)">Normal repeats (${c.cls.normal.length}) — not changed</summary><div style="font:11px var(--mono);color:var(--mut);padding:4px 8px;line-height:1.6">${c.cls.normal.map(n=>`pt ${esc(n.id)} ×${n.count}${n.clusters>1?' ('+n.clusters+' setups)':' (face/repeat set)'}`).join(' · ')}</div></details>`:'';
+  box.innerHTML=sum+(realH?`<h5 style="margin:6px 0 4px;font:600 10px var(--mono);color:#ff8a7a;text-transform:uppercase">Real duplicates</h5>${realH}`:'')+
+    (harmH?`<h5 style="margin:10px 0 4px;font:600 10px var(--mono);color:var(--gold-dim);text-transform:uppercase">Harmless repeats</h5>${harmH}`:'')+normH;
   box.querySelectorAll('.dupId').forEach(inp=>inp.oninput=()=>{dupCtx.rows[+inp.dataset.row].newId=inp.value;dupMark();});
   box.querySelectorAll('.dupDel').forEach(ch=>ch.onchange=()=>{const r=dupCtx.rows[+ch.dataset.row];r.del=ch.checked;if(!r.del&&r.newId.trim()==='')r.newId=r.orig;renderDupList();});
-  box.querySelectorAll('[data-act="dupzoom"]').forEach(b=>b.onclick=()=>{const i=dupCtx.rows[+b.dataset.row].i;if(is3D)setMode('sel');zoomToPoint(i);});
+  box.querySelectorAll('[data-act="dupzoom"]').forEach(b=>b.onclick=()=>{const i=dupCtx.rows[+b.dataset.row].pts[0];if(is3D)setMode('sel');zoomToPoint(i);});
   dupMark();}
 function dupMark(){const bad=dupValidate();
   $('dupList').querySelectorAll('.dupId').forEach(inp=>{inp.style.borderColor=bad.has(+inp.dataset.row)?'#ff6b5a':'var(--rule)';});
-  const ch=dupCtx.rows.filter(r=>r.del||r.newId.trim()!==r.orig).length;
+  const ch=dupCtx.rows.filter(r=>r.del||(!r.harmless&&r.newId.trim()!==r.orig)).length;
   $('dupApply').disabled=bad.size>0||!ch;
   $('dupMsg').textContent=bad.size?`${bad.size} number(s) still clash or are blank (red) — fix before Apply`:`${ch} change(s) ready`;}
 function closeDupCheck(){dupCtx=null;$('dupScrim').classList.remove('show');}
 function applyDupCheck(){if(!dupCtx||dupValidate().size)return;
-  const ch=dupCtx.rows.filter(r=>r.del||r.newId.trim()!==r.orig);if(!ch.length){closeDupCheck();return;}
+  const ch=dupCtx.rows.filter(r=>r.del||(!r.harmless&&r.newId.trim()!==r.orig));if(!ch.length){closeDupCheck();return;}
   saveState();let ren=0,del=0;
-  ch.forEach(r=>{const p=PTS[r.i];
+  ch.forEach(r=>r.pts.forEach(i=>{const p=PTS[i];
     if(r.del){p.deleted=true;p.edited=true;del++;logEdit('del',`pt ${p.id} line ${p.srcLine+1} deleted (duplicate #)`);}
-    else{const nid=r.newId.trim();logEdit('code',`pt ${p.id} line ${p.srcLine+1}: duplicate # → ${nid}`);p.id=nid;p.edited=true;ren++;}});
+    else{const nid=r.newId.trim();logEdit('code',`pt ${p.id} line ${p.srcLine+1}: duplicate # → ${nid}`);p.id=nid;p.edited=true;ren++;}}));
   closeDupCheck();buildLinework();draw();if(sel>=0)inspect();flagDirty();
-  hud(`duplicates fixed: ${ren} renumbered, ${del} deleted`);}
+  const left=classifyDups();
+  hud(`duplicates fixed: ${ren} line(s) renumbered, ${del} deleted — re-check: ${left.real.length} real duplicate(s) left`);}
 
 function openUgwCpnReview(){
   if(!PTS.length){hud('load an FBK first');return;}
@@ -4931,7 +5009,7 @@ const HELP_TOOLBAR=[
   ['↶ Undo / ↷ Redo','Step edit history back/forward (Ctrl+Z / Ctrl+Y) — covers point moves, code edits, deletes, Knockdown, UGW→CPN, and inserts.'],
   ['⚙ Knockdown','Bake curb codes into real H/V offset coordinates. <b>RBCB</b> (back of curb) — a point with its own code gets that code\'s cross-section; a point with no code derives the reveal from the nearest <b>REF</b> point. <b>RCFL</b> (flow line) — only applies at points that carry their own curb code.'],
   ['🎯 REF Knockdown (1 pt)','One curb point at a time: click the RBCB point, click <b>any</b> point for the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Clears and replaces only that curb\'s H/V/code — other codes on the point stay as they are.'],
-  ['🔢 Dup #','Check for duplicate point numbers. Lists each point # used by more than one live point; the first in file order keeps it, the others get the next free number (editable), or tick Delete for a true duplicate shot. Nothing changes until Apply.'],
+  ['🔢 Dup #','Check for duplicate point numbers. Face 1/face 2 pairs, repeat sets and re-shots from other setups are normal and left alone. A # used for two different things (different code, NEZ with different coords, a different spot from the same setup, a control # reused) is listed; the control point or first in file order keeps it, the others get the next free number (editable), or tick Delete. Identical NEZ re-entries are shown as harmless. Nothing changes until Apply.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
   ['↓ Export FBK','Write the current points/edits back out as a field-book file.'],
