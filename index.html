@@ -268,7 +268,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -735,7 +735,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:126};
+const VERSION={fruit:'🍇',name:'GRAPE',build:127};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -2365,9 +2365,21 @@ function pickSegmentForInsert(sx,sy){const proj=is3D?((E,N,Z)=>P3(E,N,Z)):((E,N)
       E:p1.E+proj_info.t*(p2.E-p1.E),N:p1.N+proj_info.t*(p2.N-p1.N),Z:p1.Z+proj_info.t*(p2.Z-p1.Z),label:'nearest on line'};}});
   return best;
 }
+/* build 127: a point shared by two lines (e.g. "RBCB1 E RBCB2 B") — changing it for one
+   line can change the other line too (its B/E moves, or its file line is moved / turned
+   into an NEZ on export, which changes where the OTHER line connects through it).
+   Ask before any line edit that touches one. Returns true to go ahead. */
+function sharedOthers(f,idxs){const out=[];
+  idxs.forEach(i=>{const o=figuresOfPoint(i).filter(g=>!f||g.id!==f.id).map(g=>g.code);if(o.length)out.push(`pt ${PTS[i].id} (also on ${[...new Set(o)].join(', ')})`);});
+  return out;}
+function askShared(f,idxs,what){const o=sharedOthers(f,idxs);if(!o.length)return true;
+  const ok=confirm(`${what} on ${f?f.code:'this line'} also affects another line that shares a point:\n\n  ${o.slice(0,8).join('\n  ')}${o.length>8?`\n  … +${o.length-8} more`:''}\n\nThe other line connects through ${o.length>1?'these points':'this point'} too, so it can change shape on export. Continue?`);
+  if(!ok)hud('cancelled — shared point left alone');return ok;}
+function movedIdxs(oldO,newO){return newO.filter((i,k)=>oldO[k]!==i);}
 function reorderFig(id,from,to){const f=getFig(id);if(!f)return;
-  saveState();
   const order=f.verts.map(v=>v.i);const[m]=order.splice(from,1);order.splice(to,0,m);
+  if(!askShared(f,movedIdxs(f.verts.map(v=>v.i),order),'Reordering')){inspectFig(f);return;}
+  saveState();
   figOrder[id]=order;logEdit('code',`reorder ${f.code}: vtx ${from+1}→${to+1}`);
   draw();inspectFig(getFig(id));flagDirty();}
 /* ---------- reorder a line by picking its points on the map (build 119) ----------
@@ -2391,6 +2403,7 @@ function ordPickClick(i){const f=getFig(ordPick.figId);if(!f){ordPick=null;draw(
 function applyOrdPick(){if(!ordPick)return;const f=getFig(ordPick.figId);if(!f){ordPick=null;return;}
   const seq=ordPick.seq.slice();if(!seq.length)return;
   const rest=f.verts.map(v=>v.i).filter(i=>!seq.includes(i));
+  if(!askShared(f,movedIdxs(f.verts.map(v=>v.i),seq.concat(rest)),'Reordering')){ordPick=null;draw();inspectFig(f);return;}
   saveState();figOrder[f.id]=seq.concat(rest);
   logEdit('code',`reorder ${f.code} by map pick: ${seq.map(i=>PTS[i].id).join(' → ')}${rest.length?` (+${rest.length} after)`:''}`);
   ordPick=null;draw();inspectFig(getFig(f.id));flagDirty();hud(`${f.code} reordered (${seq.length} picked)`);}
@@ -2486,11 +2499,14 @@ function drawOrdPick(proj){if(!ordPick)return;const f=getFig(ordPick.figId);if(!
     ctx.fillText(String(n+1),s[0],s[1]+0.5);});
   ctx.textAlign='start';ctx.textBaseline='alphabetic';ctx.restore();}
 function reverseFig(id){const f=getFig(id);if(!f)return;
+  if(!askShared(f,movedIdxs(f.verts.map(v=>v.i),f.verts.map(v=>v.i).reverse()),'Reversing'))return;
   saveState();
   figOrder[id]=f.verts.map(v=>v.i).reverse();logEdit('code',`reverse ${f.code}`);
   draw();inspectFig(getFig(id));flagDirty();}
 function addPointToFig(figId,anchorIdx,addIdx){const f=getFig(figId);if(!f)return;
   if(f.verts.some(v=>v.i===addIdx)){logEdit('code',`pt ${PTS[addIdx].id} already on ${f.code}`);inspectFig(getFig(figId));return;}
+  if(!askShared(f,[addIdx],`Adding pt ${PTS[addIdx].id}`)){inspectFig(f);return;}
+  saveState();
   (figExtra[figId]=figExtra[figId]||[]).push({i:addIdx,after:anchorIdx});
   const A=PTS[addIdx],anc=PTS[anchorIdx];
   const cross=A.kind!=='shot'||!anc||anc.kind!=='shot'||A.stn!==anc.stn;   // outside the setup → NEZ on export
@@ -2569,6 +2585,14 @@ function openCogoDialog(figId){
   cogoCtx={figId};$('cogoScrim').classList.add('show');$('cogoN').focus();
   hud(`enter coordinates for point to insert into ${f.code} (${verts.length} current vertices)`);}
 function closeCogoDialog(){cogoCtx=null;$('cogoScrim').classList.remove('show');}
+// build 127: index of token `tok` (B/E…) inside `code`'s own segment of a multi-code
+// description ("RBCB1 B RBCB2 E" → B belongs to RBCB1 only). -1 if not there.
+function codeTokIdx(desc,code,tok){const t=(desc||'').trim().split(/\s+/),C=String(code).toUpperCase();
+  let codes;try{codes=new Set(Object.keys(parseDesc(expandCurb(desc||''))).map(c=>c.toUpperCase()));}catch(e){codes=new Set();}
+  const ci=t.findIndex(x=>x.toUpperCase()===C);
+  if(ci<0){const k=t.findIndex(x=>x.toUpperCase()===tok);return codes.size<=1?k:-1;}
+  for(let j=ci+1;j<t.length;j++){const U=t[j].toUpperCase();if(U!==C&&codes.has(U))break;if(U===tok)return j;}
+  return -1;}
 function insertCogoPoint(){
   if(!cogoCtx||!cogoCtx.figId)return;
   const N=parseFloat($('cogoN').value),E=parseFloat($('cogoE').value),Z=parseFloat($('cogoZ').value);
@@ -2576,23 +2600,27 @@ function insertCogoPoint(){
   const pos=atEnd?-1:parseInt($('cogoPos').value)||0;
   if(!isFinite(N)||!isFinite(E)||!isFinite(Z)){hud('enter valid coordinates');return;}
   const f=getFig(cogoCtx.figId);if(!f)return;
+  // build 127: the B/E hand-off edits the old endpoint — if that point is also on another
+  // line, ask first; and only touch the token inside THIS line's code segment.
+  const endIdx=pos===0&&f.verts.length?f.verts[0].i:(atEnd&&f.verts.length?f.verts[f.verts.length-1].i:-1);
+  if(endIdx>=0&&codeTokIdx(PTS[endIdx].desc,f.code,pos===0?'B':'E')>=0&&!askShared(f,[endIdx],`Moving ${pos===0?'B':'E'} off pt ${PTS[endIdx].id}`))return;
   saveState();
   const newId=cogoCtx.newId||getNextPointNumber();
   // The inserted point must carry the figure code so CAD reads it as part of the
   // linework. When it becomes the new first/last vertex it also takes the begin
   // (B) / end (E) token, MOVED off the old endpoint so the figure keeps exactly
   // one B and one E — anything else breaks the FBK in CAD.
-  const dropTok=(d,tok)=>d.replace(new RegExp('\\s*\\b'+tok+'\\b'),'').replace(/\s{2,}/g,' ').trim();
+  const dropTok=(d,tok)=>{const t=d.trim().split(/\s+/),k=codeTokIdx(d,f.code,tok);if(k<0)return d;t.splice(k,1);return t.join(' ');};
   let newDesc=f.code;
   if(pos===0&&f.verts.length>0){
     const firstPt=PTS[f.verts[0].i];
-    if(/\bB\b/.test(firstPt.desc)){
+    if(codeTokIdx(firstPt.desc,f.code,'B')>=0){
       firstPt.desc=dropTok(firstPt.desc,'B');firstPt.code=(firstPt.desc.split(/\s+/)[0]||'').toUpperCase();firstPt.edited=true;
       logEdit('code',`pt ${firstPt.id}: B moved to new start pt ${newId}`);}
     newDesc=f.code+' B';
   }else if(atEnd&&f.verts.length>0){
     const lastPt=PTS[f.verts[f.verts.length-1].i];
-    if(/\bE\b/.test(lastPt.desc)){
+    if(codeTokIdx(lastPt.desc,f.code,'E')>=0){
       lastPt.desc=dropTok(lastPt.desc,'E');lastPt.code=(lastPt.desc.split(/\s+/)[0]||'').toUpperCase();lastPt.edited=true;
       logEdit('code',`pt ${lastPt.id}: E moved to new end pt ${newId}`);
       newDesc=f.code+' E';}
@@ -3956,7 +3984,9 @@ function inspectFig(f){const box=$('insp');if(!f){box.innerHTML='<div class="emp
     hud(insertPt?.figId===f.id?'click on the line to insert point':'insert cancelled');inspectFig(getFig(f.id));draw();};
   if($('cogoBtn'))$('cogoBtn').onclick=()=>openCogoDialog(f.id);
   $('npBtn').onclick=()=>{if(npAdd&&npAdd.figId===f.id)cancelNpAdd();else startNpAdd(f.id);};
-  if($('nezChk'))$('nezChk').onchange=()=>{saveState();
+  if($('nezChk'))$('nezChk').onchange=()=>{
+    if($('nezChk').checked&&!askShared(f,f.verts.map(v=>v.i),'Rendering as NEZ')){$('nezChk').checked=false;return;}
+    saveState();
     if($('nezChk').checked)figNEZ[f.id]=true;else delete figNEZ[f.id];
     logEdit('code',`${f.code}: render as NEZ ${figNEZ[f.id]?'ON':'OFF'}`);flagDirty();draw();inspectFig(getFig(f.id));};
   $('resetBtn').onclick=()=>{saveState();delete figOrder[f.id];logEdit('code',`reset order ${f.code}`);draw();inspectFig(getFig(f.id));};
@@ -4080,12 +4110,31 @@ function hlLine(ln){const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
    double-click edits — a point line goes through applyRawLine (same path as the
    Review/edit FBK window), any other line edits RAW directly (exported as typed). */
 const FBKP_ROWH=18;
+// build 127: where an added point (srcLine<0) sits in the file — right after the nearest
+// real point before it on its line (same rule as exportFBK step 2b), or right after its
+// posAfter anchor (circle center). Map: RAW line L -> [PTS idx] to show BEFORE line L.
+// The FBK code panel uses it so a new point shows (and, in text mode, is re-read) in line
+// order instead of at the end of the file, which broke the line.
+function addedPtPlacement(){const m=new Map(),seen=new Set();
+  const put=(L,i)=>{if(seen.has(i))return;seen.add(i);(m.get(L)||m.set(L,[]).get(L)).push(i);};
+  for(const id in figExtra){const f=getFig(id);if(!f)continue;
+    const ord=f.verts.filter(v=>PTS[v.i]&&!PTS[v.i].deleted);
+    ord.forEach((v,pos)=>{if(PTS[v.i].srcLine>=0)return;
+      let pi=pos-1;while(pi>=0&&PTS[ord[pi].i].srcLine<0)pi--;
+      if(pi>=0){put(PTS[ord[pi].i].srcLine+1,v.i);return;}
+      let ni=pos+1;while(ni<ord.length&&PTS[ord[ni].i].srcLine<0)ni++;
+      if(ni<ord.length)put(PTS[ord[ni].i].srcLine,v.i);});}
+  PTS.forEach((p,i)=>{if(p.deleted||p.srcLine>=0||p.posAfter==null)return;const a=PTS[p.posAfter];
+    if(a&&!a.deleted&&a.srcLine>=0)put(a.srcLine+1,i);});
+  return m;}
 function fbkPanelBuild(){
   const byLine=new Map();PTS.forEach((p,i)=>{if(p.srcLine>=0&&!byLine.has(p.srcLine))byLine.set(p.srcLine,i);});
-  const rows=[];
+  const rows=[],before=addedPtPlacement(),placed=new Set();
   for(let L=0;L<RAW.length;L++){const pi=byLine.get(L);
+    (before.get(L)||[]).forEach(i=>{placed.add(i);rows.push({L:null,pi:i,text:pointFbkLine(PTS[i])});});
     rows.push(pi!=null?{L,pi,text:pointFbkLine(PTS[pi])}:{L,pi:null,text:RAW[L]});}
-  PTS.forEach((p,i)=>{if(p.srcLine<0)rows.push({L:null,pi:i,text:pointFbkLine(p)});});
+  (before.get(RAW.length)||[]).forEach(i=>{placed.add(i);rows.push({L:null,pi:i,text:pointFbkLine(PTS[i])});});
+  PTS.forEach((p,i)=>{if(p.srcLine<0&&!placed.has(i))rows.push({L:null,pi:i,text:pointFbkLine(p)});});
   fbkP.rows=rows;fbkP.rowOfPt=new Map();rows.forEach((r,k)=>{if(r.pi!=null)fbkP.rowOfPt.set(r.pi,k);});
   if(fbkP.editK>=rows.length)fbkP.editK=-1;
   fbkP.stale=false;fbkP.ver++;
@@ -4539,6 +4588,7 @@ function exportFBK(expandCodes=true,textOnly=false){
     if(next<RAW.length)(nezBefore[next]=nezBefore[next]||[]).push(`PRISM ${p.origPrism.toFixed(3)}`);
     rodEdits.push(`pt ${p.id} (${p.origPrism.toFixed(3)}→${p.prism.toFixed(3)})`);});
   const permuted=[], nezed=[], shared=new Set();
+  const outLine=new Map();                         // build 127: PTS idx -> line its text is actually written on (after an in-setup permute)
   // 2a. figures flagged "render as NEZ" → every vertex (natural + added, in figure
   //     order) is emitted as an NEZ coordinate record, so the linework no longer
   //     depends on which setup each point was shot from.
@@ -4566,10 +4616,17 @@ function exportFBK(expandCodes=true,textOnly=false){
     let crosses=false;for(let L=slots[0]+1;L<slots[slots.length-1];L++){const s=(RAW[L]||'').trim();
       if(s.startsWith('STN')||s.startsWith('Used last station')){crosses=true;break;}}
     if(!crosses){                                   // safe: permute VA lines within the setup
-      verts.forEach((p,k)=>{editedContent[slots[k]]=finalLine(p);});permuted.push(f.code);
+      verts.forEach((p,k)=>{editedContent[slots[k]]=finalLine(p);outLine.set(PTS.indexOf(p),slots[k]);});permuted.push(f.code);
     }else{                                          // crosses a setup → emit ordered NEZ block
+      // build 127: the block carries the figure's ADDED points too, in line order, so a
+      // point inserted after vertex k sits right after k inside the block (2b used to
+      // anchor it on k's archived original line — outside the block entirely).
       const block=[];
-      verts.forEach(p=>{
+      f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted).forEach(p=>{
+        if(p.srcLine<0||!verts.includes(p)){if(!nezDone.has(p.id)){nezDone.add(p.id);
+          const d0=addCodeToDesc(p.desc,f.code);const d=expandCodes?expandDescForExport(d0):d0;
+          block.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);
+          if(p.srcLine>=0)deletedAfter.add(p.srcLine);}return;}
         if(figuresOfPoint(PTS.indexOf(p)).length>1)shared.add(p.id);
         if(!nezDone.has(p.id)){nezDone.add(p.id);
           const expandedDesc=expandCodes?expandDescForExport(p.desc):p.desc;
@@ -4603,7 +4660,7 @@ function exportFBK(expandCodes=true,textOnly=false){
     const addedSet=new Set((figExtra[id]||[]).map(x=>x.i));
     ord.forEach((v,pos)=>{
       if(!addedSet.has(v.i))return;
-      const A=PTS[v.i];if(!A||A.deleted)return;
+      const A=PTS[v.i];if(!A||A.deleted||nezDone.has(A.id))return;
       let pi=pos-1;while(pi>=0&&PTS[ord[pi].i].srcLine<0)pi--;
       const prev=pi>=0?PTS[ord[pi].i]:null;
       let ni=pos+1;while(ni<ord.length&&PTS[ord[ni].i].srcLine<0)ni++;
@@ -4616,7 +4673,10 @@ function exportFBK(expandCodes=true,textOnly=false){
       }else if(neighborStn&&A.stn===neighborStn&&inOrder){   // same setup, already in file order → just add the code in place
         editedContent[A.srcLine]=lineWithDesc(A,d);permuted.push(f.code+'+'+A.id);
       }else{                                          // outside the setup → NEZ record in line position, archive original
-        const anchorLine=prev?prev.srcLine+1:(next?next.srcLine:null);
+        // build 127: anchor on the line the neighbor is actually WRITTEN on — after an
+        // in-setup reorder its VA line has been permuted into another slot (outLine)
+        const lineOfPt=q=>{const k=PTS.indexOf(q);return outLine.has(k)?outLine.get(k):q.srcLine;};
+        const anchorLine=prev?lineOfPt(prev)+1:(next?lineOfPt(next):null);
         if(anchorLine==null){                          // no real, file-backed neighbor on EITHER side (e.g. an entirely COGO-built line) — never drop it, let 3b's end-of-file safety net emit it
           if(A.srcLine>=0)deletedAfter.add(A.srcLine);
         }else{
