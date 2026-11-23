@@ -259,6 +259,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
     <button class="btn ghost" id="refKdBtn" disabled title="Single-point REF knockdown: click the RBCB point, then click ANY point to set the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Replaces only the curb's own H/V/code — every other code on the point is left alone. Works in 2D or 3D.">🎯 REF Knockdown (1 pt)</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
+    <button class="btn ghost" id="codeChkBtn" disabled title="Check every description for a missing space before or after a code number (H/V, RT/X/RECT, CPN/RPN, curb codes) and list them with the fix — the same check that runs before Export FBK">🔎 Check codes</button>
     <button class="btn ghost" id="dupBtn" disabled title="Check for duplicate point numbers: face pairs, repeat sets and re-shots are normal and ignored; a # used for two different things (different code, different NEZ coords, or a different spot from the same setup) is listed with the next free number proposed — nothing changes until Apply">🔢 Dup #</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
@@ -270,7 +271,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -467,14 +468,15 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 
 <div class="scrim" id="codeChkScrim">
   <div class="modal wide">
-    <h4>Coding Check Before Export</h4>
+    <h4 id="codeChkTitle">Coding Check Before Export</h4>
     <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
-      These descriptions have a code number with no space after it — <b>H</b>/<b>V</b> offsets,
-      <b>RT</b>/<b>X</b>/<b>RECT</b>, <b>CPN</b>/<b>RPN</b>, or a curb code like <b>R624</b>
-      (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>RT6RECT</code>, <code>R624BC</code>),
-      so the app and CAD can't read them.
-      Ticked rows get a space added after the number. Untick a row to export it as typed.
+      Codes that take a number — <b>H</b>/<b>V</b> offsets, <b>RT</b>/<b>X</b>/<b>RECT</b>,
+      <b>CPN</b>/<b>RPN</b>, curb codes like <b>R624</b> — need a space on both sides, or the app and CAD can't read them.
+      Missing space <i>after</i> the number: <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>R624BC</code>.
+      Missing space <i>before</i> the code: <code>BV0</code>, <code>R624H-0.5</code>, <code>ECPN001</code>, <code>BCR624</code>.
+      Ticked rows get the space added. Untick a row to leave it as typed.
     </div>
+    <div id="codeChkSum" style="font:12px var(--mono);margin:0 0 8px"></div>
     <div class="row" style="justify-content:flex-start;margin:0 0 6px">
       <button class="btn ghost" id="codeChkAll">Select all</button>
       <button class="btn ghost" id="codeChkNone">Clear</button>
@@ -782,7 +784,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:131};
+const VERSION={fruit:'🍇',name:'GRAPE',build:132};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -949,7 +951,7 @@ function parse(text){
   }
   buildLinework();
   $('jobpill').textContent=(RAW[0]||'').replace(/JOB|"/g,'').trim()||'FBK';
-  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','dupBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+  ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','dupBtn','codeChkBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
   is3D=false;setMode('sel');fit();
   hud(`${PTS.length} pts · ${Object.keys(CODES).length} codes`);
 }
@@ -2606,7 +2608,7 @@ function importCSV(text){
   buildLinework();
   if(wasEmpty){
     $('jobpill').textContent='CSV import';
-    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','dupBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
+    ['fitBtn','refreshBtn','dlBtn','dlRawBtn','dlCsvBtn','dlDxfBtn','gotoBtn','kdBtn','unkdBtn','refKdBtn','ugwCpnBtn','dupBtn','codeChkBtn','simplCogoBtn'].forEach(b=>$(b).disabled=false);
     is3D=false;setMode('sel');fit();
   }else draw();
   sel=-1;selFig=null;inspect();flagDirty();
@@ -4770,42 +4772,83 @@ function expandDescForExport(desc){
 const CODING_GLUE_RE=/(^|\s)((?:(?:RECT|RT|X|H|V)\s*-?(?:\d+\.?\d*|\.\d+))|(?:(?:CPN|RPN)\s*\d+))(?=[A-Za-z])/gi;
 function codingFixCurb(s){return s.split(/(\s+)/).map(t=>{const m=t.match(/^((?:LD|RD|L|R)\d{3})([A-Za-z].*)$/i);
   return m&&(CURB_BOC[m[1].toUpperCase()]||CURB_FL[m[1].toUpperCase()])?m[1]+' '+m[2]:t;}).join('');}
-function codingFix(desc){let s=desc||'',prev;let n=0;
-  do{prev=s;s=codingFixCurb(s.replace(CODING_GLUE_RE,'$1$2 '));}while(s!==prev&&++n<50);
-  return s;}
+/* build 132: missing space BEFORE a code — a word glued to the front of an
+   H/V value, a CPN/RPN point #, or a curb code (e.g. "BV0", "R624H-0.5",
+   "ECPN001", "BCR624"). Kept tight to avoid splitting real figure codes:
+   - CPN/RPN + number: any word in front ("ECPN001" → "E CPN001").
+   - H/V + number: only when the word in front is a line-control token
+     (B/E/BC/EC/OC/CLS/PCC/PRC/SO/CIR…), an RBCB/RCFL marker or a curb code,
+     OR the number has a sign/decimal point ("TBWH-1"); so "LV1"/"SV2" stay.
+   - curb code: only after a line-control token or a marker ("BCR624"). */
+const CODING_PRE=new Set(['B','E','BC','EC','OC','PC','PT','POC','CLS','CL','PCC','PRC','SO','CIR','CIRCLE','RECT']);
+function codingPreOk(pre){const P=pre.toUpperCase();return CODING_PRE.has(P)||!!CURB_BOC[P]||!!CURB_FL[P]||/^(RBCB|RCFL)\d*$/.test(P);}
+function codingFixBefore(s){
+  // spaced value with a glued word in front: "BRPN 001", "ECPN 12", "BV 0" (front word must be a line-control token / marker / curb code)
+  s=s.replace(/(^|\s)([A-Za-z][A-Za-z0-9]*?)(CPN|RPN|H|V)(?=\s+-?(?:\d|\.\d))/gi,(m0,ws,pre,code)=>codingPreOk(pre)?ws+pre+' '+code:m0);
+  return s.split(/(\s+)/).map(t=>{if(!t||/^\s+$/.test(t))return t;
+  let m=t.match(/^([A-Za-z][A-Za-z0-9]*?)((?:CPN|RPN)\d+)(?=$|[A-Za-z])/i);
+  if(m)return m[1]+' '+t.slice(m[1].length);
+  m=t.match(/^([A-Za-z][A-Za-z0-9]*?)([HV]-?(?:\d+\.?\d*|\.\d+))(?=$|[A-Za-z])/i);
+  if(m&&(codingPreOk(m[1])||/[-.]/.test(m[2])))return m[1]+' '+t.slice(m[1].length);
+  for(let i=1;i<t.length;i++){const pre=t.slice(0,i);if(!codingPreOk(pre))continue;
+    const c=t.slice(i).match(/^((?:LD|RD|L|R)\d{3})(?=$|[A-Za-z])/i);
+    if(c&&(CURB_BOC[c[1].toUpperCase()]||CURB_FL[c[1].toUpperCase()]))return pre+' '+t.slice(i);}
+  return t;}).join('');}
+function codingFixInfo(desc){let s=desc||'',prev,n=0;const why=new Set();
+  do{prev=s;
+    let a=codingFixCurb(s.replace(CODING_GLUE_RE,'$1$2 '));if(a!==s){why.add('after');s=a;}
+    let b=codingFixBefore(s);if(b!==s){why.add('before');s=b;}
+  }while(s!==prev&&++n<50);
+  return{fixed:s,why};}
+function codingFix(desc){return codingFixInfo(desc).fixed;}
 function findCodingErrors(){const out=[];
-  PTS.forEach((p,i)=>{if(p.deleted||!p.desc)return;const f=codingFix(p.desc);if(f!==p.desc)out.push({i,p,fixed:f,on:true});});
+  PTS.forEach((p,i)=>{if(p.deleted||!p.desc)return;const r=codingFixInfo(p.desc);if(r.fixed!==p.desc)out.push({i,p,fixed:r.fixed,why:r.why,on:true});});
   out.sort((a,b)=>(a.p.srcLine<0?1e9:a.p.srcLine)-(b.p.srcLine<0?1e9:b.p.srcLine));
   return out;}
 let codeChkCtx=null;
+/* run=null → stand-alone "🔎 Check codes" report (fix or close, no export);
+   run=function → the check before Export FBK (fix & export / as-is / cancel). */
 function codingCheckThen(run){
-  const rows=findCodingErrors();
-  if(!rows.length){run();return;}
-  codeChkCtx={rows,run};renderCodeChk();$('codeChkScrim').classList.add('show');
-  hud(`${rows.length} description(s) need a space after a code number`);}
+  const rows=findCodingErrors(),report=!run;
+  if(!rows.length&&!report){run();return;}
+  codeChkCtx={rows,run,report};
+  $('codeChkTitle').textContent=report?'Coding Check Report':'Coding Check Before Export';
+  $('codeChkAsIs').style.display=report?'none':'';
+  $('codeChkCancel').textContent=report?'Close':'Cancel';
+  $('codeChkCancel').title=report?'Close the report':"Don't export";
+  renderCodeChk();$('codeChkScrim').classList.add('show');
+  hud(rows.length?`${rows.length} description(s) have a missing space around a code`:'coding check: no problems found');}
 function renderCodeChk(){const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  $('codeChkList').innerHTML=codeChkCtx.rows.map((r,k)=>`<div class="vrow" style="padding:6px 8px">
+  const rows=codeChkCtx.rows,nA=rows.filter(r=>r.why.has('after')).length,nB=rows.filter(r=>r.why.has('before')).length;
+  $('codeChkSum').innerHTML=rows.length?`<b>${rows.length}</b> point(s) to fix · <b>${nA}</b> missing a space <i>after</i> a number · <b>${nB}</b> missing a space <i>before</i> a code`
+    :`<b style="color:#9ff0c8">✓ No coding errors found</b> — every H/V, RT/X/RECT, CPN/RPN and curb code has a space on both sides.`;
+  const tag=t=>`<span style="font-size:10px;padding:1px 5px;border-radius:4px;margin-left:6px;background:${t==='after'?'#5a3a12':'#12385a'};color:#fff">${t==='after'?'space after #':'space before code'}</span>`;
+  $('codeChkList').innerHTML=rows.map((r,k)=>`<div class="vrow" style="padding:6px 8px">
     <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
       <input type="checkbox" data-k="${k}" ${r.on?'checked':''} style="margin-top:3px">
       <div style="flex:1;min-width:0;font:12px var(--mono)">
-        <div><b>pt ${esc(r.p.id)}</b> <span style="color:var(--mut)">${r.p.srcLine>=0?'line '+(r.p.srcLine+1):'added point'}</span>
+        <div><b>pt ${esc(r.p.id)}</b> <span style="color:var(--mut)">${r.p.srcLine>=0?'line '+(r.p.srcLine+1):'added point'}</span>${[...r.why].map(tag).join('')}
           <button class="btn ghost" data-z="${r.i}" style="padding:1px 6px;margin-left:6px" title="Zoom to this point">⌖</button></div>
         <div style="color:#ff8f8f;word-break:break-all">${esc(r.p.desc)}</div>
         <div style="color:#9ff0c8;word-break:break-all">→ ${esc(r.fixed)}</div>
       </div></label></div>`).join('');
   $('codeChkList').querySelectorAll('input[data-k]').forEach(c=>c.onchange=()=>{codeChkCtx.rows[+c.dataset.k].on=c.checked;syncCodeChkBtn();});
   $('codeChkList').querySelectorAll('button[data-z]').forEach(b=>b.onclick=e=>{e.preventDefault();zoomToPoint(+b.dataset.z);});
+  ['codeChkAll','codeChkNone'].forEach(id=>$(id).style.display=rows.length?'':'none');
   syncCodeChkBtn();}
-function syncCodeChkBtn(){const n=codeChkCtx.rows.filter(r=>r.on).length;$('codeChkFix').textContent=`Fix selected (${n}) & export`;$('codeChkFix').disabled=!n;}
+function syncCodeChkBtn(){const n=codeChkCtx.rows.filter(r=>r.on).length,rep=codeChkCtx.report;
+  $('codeChkFix').textContent=rep?`Fix selected (${n})`:`Fix selected (${n}) & export`;$('codeChkFix').disabled=!n;
+  $('codeChkFix').style.display=rep&&!codeChkCtx.rows.length?'none':'';}
 function closeCodeChk(){codeChkCtx=null;$('codeChkScrim').classList.remove('show');}
-function applyCodeChk(fix){if(!codeChkCtx)return;const{rows,run}=codeChkCtx;
-  const sel=fix?rows.filter(r=>r.on):[];
-  if(sel.length){saveState();
-    sel.forEach(r=>{const p=r.p;logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${r.fixed}" (coding check: space after number)`);
+function applyCodeChk(fix){if(!codeChkCtx)return;const{rows,run,report}=codeChkCtx;
+  const chosen=fix?rows.filter(r=>r.on):[];
+  if(chosen.length){saveState();
+    chosen.forEach(r=>{const p=r.p;logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${r.fixed}" (coding check: missing space)`);
       p.desc=r.fixed;p.code=(r.fixed.split(/\s+/)[0]||'').toUpperCase();p.edited=true;});
     buildLinework();draw();if(sel>=0)inspect();else if(selFig){const f=getFig(selFig);if(f)inspectFig(f);}flagDirty();}
-  closeCodeChk();run();
-  if(sel.length)hud(`fixed ${sel.length} description(s), exported`);}
+  closeCodeChk();if(run)run();
+  if(chosen.length)hud(`fixed ${chosen.length} description(s)${run?', exported':''}`);
+  else if(report&&fix===false)hud('coding check closed');}
 function exportFBK(expandCodes=true,textOnly=false){
   const editedContent={};          // lineIdx -> replacement string
   const deletedAfter=new Set();     // lineIdx -> append a Deleted marker
@@ -5275,11 +5318,12 @@ $('sideScrim').onclick=closeSideMobile;
 $('dlBtn').onclick=()=>codingCheckThen(()=>exportFBK(true));
 $('dlRawBtn').onclick=()=>codingCheckThen(()=>exportFBK(false));
 $('codeChkFix').onclick=()=>applyCodeChk(true);
+$('codeChkBtn').onclick=()=>codingCheckThen(null);
 $('codeChkAsIs').onclick=()=>applyCodeChk(false);
-$('codeChkCancel').onclick=()=>{closeCodeChk();hud('export cancelled');};
+$('codeChkCancel').onclick=()=>{const r=codeChkCtx&&codeChkCtx.report;closeCodeChk();hud(r?'coding check closed':'export cancelled');};
 $('codeChkAll').onclick=()=>{codeChkCtx.rows.forEach(r=>r.on=true);renderCodeChk();};
 $('codeChkNone').onclick=()=>{codeChkCtx.rows.forEach(r=>r.on=false);renderCodeChk();};
-$('codeChkScrim').onclick=e=>{if(e.target===$('codeChkScrim')){closeCodeChk();hud('export cancelled');}};
+$('codeChkScrim').onclick=e=>{if(e.target===$('codeChkScrim')){const r=codeChkCtx.report;closeCodeChk();hud(r?'coding check closed':'export cancelled');}};
 $('dlCsvBtn').onclick=exportCSV;
 $('dlDxfBtn').onclick=exportDXF;
 $('kdBtn').onclick=applyKnockdown;
@@ -5354,7 +5398,7 @@ $('zpickCancel').onclick=closeZPick;
 $('zpickScrim').onclick=e=>{if(e.target===$('zpickScrim'))closeZPick();};
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&dupCtx){e.preventDefault();closeDupCheck();return;}
-  if(e.key==='Escape'&&codeChkCtx){e.preventDefault();closeCodeChk();hud('export cancelled');return;}
+  if(e.key==='Escape'&&codeChkCtx){e.preventDefault();const r=codeChkCtx.report;closeCodeChk();hud(r?'coding check closed':'export cancelled');return;}
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);return;}
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
@@ -5397,7 +5441,8 @@ const HELP_TOOLBAR=[
   ['🔢 Dup #','Check for duplicate point numbers. Face 1/face 2 pairs, repeat sets and re-shots from other setups are normal and left alone. A # used for two different things (different code, NEZ with different coords, a different spot from the same setup, a control # reused) is listed; the control point or first in file order keeps it, the others get the next free number (editable), or tick Delete. Identical NEZ re-entries are shown as harmless. Nothing changes until Apply.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
-  ['↓ Export FBK','Write the current points/edits back out as a field-book file. First runs a coding check: any H/V, RT/X/RECT, CPN/RPN or curb-code number with no space after it (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>RT6RECT</code>, <code>R624BC</code>) is listed with the fixed text — fix the ticked ones, export as-is, or cancel. Export (codes) runs the same check.'],
+  ['↓ Export FBK','Write the current points/edits back out as a field-book file. First runs a coding check: any H/V, RT/X/RECT, CPN/RPN or curb-code number with no space after it (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>RT6RECT</code>, <code>R624BC</code>) is listed with the fixed text — fix the ticked ones, export as-is, or cancel. Export (codes) runs the same check. It also catches a missing space <i>before</i> a code (<code>BV0</code>, <code>R624H-0.5</code>, <code>ECPN001</code>, <code>BCR624</code>).'],
+  ['🔎 Check codes','Run the same coding check any time without exporting: a report of every description with a missing space after a code number or before a code, with the fix shown — fix the ticked ones or just close.'],
   ['↓ Export (codes)','Same export, but keeps the original curb-code names instead of the baked Knockdown offsets.'],
   ['↓ Export CSV','Write every non-deleted point as a comma-delimited PNEZD file — round-trips with Import CSV.'],
   ['📜 FBK code','Floating panel listing every line of the file (with your edits). Selecting a point or line on the canvas scrolls to and highlights its line(s); click a point line to select it; double-click any line to edit (Enter applies, Esc cancels). Find box jumps to the next match. ✎ Edit as text switches to a Notepad-style text box for the whole file — type, paste, add or delete lines, then Apply (Ctrl+S). Drag the header to move, the corner to resize.'],
