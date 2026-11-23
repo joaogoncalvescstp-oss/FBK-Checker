@@ -210,6 +210,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .helpPane p,.helpPane li{font-size:12px;line-height:1.6;color:var(--ink)}
 .helpPane ul{padding-left:18px;margin:4px 0 10px}
 .helpPane .mut{color:var(--mut)}
+.jobTbl tbody tr{cursor:pointer}.jobTbl tbody tr:hover td{background:var(--panel2)}.jobTbl tr.jobDel td{opacity:.5;text-decoration:line-through}.jobTbl td{white-space:nowrap}
 .helpTbl{width:100%;border-collapse:collapse;margin:4px 0 12px;font-size:11.5px}
 .helpTbl th{text-align:left;color:var(--gold-dim);font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:4px 8px;border-bottom:1px solid var(--rule)}
 .helpTbl td{padding:5px 8px;border-bottom:1px dotted var(--rule);vertical-align:top;font:12px/1.5 var(--mono)}
@@ -247,7 +248,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <span id="asStatus" title="Local auto-save: your work is copied into this browser after every change" style="font:600 10px var(--mono);color:var(--mut);white-space:nowrap"></span>
     <div class="grow"></div>
     <button class="btn ghost" id="gotoBtn" disabled>⌖ Go to point</button>
-    <label class="btn file">↥ Load FBK<input type="file" id="fileInput" accept=".fbk,.txt"></label>
+    <label class="btn file" title="Load a field book (.fbk/.txt) or a Trimble Access job (.job)">↥ Load FBK / JOB<input type="file" id="fileInput" accept=".fbk,.txt,.job"></label>
+    <button class="btn ghost" id="jobBtn" disabled title="Job file viewer: points (with field code edits and deletes), station setups and notes read from the loaded Trimble .job">📂 Job</button>
     <label class="btn file" title="Import a comma-delimited coordinate file: Point#, Northing, Easting, Elevation, Description (PNEZD). A header row is auto-detected. Points are added as NEZ records.">↥ Import CSV<input type="file" id="csvInput" accept=".csv,.txt"></label>
     <button class="btn ghost" id="fitBtn" disabled>⊡ Fit</button>
     <button class="btn ghost" id="refreshBtn" disabled title="Force a full redraw — rebuild the linework and curb offset lanes from the current point data. Use this if the drawing (especially the green offset lines) looks stale after a line edit.">↻ Refresh</button>
@@ -268,7 +270,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -645,6 +647,27 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 </div>
 
 <!-- help & reference -->
+<div class="scrim" id="jobScrim">
+  <div class="modal help">
+    <h4 style="display:flex;align-items:center;justify-content:space-between">
+      <span>Trimble Job File</span>
+      <button class="sideClose" id="jobClose" style="display:inline-flex" title="Close">✕</button>
+    </h4>
+    <div class="helpTabs">
+      <button class="helpTab jobTab" data-pane="jobPts">Points</button>
+      <button class="helpTab jobTab" data-pane="jobStn">Station setups</button>
+      <button class="helpTab jobTab" data-pane="jobNotes">Notes</button>
+      <button class="helpTab jobTab" data-pane="jobSum">Summary</button>
+    </div>
+    <div class="helpPane jobPane" id="jobPts">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><input id="jobPtFilter" placeholder="filter by point # or code" style="max-width:260px;text-align:left"><span class="mut" id="jobPtCount" style="font:11px var(--mono)"></span><span class="mut" style="font:11px var(--mono)">· click a row to zoom to it</span></div>
+      <table class="helpTbl jobTbl"><thead><tr><th>Pt</th><th>Code</th><th>N</th><th>E</th><th>Z</th><th>Type</th><th>Stn→BS</th><th>HA</th><th>VA</th><th>SD</th><th>Tgt ht</th><th>Time</th></tr></thead><tbody id="jobPtBody"></tbody></table>
+    </div>
+    <div class="helpPane jobPane" id="jobStn"></div>
+    <div class="helpPane jobPane" id="jobNotes"></div>
+    <div class="helpPane jobPane" id="jobSum"></div>
+  </div>
+</div>
 <div class="scrim" id="helpScrim">
   <div class="modal help">
     <h4 style="display:flex;align-items:center;justify-content:space-between">
@@ -661,7 +684,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <div class="helpPane" id="helpStart">
       <h5>Quick start</h5>
       <ul>
-        <li><b>↥ Load FBK</b> a field book text file (or <b>↥ Import CSV</b> a comma-delimited PNEZD file — point#, N, E, Z, description). You can layer more than one import onto what's already loaded.</li>
+        <li><b>↥ Load FBK / JOB</b> a field book text file — or a Trimble Access <b>.job</b> file, which is decoded, reduced to coordinates and loaded as an FBK (<b>📂 Job</b> then shows its points, station setups and notes) (or <b>↥ Import CSV</b> a comma-delimited PNEZD file — point#, N, E, Z, description). You can layer more than one import onto what's already loaded.</li>
         <li>The canvas shows every point as a dot and draws linework for any figure code that has a <b>B</b> (begin) somewhere in the file — codes with no B stay plain, unconnected points.</li>
         <li>Click a point (in <b>SEL</b>) to open the Inspector on the right — edit its N/E/Z, HA/SD/ZA, rod height, or descriptor code there; edits reflect live on the canvas and in <b>Review/edit FBK code</b> (the <span class="figtag" style="cursor:default">CODE</span> tag on a selected line).</li>
         <li>Click a <i>line</i> (not a point) to open the figure editor — reorder vertices, jump/zoom to one, insert a point on the line, walk it in Street View, or render it as plain NEZ coordinates on export.</li>
@@ -735,7 +758,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:127};
+const VERSION={fruit:'🍊',name:'ORANGE',build:128};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -5125,7 +5148,8 @@ $('lblSizeR').oninput=e=>{labelSize=+e.target.value;$('lblSizeV').textContent=la
 /* ---------- help & reference (build 81) ---------- */
 const HELP_TOOLBAR=[
   ['⌖ Go to point','Jump/zoom to a point by number (G).'],
-  ['↥ Load FBK','Load a field-book .fbk/.txt file.'],
+  ['↥ Load FBK / JOB','Load a field-book .fbk/.txt file, or a Trimble Access .job (decoded and loaded as an FBK).'],
+  ['📂 Job','Trimble job viewer: every point record (code edits, deletes, raw HA/VA/SD, target height), station setups and field notes. Click a point row to zoom to it.'],
   ['↥ Import CSV','Import a comma-delimited PNEZD file (point#, N, E, Z, description) — a header row is auto-detected, points are appended to whatever is loaded.'],
   ['⊡ Fit','Frame the whole survey (F).'],
   ['↻ Refresh','Force a full rebuild of the linework and curb offset lanes from the current point data — use if the drawing (especially the green offset lines) looks stale after an edit.'],
@@ -5216,12 +5240,144 @@ $('helpCloseBtn').onclick=closeHelp;
 $('helpScrim').onclick=e=>{if(e.target===$('helpScrim'))closeHelp();};
 document.querySelectorAll('.helpTab').forEach(b=>b.onclick=()=>setHelpTab(b.dataset.pane));
 
+/* ---------- Trimble Access .job viewer (build 128) ----------
+   A .job is Trimble's binary "General Survey Journal" (undocumented). Layout
+   decoded from a real file: 48-byte header, then records of
+   [uint32 len][len bytes]. In each record: uint32 parent id @3, uint16 type @7,
+   uint32 own id @9, double time @13 (GPS seconds since 1980-01-06), fields @23+.
+   A record id can appear more than once — the LAST copy is the current one.
+   Types used here:
+     2    point   (code tokens: uint32 count @24, then per token suffix\0 code\0 +7 bytes; then name\0, 3-char flag e.g. F1' F2' MA6 CC;)
+     17   keyed grid coords for its parent point (N,E,Z doubles @24, metres)
+     21   total-station obs for its parent point (HA,VA,SD @24/32/40 rad/rad/m; setup,target,backsight ids @84/88/92)
+     23   mean turned angle obs (listed, not reduced — it averages F1/F2 already present)
+     27   backsight (station\0 bs\0 circle reading double)
+     29   station setup (station\0 HI double, uint16 measure-to, d1, d2 — bottom of notch: sqrt(HI²−d1²)+d2)
+     135  target (name\0, uint16 #, byte, height double, ... prism constant @len-29)
+     1000 delete flag for parent point (0 deleted, 1 restored)
+     1004 code edit for parent point (same token layout as type 2)
+     1    note text @23
+   Coordinates are metres internally; shown and converted in US survey feet. */
+let JOBDATA=null;
+const JOB_US=1200/3937;
+function parseTrimbleJob(buf){
+  const u8=new Uint8Array(buf),dv=new DataView(buf),n=u8.length;
+  const head=new TextDecoder('latin1').decode(u8.slice(0,30));
+  if(!/Trimble/i.test(head))throw new Error('not a Trimble job file');
+  // find the record chain: try offset 48, else scan for a start that walks cleanly to EOF
+  const walk=s=>{let o=s,k=0;while(o+4<=n){const L=dv.getUint32(o,true);if(L<12||o+4+L>n)return false;o+=4+L;k++;}return o===n&&k>0;};
+  let start=48;if(!walk(48)){start=-1;for(let s=30;s<512&&s<n;s++)if(walk(s)){start=s;break;}}
+  if(start<0)throw new Error('could not read the record structure');
+  const recs=[];for(let o=start;o+4<=n;){const L=dv.getUint32(o,true);recs.push({o:o+4,L});o+=4+L;}
+  const T=r=>dv.getUint16(r.o+7,true),ID=r=>dv.getUint32(r.o+9,true),PAR=r=>dv.getUint32(r.o+3,true);
+  const D=(r,j)=>dv.getFloat64(r.o+j,true);
+  const td=new TextDecoder('latin1');
+  const cstr=(r,j)=>{let k=j;while(k<r.L&&u8[r.o+k]!==0)k++;return [td.decode(u8.slice(r.o+j,r.o+k)),k+1];};
+  const time=r=>{const s=D(r,13);return isFinite(s)&&s>1e8&&s<5e9?new Date(Date.UTC(1980,0,6)+(s-18)*1000):null;};
+  const tokens=r=>{const cnt=dv.getUint32(r.o+24,true);let j=28;const out=[];
+    for(let q=0;q<cnt&&q<64&&j<r.L;q++){let suf,code;[suf,j]=cstr(r,j);[code,j]=cstr(r,j);j+=7;out.push(code+suf);}
+    return [out.join(' ').replace(/\s+/g,' ').trim(),j];};
+  const setups={},bss={},tgts={},ptRec={},delFlag={},codeEdit={},types={};
+  // pass 1: latest copy of every setup / backsight / target / point, delete flags and code edits
+  recs.forEach((r,i)=>{const t=T(r);types[t]=(types[t]||0)+1;try{
+    if(t===29){const [s,k]=cstr(r,24);const hi=D(r,k),how=dv.getUint16(r.o+k+8,true),d1=D(r,k+10),d2=D(r,k+18);
+      const hiT=how===1&&isFinite(d1)&&isFinite(d2)&&hi>d1?Math.sqrt(hi*hi-d1*d1)+d2:hi;setups[ID(r)]={stn:s,hi,hiT,how};}
+    else if(t===27){let [s,k]=cstr(r,24);let b;[b,k]=cstr(r,k);bss[ID(r)]={stn:s,bs:b,circ:D(r,k)};}
+    else if(t===135){const [s,k]=cstr(r,24);let pc=r.L>=40?D(r,r.L-29):0;if(!isFinite(pc)||Math.abs(pc)>1)pc=0;tgts[ID(r)]={name:s,ht:D(r,k+3),pc};}
+    else if(t===2){const [code,j0]=tokens(r);let j=j0;while(j<r.L&&u8[r.o+j]===0)j++;const [name,j2]=cstr(r,j);
+      ptRec[ID(r)]={name,code,flag:td.decode(u8.slice(r.o+j2,r.o+j2+3)).replace(/[^\x20-\x7e]/g,''),rec:i,time:time(r)};}
+    else if(t===1000)delFlag[PAR(r)]=u8[r.o+24]===0;
+    else if(t===1004)codeEdit[PAR(r)]=tokens(r)[0];
+  }catch(e){}});
+  const pts=[],notes=[],keyed={},slot={};
+  recs.forEach((r,i)=>{const t=T(r);try{
+    if(t===1){const [s]=cstr(r,23);if(s.trim())notes.push({time:time(r),text:s.trim()});}
+    else if(t===17||t===21||t===23){const pid=PAR(r),pr=ptRec[pid];if(!pr)return;
+      const p={pid,name:pr.name,code:codeEdit[pid]!==undefined?codeEdit[pid]:pr.code,origCode:pr.code,flag:pr.flag,time:pr.time,deleted:!!delFlag[pid],kind:t===17?'keyed':t===21?'obs':'mean'};
+      if(t===17){p.N=D(r,24);p.E=D(r,32);p.Z=D(r,40);}
+      else{p.ha=D(r,24);p.va=D(r,32);p.sd=D(r,40);
+        if(t===21){p.su=dv.getUint32(r.o+84,true);p.tg=dv.getUint32(r.o+88,true);p.bsid=dv.getUint32(r.o+92,true);}}
+      // Trimble writes a fresh observation for the same point record when it is re-reduced (e.g. circle re-set during a multi-backsight setup) — keep only the latest one per point record, in its original place
+      const key=(t===17?'k':'o')+':'+pid;if(key in slot)pts[slot[key]]=p;else{slot[key]=pts.length;pts.push(p);}}
+  }catch(e){}});
+  // reduce total-station shots in file order; a computed point can be a later station / backsight
+  pts.forEach(p=>{if(p.kind==='keyed'&&!p.deleted&&!keyed[p.name])keyed[p.name]=p;});
+  const known={};for(const k in keyed)known[k]=keyed[k];
+  pts.forEach(p=>{if(p.kind!=='obs')return;const su=setups[p.su],b=bss[p.bsid],tg=tgts[p.tg]||{ht:0,pc:0,name:''};
+    p.stn=su?su.stn:'?';p.hi=su?su.hiT:0;p.tgt=tg.name;p.ht=tg.ht||0;p.pc=tg.pc||0;p.bs=b?b.bs:'';p.circ=b?b.circ:null;
+    const S=su&&known[su.stn],B=b&&known[b.bs];
+    if(!S||!B||!(Math.abs(b.circ)<100))return;
+    let ha=p.ha,va=p.va;if(va>Math.PI){va=2*Math.PI-va;ha+=Math.PI;}
+    const az=ha+Math.atan2(B.E-S.E,B.N-S.N)-b.circ,sd=p.sd+p.pc,hd=sd*Math.sin(va);
+    p.N=S.N+hd*Math.cos(az);p.E=S.E+hd*Math.sin(az);p.Z=S.Z+p.hi+sd*Math.cos(va)-p.ht;
+    if(!p.deleted&&!known[p.name])known[p.name]=p;});
+  const jobName=(()=>{const r=recs.find(r=>T(r)===1003&&PAR(r)===0);if(!r)return '';const [s]=cstr(r,25);return s;})();
+  return {pts,notes,setups,bss,tgts,types,nrec:recs.length,jobName};}
+
+// Build an FBK the rest of the app can load: NEZ for keyed points, STN/BS/PRISM + F1/F2 VA lines for shots.
+function jobToFbk(J,fileName){
+  const ft=m=>m/JOB_US,dms=r=>deg2dms(((r*180/Math.PI)%360+360)%360);
+  const q=s=>'"'+String(s||'').replace(/"/g,"'")+'"';
+  const L=[`JOB ${q(J.jobName||fileName.replace(/\.job$/i,''))}`];
+  J.pts.forEach(p=>{if(p.kind==='keyed'&&!p.deleted)L.push(`NEZ ${p.name} ${ft(p.N).toFixed(4)} ${ft(p.E).toFixed(4)} ${ft(p.Z).toFixed(4)} ${q(p.code)}`);});
+  let cs=null,cb=null,ct=null;
+  J.pts.forEach(p=>{if(p.kind!=='obs'||p.deleted||!(Math.abs(p.circ)<100))return;
+    if(p.su!==cs||p.bsid!==cb){L.push(`STN ${p.stn} ${ft(p.hi).toFixed(4)}`);L.push(`BS ${p.bs} ${dms(p.circ)}`);cs=p.su;cb=p.bsid;ct=null;}
+    if(p.ht!==ct){L.push(`PRISM ${ft(p.ht).toFixed(4)}`);ct=p.ht;}
+    const face=p.va>Math.PI?'F2':'F1';
+    L.push(`${face} VA ${p.name} ${dms(p.ha)} ${ft(p.sd+p.pc).toFixed(4)} ${dms(p.va)} ${q(p.code)}`);});
+  return L.join('\n')+'\n';}
+
+function jobFmt(v){return v==null||!isFinite(v)?'—':(v/JOB_US).toFixed(3);}
+function openJobView(){if(!JOBDATA)return;$('jobScrim').classList.add('show');setJobTab(jobTab||'jobPts');}
+function closeJobView(){$('jobScrim').classList.remove('show');}
+let jobTab='jobPts';
+function setJobTab(name){jobTab=name;document.querySelectorAll('.jobTab').forEach(b=>b.classList.toggle('on',b.dataset.pane===name));
+  document.querySelectorAll('.jobPane').forEach(p=>p.classList.toggle('on',p.id===name));renderJobPane(name);}
+function renderJobPane(name){const J=JOBDATA;if(!J)return;const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const tm=d=>d?d.toLocaleString():'';
+  if(name==='jobSum'){const obs=J.pts.filter(p=>p.kind==='obs'),red=obs.filter(p=>p.N!=null);
+    const st={};Object.values(J.setups).forEach(s=>st[s.stn]=1);
+    $('jobSum').innerHTML=`<table class="helpTbl"><tr><td class="key">Job</td><td>${esc(J.jobName)}</td></tr>
+      <tr><td class="key">File</td><td>${esc(J.file)}</td></tr>
+      <tr><td class="key">Records</td><td>${J.nrec}</td></tr>
+      <tr><td class="key">Points</td><td>${J.pts.length} records · ${J.pts.filter(p=>p.kind==='keyed').length} keyed · ${obs.length} shots (${red.length} reduced) · ${J.pts.filter(p=>p.kind==='mean').length} mean-angle · ${J.pts.filter(p=>p.deleted).length} deleted</td></tr>
+      <tr><td class="key">Stations</td><td>${esc(Object.keys(st).join(', '))}</td></tr>
+      <tr><td class="key">Notes</td><td>${J.notes.length}</td></tr></table>
+      <p class="mut" style="font-size:11px">Coordinates are computed here from the raw observations (station + backsight orientation, HI to bottom of notch, target height and prism constant) in US survey feet — atmospheric ppm, curvature/refraction and projection scale are not applied, so they can differ from Trimble Access by a few mm. The job was also loaded onto the canvas as an FBK (keyed points as NEZ, shots as STN/BS/PRISM/VA lines, deleted points left out) — every tool and export works on it.</p>`;}
+  else if(name==='jobPts'){const f=($('jobPtFilter').value||'').trim().toUpperCase();
+    const rows=J.pts.filter(p=>!f||String(p.name).toUpperCase().includes(f)||String(p.code).toUpperCase().includes(f)).slice(0,3000);
+    $('jobPtBody').innerHTML=rows.map((p,k)=>`<tr class="${p.deleted?'jobDel':''}" data-n="${esc(p.name)}"><td class="key">${esc(p.name)}</td><td>${esc(p.code)}${p.code!==p.origCode?` <span class="mut" title="edited in the field — was: ${esc(p.origCode)}">✎</span>`:''}</td><td>${jobFmt(p.N)}</td><td>${jobFmt(p.E)}</td><td>${jobFmt(p.Z)}</td>
+      <td>${p.kind==='keyed'?'keyed':p.kind==='mean'?'mean angle':esc(p.flag||'obs')}${p.deleted?' · <b style="color:#ff6b6b">deleted</b>':''}</td>
+      <td>${p.kind==='obs'?`${esc(p.stn)}→${esc(p.bs)}`:''}</td>
+      <td>${p.ha!=null?deg2dms(((p.ha*180/Math.PI)%360+360)%360):''}</td><td>${p.va!=null?deg2dms(p.va*180/Math.PI):''}</td><td>${p.sd!=null?(p.sd/JOB_US).toFixed(3):''}</td><td>${p.ht!=null&&p.kind==='obs'?(p.ht/JOB_US).toFixed(3):''}</td><td class="mut">${esc(tm(p.time))}</td></tr>`).join('');
+    $('jobPtCount').textContent=`${rows.length} of ${J.pts.length}`;}
+  else if(name==='jobStn'){const seen=new Set(),rows=[];
+    J.pts.forEach(p=>{if(p.kind!=='obs')return;const k=p.su+'|'+p.bsid;if(seen.has(k))return;seen.add(k);
+      rows.push({p,n:J.pts.filter(q=>q.kind==='obs'&&q.su===p.su&&q.bsid===p.bsid).length});});
+    $('jobStn').innerHTML=`<table class="helpTbl"><tr><th>Station</th><th>HI (ft, to trunnion)</th><th>Backsight</th><th>BS circle</th><th>Shots</th><th>First shot</th></tr>${rows.map(({p,n})=>
+      `<tr><td class="key">${esc(p.stn)}</td><td>${(p.hi/JOB_US).toFixed(3)}</td><td>${esc(p.bs)||'—'}</td><td>${p.circ!=null&&Math.abs(p.circ)<100?deg2dms(((p.circ*180/Math.PI)%360+360)%360):'none'}</td><td>${n}</td><td class="mut">${esc(tm(p.time))}</td></tr>`).join('')}</table>`;}
+  else if(name==='jobNotes'){$('jobNotes').innerHTML=J.notes.length?`<table class="helpTbl">${J.notes.map(x=>`<tr><td class="mut" style="white-space:nowrap">${esc(tm(x.time))}</td><td>${esc(x.text)}</td></tr>`).join('')}</table>`:'<p class="mut">No notes.</p>';}}
+function loadJobBuffer(buf,name){
+  let J;try{J=parseTrimbleJob(buf);}catch(e){hud('⚠ '+e.message);return;}
+  J.file=name;JOBDATA=J;
+  loadFbkText(jobToFbk(J,name),name.replace(/\.job$/i,'.fbk'));
+  $('jobBtn').disabled=false;openJobView();}
+
 function loadFbkText(text,name){
   clearTimeout(asTimer);asTimer=null;curFile=name||'';
   parse(text);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
   $('asStatus').textContent='';}
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
+  if(/\.job$/i.test(f.name)){rd.onload=()=>loadJobBuffer(rd.result,f.name);rd.readAsArrayBuffer(f);e.target.value='';return;}
+  JOBDATA=null;$('jobBtn').disabled=true;
   rd.onload=()=>{loadFbkText(rd.result,f.name);};rd.readAsText(f);};
+$('jobBtn').onclick=openJobView;$('jobClose').onclick=closeJobView;
+$('jobScrim').onclick=e=>{if(e.target===$('jobScrim'))closeJobView();};
+document.querySelectorAll('.jobTab').forEach(b=>b.onclick=()=>setJobTab(b.dataset.pane));
+$('jobPtFilter').oninput=()=>renderJobPane('jobPts');
+$('jobPtBody').onclick=e=>{const tr=e.target.closest('tr');if(!tr)return;const i=PTS.findIndex(p=>p.id===tr.dataset.n&&!p.deleted);
+  if(i<0){hud('point '+tr.dataset.n+' is not on the canvas (deleted, or no coordinates)');return;}closeJobView();sel=i;selFig=null;selSet.clear();zoomToPoint(i);inspect();draw();};
 $('asBtn').onclick=()=>openAutosaveList(false);
 $('asClose').onclick=closeAutosaveList;
 $('asScrim').onclick=e=>{if(e.target===$('asScrim'))closeAutosaveList();};
@@ -5233,6 +5389,7 @@ $('csvInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new F
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('asScrim').classList.contains('show')){e.preventDefault();closeAutosaveList();return;}
   if(e.key==='Escape'&&$('helpScrim').classList.contains('show')){e.preventDefault();closeHelp();return;}
+  if(e.key==='Escape'&&$('jobScrim').classList.contains('show')){e.preventDefault();closeJobView();return;}
   if(e.key==='Escape'&&$('unkdReportScrim').classList.contains('show')){e.preventDefault();closeUnKdReport();return;}
   if(e.key==='Escape'&&$('kdReviewScrim').classList.contains('show')){e.preventDefault();closeKdReview();return;}
   // typing in a text box/area: leave Ctrl+Z, letters etc. to the box itself (build 118)
@@ -5240,7 +5397,7 @@ window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
