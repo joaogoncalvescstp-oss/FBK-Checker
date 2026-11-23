@@ -270,7 +270,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -288,6 +288,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <button class="tool" id="tInv" title="Inverse — click two points (I)"><span>↔</span><span class="sub">INV</span></button>
         <button class="tool" id="tCircle" title="Draw circle (C)"><span>◯</span><span class="sub">CIR</span></button>
         <button class="tool" id="tCircleCtr" title="Place a point at the center of a 3-point circle — click 3 points, or click an existing CIR-coded line to use its own 3 points"><span>⊙</span><span class="sub">CTR</span></button>
+        <button class="tool" id="tTemp" title="Temp line (L) — click two spots (with snap) to draw a construction line for computing; select it to edit, or create points along it. Not exported."><span>⟋</span><span class="sub">TMP</span></button>
         <button class="tool" id="tArr" title="Toggle direction arrows (A)"><span>➤</span><span class="sub">DIR</span></button>
         <button class="tool" id="tMap" title="Toggle GIS map background (M)" style="margin-top:12px"><span>🗺</span><span class="sub">MAP</span></button>
         <button class="tool" id="zIn" title="Zoom in" style="margin-top:12px">＋</button>
@@ -758,7 +759,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:128};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:129};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -788,6 +789,7 @@ let figOrder={};                                          // figId -> [ptIdx,...
 let figExtra={};                                          // figId -> [{i,after}] existing pts pulled into the figure
 let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
 let ordPick=null;                                        // build 119 — reorder a line by clicking its points in order: {figId, seq:[ptIdx...]}
+let tempLines=[],tempTool=null,tempSel=-1,tempSeq=0;   // build 129 — temp construction lines {id,a,b} (session only, never exported); tempTool={a,snap,cur} while drawing; tempSel = selected line
 let npAdd=null;                                           // build 122 — add a NEW point after a chosen vertex: {figId,afterIdx,stage:'after'|'loc'|'dlg',snap,ret}
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
@@ -2720,6 +2722,7 @@ function collectSegments(){const segs=[];
     const r=c.radiusFt*0.3048,ST=72,pts=[];
     for(let s=0;s<=ST;s++){const a=2*Math.PI*s/ST;pts.push({E:p.E+r*Math.cos(a),N:p.N+r*Math.sin(a),Z:p.Z});}
     pushChain(pts,false,c.radiusFt.toFixed(1)+'ft circle','circle|'+ci);});   // already a full 72-sample loop back to its own start, no extra closing segment needed
+  tempLines.forEach(L=>pushChain([{E:L.a.E,N:L.a.N,Z:tempZOf(L.a,L)},{E:L.b.E,N:L.b.N,Z:tempZOf(L.b,L)}],false,'temp line '+L.id,'temp|'+L.id));   // build 129 — temp construction lines snap like any other line
   segs.push(...collectOffsetSegments());                   // curb cross-section offset lane lines snap too (each lane's own straight vertex-to-vertex chords — see collectOffsetSegments)
   return segs;}
 /* Every full circle currently on screen — CIR-coded figures and standalone
@@ -2781,6 +2784,8 @@ function snapPoint(sx,sy){
         const qE=c.E+c.r*Math.cos(a),qN=c.N+c.r*Math.sin(a),[qx,qy]=W2S(qE,qN),dQ=Math.hypot(qx-sx,qy-sy);
         if(dQ<bd){bd=dQ;best={E:qE,N:qN,Z:c.Z,sx:qx,sy:qy,type:'quadrant',label:'quadrant · '+c.label};}});
     });
+    tempLines.forEach(L=>[L.a,L.b].forEach(P=>{const[x,y]=W2S(P.E,P.N),d=Math.hypot(x-sx,y-sy);
+      if(d<bd){bd=d;best={E:P.E,N:P.N,Z:tempZOf(P,L),sx:x,sy:y,type:'endpoint',label:'endpoint · temp line '+L.id};}}));
     if(best)return best;
   }
   const segs=collectSegments();
@@ -2802,7 +2807,7 @@ function snapPoint(sx,sy){
       const d=Math.hypot(X.x-sx,X.y-sy);if(d<bxd){
         const z1=near[i].aZ+X.t*(near[i].bZ-near[i].aZ),z2=near[j].aZ+X.u*(near[j].bZ-near[j].aZ);
         const[E,N]=S2W(X.x,X.y);bxd=d;
-        best={E,N,Z:(z1+z2)/2,z1,z2,la:near[i].label||'line A',lb:near[j].label||'line B',sx:X.x,sy:X.y,type:'intersection',label:'intersection'};}}
+        best={E,N,Z:isFinite(z1)&&isFinite(z2)?(z1+z2)/2:isFinite(z1)?z1:z2,z1,z2,la:near[i].label||'line A',lb:near[j].label||'line B',sx:X.x,sy:X.y,type:'intersection',label:'intersection'};}}
     if(best)return best;
   }
   // 3) midpoint
@@ -2820,7 +2825,7 @@ function snapPoint(sx,sy){
     if(d<bnd){bnd=d;const[E,N]=S2W(x,y);best={E,N,Z:s.aZ+t*(s.bZ-s.aZ),sx:x,sy:y,type:'nearest',label:'nearest'};}});
   return best;}
 function drawSnapMarker(){
-  const s=cogoPick?cogoSnap:(insertPt&&!is3D?insertSnap:(npAdd&&npAdd.stage==='loc'?npAdd.snap:null));
+  const s=cogoPick?cogoSnap:tempTool?tempTool.snap:(insertPt&&!is3D?insertSnap:(npAdd&&npAdd.stage==='loc'?npAdd.snap:null));
   if(!s)return;const x=s.sx,y=s.sy,r=7;ctx.save();
   ctx.lineWidth=2;ctx.strokeStyle='#35c184';ctx.fillStyle='rgba(53,193,132,.18)';
   if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}   // box = endpoint (any point/vertex)
@@ -2840,10 +2845,10 @@ function drawSnapMarker(){
    it always reflects current tool/mode state, not just pointermove ticks. */
 function syncSnapBox(){
   const box=$('snapBox');if(!box)return;
-  const live=cogoPick||(insertPt&&!is3D)||(npAdd&&npAdd.stage==='loc'&&!is3D);
+  const live=cogoPick||(tempTool&&!is3D)||(insertPt&&!is3D)||(npAdd&&npAdd.stage==='loc'&&!is3D);
   box.classList.toggle('show',!!live);
   if(!live)return;
-  const s=cogoPick?cogoSnap:insertPt?insertSnap:npAdd.snap;
+  const s=cogoPick?cogoSnap:tempTool?tempTool.snap:insertPt?insertSnap:npAdd.snap;
   const active=s&&(s.type==='center'||s.type==='quadrant'?'endpoint':s.type);   // circle center/quadrant fold under the endpoint toggle — see snapEnabled/collectCircles (build 107)
   ['endpoint','intersection','midpoint','nearest'].forEach(t=>{
     const lbl=$('snapLbl_'+t);if(lbl)lbl.classList.toggle('active',active===t);});
@@ -2859,6 +2864,152 @@ function endCogoPick(snap){
   $('simplCogoScrim').classList.add('show');draw();
   hud(snap?`picked ${snap.label}`:'pick cancelled');
   ($('simplCogoZ')).focus();}
+/* ---------- temporary construction lines (⟋ TMP tool, build 129) ----------
+   Computation-only lines: click two spots (full 2D OSNAP — endpoint,
+   intersection, midpoint, nearest — including other temp lines). They are
+   drawn dashed, snap like any other line (so two temp lines give a crossing
+   to snap a COGO point onto), and are never exported. Selecting one shows
+   its bearing/length, editable ends (N/E/Z or azimuth+length from the start),
+   and "Create points along line": divide / every interval / at a distance,
+   with an optional right(+)/left(−) offset, a code, and optional linework
+   (B on the first new point, E on the last) so the new points draw a line. */
+function tempEnd(L,k){return k?L.b:L.a;}
+function tempZOf(P,L){if(isFinite(P.Z))return P.Z;const o=P===L.a?L.b:L.a;return isFinite(o.Z)?o.Z:NaN;}   // a blank end takes the other end's Z; NaN if neither has one
+function startTempTool(){
+  if(is3D)setMode('sel');
+  if(tempTool){endTempTool();return;}
+  tempTool={a:null,snap:null,cur:null};
+  $('tTemp').classList.add('on');prevCursor=cv.style.cursor;cv.style.cursor='crosshair';
+  hud('temp line: click the start · snaps to endpoint / intersection / midpoint / nearest · Esc to stop');draw();}
+function endTempTool(quiet){if(!tempTool)return;tempTool=null;$('tTemp').classList.remove('on');
+  cv.style.cursor=prevCursor||'crosshair';if(!quiet)hud('temp line tool off');draw();}
+function tempPtAt(sx,sy){const s=snapPoint(sx,sy);
+  if(s)return{E:s.E,N:s.N,Z:isFinite(s.Z)?s.Z:NaN,label:s.label};
+  const[E,N]=S2W(sx,sy);return{E,N,Z:NaN,label:'free'};}
+function tempClick(sx,sy){const P=tempPtAt(sx,sy);
+  if(!tempTool.a){tempTool.a={E:P.E,N:P.N,Z:P.Z};hud(`start set (${P.label}) — click the end · Esc to cancel this line`);draw();return;}
+  const A=tempTool.a;if(Math.hypot(P.E-A.E,P.N-A.N)<1e-6){hud('end is on the start — click somewhere else');return;}
+  tempLines.push({id:++tempSeq,a:A,b:{E:P.E,N:P.N,Z:P.Z}});
+  tempTool.a=null;tempSel=tempLines.length-1;sel=-1;selFig=null;selSet.clear();
+  inspectTemp();draw();
+  hud(`temp line ${tempSeq} added — click a new start for another, or Esc to stop`);}
+function pickTemp(sx,sy){let best=-1,bd=7;
+  tempLines.forEach((L,i)=>{const A=W2S(L.a.E,L.a.N),B=W2S(L.b.E,L.b.N);
+    let t=projParam(sx,sy,A[0],A[1],B[0],B[1]);t=Math.max(0,Math.min(1,t));
+    const d=Math.hypot(A[0]+t*(B[0]-A[0])-sx,A[1]+t*(B[1]-A[1])-sy);if(d<bd){bd=d;best=i;}});
+  return best;}
+function drawTempLines(proj,is3d){
+  const pr=(P,L)=>{if(!is3d)return proj(P.E,P.N,P.Z);const z=tempZOf(P,L);return proj(P.E,P.N,isFinite(z)?z:orbit.cz);};
+  ctx.save();ctx.lineWidth=1.6;
+  tempLines.forEach((L,i)=>{const a=pr(L.a,L),b=pr(L.b,L),on=i===tempSel;
+    ctx.setLineDash([9,5]);ctx.strokeStyle=on?'#ffe08a':'#ff9f43';ctx.lineWidth=on?2.4:1.6;
+    ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);
+    [a,b].forEach(s=>{ctx.beginPath();ctx.moveTo(s[0]-4,s[1]-4);ctx.lineTo(s[0]+4,s[1]+4);ctx.moveTo(s[0]+4,s[1]-4);ctx.lineTo(s[0]-4,s[1]+4);ctx.stroke();});
+    if(on){const hd=Math.hypot(L.b.E-L.a.E,L.b.N-L.a.N),az=(Math.atan2(L.b.E-L.a.E,L.b.N-L.a.N)*180/Math.PI+360)%360;
+      const txt='TMP '+L.id+' · '+hd.toFixed(2)+'  '+fmtDMS(az),mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;
+      ctx.font='600 11px ui-monospace,monospace';const tw=ctx.measureText(txt).width;
+      ctx.fillStyle='rgba(7,11,22,.85)';ctx.fillRect(mx+8,my-20,tw+10,18);ctx.fillStyle='#ffe08a';ctx.fillText(txt,mx+13,my-7);}});
+  if(tempTool&&tempTool.a&&tempTool.cur&&!is3d){const a=proj(tempTool.a.E,tempTool.a.N);
+    const b=tempTool.snap?[tempTool.snap.sx,tempTool.snap.sy]:[tempTool.cur.sx,tempTool.cur.sy];
+    ctx.setLineDash([4,4]);ctx.strokeStyle='#ffcf8a';ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);}
+  if(tempTool&&tempTool.a&&!is3d){const a=proj(tempTool.a.E,tempTool.a.N);ctx.beginPath();ctx.arc(a[0],a[1],5,0,7);ctx.strokeStyle='#ffcf8a';ctx.lineWidth=2;ctx.stroke();}
+  ctx.restore();}
+/* Stations (horizontal distance from the start) for "create points along". */
+function tempStations(L,how,val,incS,incE){const len=Math.hypot(L.b.E-L.a.E,L.b.N-L.a.N),out=[];
+  if(!(len>0))return out;
+  if(how==='div'){const n=Math.round(val);if(!(n>=1)||n>1000)return null;
+    for(let k=0;k<=n;k++){if(k===0&&!incS)continue;if(k===n&&!incE)continue;out.push(len*k/n);}}
+  else if(how==='int'){if(!(val>0)||len/val>1000)return null;
+    if(incS)out.push(0);for(let s=val;s<len-1e-6;s+=val)out.push(s);if(incE)out.push(len);}
+  else{if(!isFinite(val))return null;out.push(val);}
+  return out;}
+function tempPointAt(L,s,off){const dE=L.b.E-L.a.E,dN=L.b.N-L.a.N,len=Math.hypot(dE,dN),uE=dE/len,uN=dN/len;
+  const za=tempZOf(L.a,L),zb=tempZOf(L.b,L);
+  return{E:L.a.E+uE*s+uN*off,N:L.a.N+uN*s-uE*off,Z:za+(zb-za)*s/len};}   // right of travel = (uN,−uE)
+function inspectTemp(){const box=$('insp'),L=tempLines[tempSel];
+  if(!L){tempSel=-1;inspect();return;}
+  openSideMobile();
+  const dE=L.b.E-L.a.E,dN=L.b.N-L.a.N,hd=Math.hypot(dE,dN),az=(Math.atan2(dE,dN)*180/Math.PI+360)%360;
+  const za=L.a.Z,zb=L.b.Z,dZ=(isFinite(za)&&isFinite(zb))?zb-za:NaN;
+  const zv=z=>isFinite(z)?z.toFixed(3):'';
+  box.innerHTML=`
+    <div class="field"><label>Temp line</label>
+      <div class="fighead"><span class="figname">TMP ${L.id}</span><span class="figmeta">computation only · not exported</span></div></div>
+    <div class="kv"><span class="k">Bearing</span><span class="v">${bearing(az)}</span></div>
+    <div class="kv"><span class="k">Horiz length</span><span class="v">${hd.toFixed(3)}</span></div>
+    <div class="kv"><span class="k">ΔZ</span><span class="v">${isFinite(dZ)?dZ.toFixed(3):'—'}</span></div>
+    <div class="kv"><span class="k">Grade</span><span class="v">${isFinite(dZ)&&hd?(dZ/hd*100).toFixed(2)+'%':'—'}</span></div>
+    <div class="field" style="margin-top:10px"><label>Start N / E / Z</label></div>
+    <div class="field3"><div class="field"><input id="tmAN" value="${L.a.N.toFixed(3)}"></div><div class="field"><input id="tmAE" value="${L.a.E.toFixed(3)}"></div><div class="field"><input id="tmAZ" value="${zv(za)}" placeholder="Z"></div></div>
+    <div class="field"><label>End N / E / Z</label></div>
+    <div class="field3"><div class="field"><input id="tmBN" value="${L.b.N.toFixed(3)}"></div><div class="field"><input id="tmBE" value="${L.b.E.toFixed(3)}"></div><div class="field"><input id="tmBZ" value="${zv(zb)}" placeholder="Z"></div></div>
+    <div class="field3"><div class="field"><label>Azimuth (DDD.MMSS)</label><input id="tmAz" value="${deg2dms(az)}"></div><div class="field"><label>Length</label><input id="tmLen" value="${hd.toFixed(3)}"></div></div>
+    <div class="chgrp">
+      <button class="btn gold" id="tmApply" title="Apply the typed ends. If azimuth or length was changed, the end is recomputed from the start.">✓ Apply</button>
+      <button class="btn" id="tmRev" title="Swap start and end">⇄ Reverse</button>
+      <button class="btn" id="tmDel">✕ Delete</button>
+    </div>
+    <div class="field" style="margin-top:14px"><label>Create points along line</label>
+      <select id="tmHow" style="width:100%;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:7px 9px;font:13px var(--mono)">
+        <option value="div">Divide into N equal parts</option>
+        <option value="int">Every interval (distance)</option>
+        <option value="at">One point at distance from start</option>
+      </select></div>
+    <div class="field3"><div class="field"><label id="tmValLbl">Parts</label><input id="tmVal" value="2"></div>
+      <div class="field"><label title="Perpendicular offset: + right of start→end, − left">Offset (+R/−L)</label><input id="tmOff" value="0"></div></div>
+    <div id="tmIncRow" style="display:flex;gap:14px;font:12px var(--mono);color:var(--mut);margin-bottom:10px">
+      <label><input type="checkbox" id="tmIncS" checked> include start</label>
+      <label><input type="checkbox" id="tmIncE" checked> include end</label></div>
+    <div class="field"><label>Code / description</label><input id="tmCode" placeholder="e.g. TFNC1 or CP" autocomplete="off"></div>
+    <label style="display:flex;gap:8px;align-items:center;font:12px var(--mono);color:var(--mut);margin-bottom:10px">
+      <input type="checkbox" id="tmLine" checked> make linework (B on first, E on last)</label>
+    <div class="note" id="tmPrev" style="padding:0 0 8px"></div>
+    <div class="chgrp">
+      <button class="btn gold" id="tmCreate">＋ Create points</button>
+      <button class="btn ghost" id="tmClearAll" title="Remove every temp line">Clear all temp lines (${tempLines.length})</button>
+    </div>
+    <div class="note" style="padding:8px 0 0">Temp lines snap like any other line (endpoint / intersection / midpoint / nearest) for ◈ Add Point (COGO), insert on line, ➕ Add new point after… and other temp lines. They are kept only for this session and never written to the FBK, CSV or DXF. Created points are new NEZ points (next free numbers) and are exported normally. A blank Z takes the other end's Z.</div>`;
+  const howLbl={div:'Parts',int:'Interval',at:'Distance'};
+  const prev=()=>{const how=$('tmHow').value;$('tmValLbl').textContent=howLbl[how];$('tmIncRow').style.display=how==='at'?'none':'flex';
+    const st=tempStations(L,how,parseFloat($('tmVal').value),$('tmIncS').checked,$('tmIncE').checked);
+    $('tmPrev').textContent=st==null?'enter a valid value':`${st.length} point(s) · starting at #${getNextPointNumber()}`+((!isFinite(L.a.Z)&&!isFinite(L.b.Z))?' · ⚠ no Z on either end — set one above':'');
+    $('tmCreate').disabled=!st||!st.length;};
+  ['tmHow','tmVal','tmIncS','tmIncE'].forEach(id=>{$(id).oninput=prev;$(id).onchange=prev;});
+  $('tmHow').onchange=()=>{const h=$('tmHow').value;if(h==='div')$('tmVal').value='2';else if(h==='int')$('tmVal').value='10';else $('tmVal').value=(hd/2).toFixed(3);prev();};
+  prev();
+  $('tmApply').onclick=()=>{
+    const num=id=>parseFloat($(id).value),zIn=id=>{const s=$(id).value.trim();return s===''?NaN:parseFloat(s);};
+    const aN=num('tmAN'),aE=num('tmAE'),bN=num('tmBN'),bE=num('tmBE');
+    if(![aN,aE,bN,bE].every(isFinite)){hud('enter valid coordinates');return;}
+    L.a={E:aE,N:aN,Z:zIn('tmAZ')};L.b={E:bE,N:bN,Z:zIn('tmBZ')};
+    const azIn=num('tmAz'),lenIn=num('tmLen');
+    if((String(deg2dms(az))!==$('tmAz').value.trim()&&isFinite(azIn))||(Math.abs(lenIn-hd)>5e-4&&isFinite(lenIn))){
+      const a2=isFinite(azIn)?dms2deg(azIn):az,l2=isFinite(lenIn)?lenIn:hd;
+      if(!(l2>0)){hud('length must be > 0');return;}
+      const r=a2*Math.PI/180;L.b={E:L.a.E+Math.sin(r)*l2,N:L.a.N+Math.cos(r)*l2,Z:L.b.Z};}
+    if(Math.hypot(L.b.E-L.a.E,L.b.N-L.a.N)<1e-6){hud('start and end are the same spot');return;}
+    inspectTemp();draw();hud(`temp line ${L.id} updated`);};
+  $('tmRev').onclick=()=>{[L.a,L.b]=[L.b,L.a];inspectTemp();draw();};
+  $('tmDel').onclick=()=>{tempLines.splice(tempSel,1);tempSel=-1;inspect();draw();hud(`temp line ${L.id} deleted`);};
+  $('tmClearAll').onclick=()=>{const n=tempLines.length;tempLines=[];tempSel=-1;inspect();draw();hud(`${n} temp line(s) cleared`);};
+  $('tmCreate').onclick=()=>createTempPoints(L);}
+function createTempPoints(L){
+  const how=$('tmHow').value,st=tempStations(L,how,parseFloat($('tmVal').value),$('tmIncS').checked,$('tmIncE').checked);
+  if(!st||!st.length){hud('nothing to create');return;}
+  if(!isFinite(L.a.Z)&&!isFinite(L.b.Z)){hud('set a Z on the start or end first');$('tmAZ').focus();return;}
+  const off=parseFloat($('tmOff').value)||0,desc=($('tmCode').value||'').trim(),mkLine=$('tmLine').checked&&!!desc&&st.length>=2;
+  const toks=desc.split(/\s+/).filter(Boolean);
+  saveState();
+  const ids=[];
+  st.forEach((s,k)=>{const P=tempPointAt(L,s,off);let d=desc;
+    if(mkLine&&(k===0||k===st.length-1))d=[toks[0],k===0?'B':'E',...toks.slice(1)].join(' ');
+    const id=getNextPointNumber();
+    PTS.push({id,code:'NEZ',desc:d,N:P.N,E:P.E,Z:P.Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true});ids.push(id);
+    logEdit('code',`NEZ ${id} ${P.N.toFixed(3)} ${P.E.toFixed(3)} ${P.Z.toFixed(3)} "${d}"`);});
+  logEdit('code',`created ${ids.length} pt(s) along temp line ${L.id}: ${ids[0]}${ids.length>1?'–'+ids[ids.length-1]:''}${mkLine?' as linework '+toks[0]:''}`);
+  buildLinework();draw();flagDirty();inspectTemp();
+  hud(`${ids.length} point(s) created: ${ids[0]}${ids.length>1?'–'+ids[ids.length-1]:''}${mkLine?' · linework '+toks[0]:''}`);
+  return ids;}
 /* At an apparent intersection the two lines can have different elevations, so
    ask which Z to use (line A, line B, average, or a custom value). N/E are
    already set from the crossing; this only resolves the ambiguous Z.
@@ -2869,11 +3020,9 @@ function openZPick(snap,onDone){
   cogoPick=null;cogoSnap=null;cv.style.cursor=prevCursor||'crosshair';draw();
   zpickCtx={snap,onDone};const z1=snap.z1,z2=snap.z2,avg=(z1+z2)/2;
   $('zpickHint').textContent='two lines cross here — choose the elevation';
-  $('zpickOpts').innerHTML=
-    `<button class="btn zopt" data-z="${z1}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.la}<b>Z ${z1.toFixed(3)}</b></button>`+
-    `<button class="btn zopt" data-z="${z2}" style="width:100%;justify-content:space-between;margin-bottom:6px">${snap.lb}<b>Z ${z2.toFixed(3)}</b></button>`+
-    `<button class="btn zopt" data-z="${avg}" style="width:100%;justify-content:space-between;margin-bottom:6px">average<b>Z ${avg.toFixed(3)}</b></button>`;
-  $('zpickCustom').value=avg.toFixed(3);
+  const zb=(lbl,z)=>isFinite(z)?`<button class="btn zopt" data-z="${z}" style="width:100%;justify-content:space-between;margin-bottom:6px">${lbl}<b>Z ${z.toFixed(3)}</b></button>`:'';   // a temp line with no Z on either end has no elevation to offer
+  $('zpickOpts').innerHTML=zb(snap.la,z1)+zb(snap.lb,z2)+zb('average',avg);
+  {const d=isFinite(avg)?avg:isFinite(z1)?z1:z2;$('zpickCustom').value=isFinite(d)?d.toFixed(3):'';}
   $('zpickScrim').classList.add('show');
   $('zpickOpts').querySelectorAll('.zopt').forEach(b=>b.onclick=()=>applyZPick(+b.dataset.z));
   hud('two lines cross — choose the elevation');}
@@ -3537,7 +3686,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
+  drawTempLines((E,N)=>W2S(E,N),false);drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -3565,7 +3714,7 @@ function draw3D(){
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
       const lbl=pointLabelText(p);
       if(lbl){ctx.font=`600 ${labelSize}px ui-monospace,monospace`;ctx.fillText(lbl,x+7,y-6);}}});
-  drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N,Z)=>P3(E,N,Z));drawNpAdd((E,N,Z)=>P3(E,N,Z));if(npAdd)drawSnapMarker();drawRefKdPick((E,N,Z)=>P3(E,N,Z));
+  drawTempLines((E,N,Z)=>P3(E,N,Z),true);drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N,Z)=>P3(E,N,Z));drawNpAdd((E,N,Z)=>P3(E,N,Z));if(npAdd)drawSnapMarker();drawRefKdPick((E,N,Z)=>P3(E,N,Z));
 }
 /* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
    center), keyed off the point's own description — square for any point
@@ -4923,15 +5072,17 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
       else{hud(`circle center: picked ${circleCtrPick.pts.length} of 3 points`);draw();}
     }else hud('click a point, or a CIR-coded line, for the circle center');
     return;}
+  if(tempTool){tempClick(sx,sy);return;}
   if(mode==='pan'){drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
   if(mode==='inv'){const i=pick(sx,sy);
     if(i>=0){if(inv.a<0||inv.b>=0)inv={a:i,b:-1};else inv.b=i;}else inv={a:-1,b:-1};
     sel=-1;selFig=null;inspectInverse();draw();return;}
   const i=pick(sx,sy);
-  if(i>=0){sel=i;selFig=null;selSet.clear();inspect();draw();if(mode==='move'&&PTS[i].kind==='shot')drag={move:true,i};return;}
+  if(i>=0){sel=i;selFig=null;selSet.clear();tempSel=-1;inspect();draw();if(mode==='move'&&PTS[i].kind==='shot')drag={move:true,i};return;}
   if(mode==='sel'){drag={marquee:true,x0:sx,y0:sy,x1:sx,y1:sy,add:e.shiftKey||e.ctrlKey};return;}  // empty drag → box select (click vs drag decided on release)
-  const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;selSet.clear();inspectFig(f);draw();}
+  {const ti=pickTemp(sx,sy);if(ti>=0){tempSel=ti;sel=-1;selFig=null;selSet.clear();inspectTemp();draw();return;}}
+  tempSel=-1;const f=pickFig(sx,sy);if(f){selFig=f.id;sel=-1;selSet.clear();inspectFig(f);draw();}
   else{sel=-1;selFig=null;selSet.clear();inspect();draw();}});
 cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
   if(pointers.has(e.pointerId))pointers.set(e.pointerId,{sx,sy});
@@ -4939,6 +5090,10 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     if(cogoSnap)hud(`${cogoSnap.label} · E ${cogoSnap.E.toFixed(2)} N ${cogoSnap.N.toFixed(2)}${isFinite(cogoSnap.Z)?' Z '+cogoSnap.Z.toFixed(2):''}`);
     else{const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Esc to cancel`);}
     draw();return;}
+  if(tempTool&&!is3D){tempTool.snap=snapPoint(sx,sy);tempTool.cur={sx,sy};const s_=tempTool.snap,[fE,fN]=S2W(sx,sy);
+    const E=s_?s_.E:fE,N=s_?s_.N:fN;let t=`${s_?s_.label:'free'} · E ${E.toFixed(2)} N ${N.toFixed(2)}${s_&&isFinite(s_.Z)?' Z '+s_.Z.toFixed(2):''}`;
+    if(tempTool.a){const dE=E-tempTool.a.E,dN=N-tempTool.a.N;t+=` · len ${Math.hypot(dE,dN).toFixed(2)} az ${fmtDMS((Math.atan2(dE,dN)*180/Math.PI+360)%360)}`;}
+    hud(t+' · Esc '+(tempTool.a?'cancels this line':'stops'));draw();return;}
   if(npAdd&&npAdd.stage==='loc'){npAdd.snap=npSnapAt(sx,sy);const s_=npAdd.snap;
     if(s_)hud(`${s_.label} · E ${s_.E.toFixed(2)} N ${s_.N.toFixed(2)}${isFinite(s_.Z)?' Z '+s_.Z.toFixed(2):''} · Enter = key in`);
     else if(!is3D){const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Enter = key in · Esc cancels`);}
@@ -4983,10 +5138,12 @@ function endInteract(e){const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,s
       const xa=Math.min(drag.x0,drag.x1),xb=Math.max(drag.x0,drag.x1),ya=Math.min(drag.y0,drag.y1),yb=Math.max(drag.y0,drag.y1);
       if(!drag.add)selSet.clear();
       PTS.forEach((p,idx)=>{if(p.deleted)return;const[px,py]=W2S(p.E,p.N);if(px>=xa&&px<=xb&&py>=ya&&py<=yb)selSet.add(idx);});
-      sel=-1;selFig=null;inspectMulti();draw();
+      sel=-1;selFig=null;tempSel=-1;inspectMulti();draw();
       hud(`${selSet.size} point(s) selected`);
     }else{                                                // a click on empty space → figure pick / deselect
-      const f=pickFig(drag.x0,drag.y0);
+      const ti=pickTemp(drag.x0,drag.y0);
+      if(ti>=0){tempSel=ti;sel=-1;selFig=null;selSet.clear();inspectTemp();draw();drag=null;return;}
+      tempSel=-1;const f=pickFig(drag.x0,drag.y0);
       if(f){selFig=f.id;sel=-1;selSet.clear();inspectFig(f);draw();}
       else{sel=-1;selFig=null;selSet.clear();inspect();draw();}
     }
@@ -5008,6 +5165,7 @@ function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
 function setMode(m){
+  if(tempTool)endTempTool(true);
   const wasOrbit=is3D;addPt=null;if(npAdd&&!['orbit','sel','zoom','pan'].includes(m))cancelNpAdd();if(ordPick&&m!=='orbit'&&m!=='sel'&&m!=='zoom'&&m!=='pan')ordPick=null;
   if(m==='orbit')is3D=true;else if(m!=='zoom')is3D=false;   // 'zoom' leaves the view as-is — window-zoom works in whichever view (2D or 3D) is already active
   mode=(m==='orbit')?'orbit':m;
@@ -5097,6 +5255,7 @@ $('circleCancel').onclick=closeCircleTool;
 $('circleAdd').onclick=addCircle;
 $('circleScrim').onclick=e=>{if(e.target===$('circleScrim'))closeCircleTool();};
 $('tCircleCtr').onclick=startCircleCtrPick;
+$('tTemp').onclick=startTempTool;
 $('circleCtrCancel').onclick=closeCircleCtrDialog;
 $('circleCtrApply').onclick=addCircleCtrPoint;
 $('circleCtrScrim').onclick=e=>{if(e.target===$('circleCtrScrim'))closeCircleCtrDialog();};
@@ -5124,6 +5283,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
   if(e.key==='Escape'&&circleCtrCtx){e.preventDefault();closeCircleCtrDialog();return;}
   if(e.key==='Escape'&&circleCtrPick){e.preventDefault();cancelCircleCtrPick();return;}
+  if(e.key==='Escape'&&tempTool){e.preventDefault();if(tempTool.a){tempTool.a=null;hud('temp line cancelled — click a new start, or Esc to stop');draw();}else endTempTool();return;}
   if(npAdd&&!$('npScrim').classList.contains('show')){
     if(e.key==='Escape'){e.preventDefault();if(npAdd.keepId){openNpDialog();}else cancelNpAdd();return;}
     if(e.key==='Enter'&&npAdd.stage==='loc'){e.preventDefault();openNpDialog();return;}}
@@ -5176,13 +5336,14 @@ const HELP_CANVAS_TOOLS=[
   ['↔ INV','Inverse — click two points to see the bearing/distance between them (I).'],
   ['◯ CIR','Draw a circle by center point + radius (C).'],
   ['⊙ CTR','Place a new point at the circumcircle center of 3 clicked points, or of an existing CIR-coded line\'s own first 3 vertices.'],
+  ['⟋ TMP','Temp line (L) — click two spots (full snap) to draw a dashed construction line for computing. It snaps like any other line, so two temp lines give an intersection to place a point on. Click it (SEL) to see bearing/length, edit its ends (or azimuth + length), and create points along it — divide, every interval, or at a distance, with an optional offset and code; tick “make linework” to give the new points B/E so they draw a line. Temp lines are not exported.'],
   ['➤ DIR','Toggle direction arrows on the linework (A).'],
   ['🗺 MAP','Toggle the aerial imagery background (2D only).'],
   ['＋ / －','Zoom in / out, centered on the current view.'],
 ];
 const HELP_KEYS=[
   ['V','Select tool'],['M','Move tool'],['P','Pan tool'],['Z','Zoom window tool'],
-  ['O','3D orbit'],['I','Inverse tool'],['C','Draw circle'],['A','Toggle direction arrows'],
+  ['O','3D orbit'],['I','Inverse tool'],['C','Draw circle'],['L','Temp line tool'],['A','Toggle direction arrows'],
   ['F','Fit to the whole survey'],['G','Go to point #'],
   ['Ctrl+Z','Undo'],['Ctrl+Y or Ctrl+Shift+Z','Redo'],
   ['Delete / Backspace','Delete the box-selected points'],['Esc','Cancel a pick/insert in progress, or clear a box selection'],
@@ -5366,7 +5527,7 @@ function loadJobBuffer(buf,name){
 
 function loadFbkText(text,name){
   clearTimeout(asTimer);asTimer=null;curFile=name||'';
-  parse(text);sel=-1;selFig=null;figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
+  parse(text);sel=-1;selFig=null;tempLines=[];tempSel=-1;if(tempTool)endTempTool(true);figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
   $('asStatus').textContent='';}
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   if(/\.job$/i.test(f.name)){rd.onload=()=>loadJobBuffer(rd.result,f.name);rd.readAsArrayBuffer(f);e.target.value='';return;}
@@ -5404,7 +5565,8 @@ window.addEventListener('keydown',e=>{
   else if(k==='a'){showArrows=!showArrows;$('tArr').classList.toggle('on',showArrows);draw();}
   else if(k==='f'){if(!$('fitBtn').disabled)fit();}
   else if(k==='g'){if(!$('gotoBtn').disabled)openGoto();}
-  else if(k==='c'){circleTool={centerPt:-1};openCircleTool();}});
+  else if(k==='c'){circleTool={centerPt:-1};openCircleTool();}
+  else if(k==='l')startTempTool();});
 window.addEventListener('resize',resize);
 resize();
 </script>
