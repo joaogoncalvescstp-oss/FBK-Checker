@@ -259,7 +259,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="unkdBtn" disabled title="Convert baked H/V offsets back to their curb code. Points knocked down this session revert exactly (their original line, REF reveal included). Any other H/V run is only converted if it exactly matches one curb code's template with no ambiguity — everything else (a REF-derived custom reveal, an unrecognized or ambiguous H/V run) is left untouched. Shows a list of what changed and what didn't.">⏮ Un-Knockdown</button>
     <button class="btn ghost" id="refKdBtn" disabled title="Single-point REF knockdown: click the RBCB point, then click ANY point to set the flow-line (FL) vertical, then pick a point for the edge-of-travelway vertical or skip it. Replaces only the curb's own H/V/code — every other code on the point is left alone. Works in 2D or 3D.">🎯 REF Knockdown (1 pt)</button>
     <button class="btn ghost" id="ugwCpnBtn" disabled title="Guy wire rotation: for every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP (pole) point, then opens a review list — edit the target point number or pick it on canvas before applying, since the automatic nearest-pole match may not resolve every case. Appends '<angle> CPN<pole id>' (0° at west, 90° at south, 180° at east, 270° at north) to the UGW point's description. Separate from Knockdown — doesn't touch curb codes.">🧭 UGW→CPN</button>
-    <button class="btn ghost" id="codeChkBtn" disabled title="Check every description for a missing space before or after a code number (H/V, RT/X/RECT, CPN/RPN, curb codes) and list them with the fix — the same check that runs before Export FBK">🔎 Check codes</button>
+    <button class="btn ghost" id="codeChkBtn" disabled title="Check every description for a missing space before or after a code number (H/V, RT/X/RECT, CPN/RPN, curb codes), and H/V written with a space before the number (H 0.5 → H0.5) and list them with the fix — the same check that runs before Export FBK">🔎 Check codes</button>
     <button class="btn ghost" id="dupBtn" disabled title="Check for duplicate point numbers: face pairs, repeat sets and re-shots are normal and ignored; a # used for two different things (different code, different NEZ coords, or a different spot from the same setup) is listed with the next free number proposed — nothing changes until Apply">🔢 Dup #</button>
     <button class="btn ghost" id="simplCogoBtn" disabled title="Add a point by exact N/E/Z coordinates — assigned the next available point number at the end of the FBK">◈ Add Point (COGO)</button>
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
@@ -271,7 +271,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
   </div>
 
   <div class="main">
@@ -784,7 +784,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍇',name:'GRAPE',build:132};
+const VERSION={fruit:'🍊',name:'ORANGE',build:133};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -4794,8 +4794,13 @@ function codingFixBefore(s){
     const c=t.slice(i).match(/^((?:LD|RD|L|R)\d{3})(?=$|[A-Za-z])/i);
     if(c&&(CURB_BOC[c[1].toUpperCase()]||CURB_FL[c[1].toUpperCase()]))return pre+' '+t.slice(i);}
   return t;}).join('');}
+/* build 133: an H/V offset is written H<number> V<number> — no space between the
+   letter and its value. "H 0.5 V -0.5" → "H0.5 V-0.5". Only a lone H or V token
+   directly followed by a number token is joined. */
+const CODING_HV_SPACE_RE=/(^|\s)([HV])\s+(-?(?:\d+\.?\d*|\.\d+))(?=\s|$|[A-Za-z])/gi;
 function codingFixInfo(desc){let s=desc||'',prev,n=0;const why=new Set();
   do{prev=s;
+    let c=s.replace(CODING_HV_SPACE_RE,'$1$2$3');if(c!==s){why.add('inside');s=c;}
     let a=codingFixCurb(s.replace(CODING_GLUE_RE,'$1$2 '));if(a!==s){why.add('after');s=a;}
     let b=codingFixBefore(s);if(b!==s){why.add('before');s=b;}
   }while(s!==prev&&++n<50);
@@ -4819,10 +4824,11 @@ function codingCheckThen(run){
   renderCodeChk();$('codeChkScrim').classList.add('show');
   hud(rows.length?`${rows.length} description(s) have a missing space around a code`:'coding check: no problems found');}
 function renderCodeChk(){const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-  const rows=codeChkCtx.rows,nA=rows.filter(r=>r.why.has('after')).length,nB=rows.filter(r=>r.why.has('before')).length;
-  $('codeChkSum').innerHTML=rows.length?`<b>${rows.length}</b> point(s) to fix · <b>${nA}</b> missing a space <i>after</i> a number · <b>${nB}</b> missing a space <i>before</i> a code`
-    :`<b style="color:#9ff0c8">✓ No coding errors found</b> — every H/V, RT/X/RECT, CPN/RPN and curb code has a space on both sides.`;
-  const tag=t=>`<span style="font-size:10px;padding:1px 5px;border-radius:4px;margin-left:6px;background:${t==='after'?'#5a3a12':'#12385a'};color:#fff">${t==='after'?'space after #':'space before code'}</span>`;
+  const rows=codeChkCtx.rows,nA=rows.filter(r=>r.why.has('after')).length,nB=rows.filter(r=>r.why.has('before')).length,nI=rows.filter(r=>r.why.has('inside')).length;
+  $('codeChkSum').innerHTML=rows.length?`<b>${rows.length}</b> point(s) to fix · <b>${nA}</b> missing a space <i>after</i> a number · <b>${nB}</b> missing a space <i>before</i> a code · <b>${nI}</b> with a space between H/V and its number`
+    :`<b style="color:#9ff0c8">✓ No coding errors found</b> — every H/V, RT/X/RECT, CPN/RPN and curb code has a space on both sides, and every H/V is written H&lt;number&gt; V&lt;number&gt;.`;
+  const TAG={after:['#5a3a12','space after #'],before:['#12385a','space before code'],inside:['#4a1d5a','H/V space → H0.5']};
+  const tag=t=>`<span style="font-size:10px;padding:1px 5px;border-radius:4px;margin-left:6px;background:${TAG[t][0]};color:#fff">${TAG[t][1]}</span>`;
   $('codeChkList').innerHTML=rows.map((r,k)=>`<div class="vrow" style="padding:6px 8px">
     <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
       <input type="checkbox" data-k="${k}" ${r.on?'checked':''} style="margin-top:3px">
@@ -5441,7 +5447,7 @@ const HELP_TOOLBAR=[
   ['🔢 Dup #','Check for duplicate point numbers. Face 1/face 2 pairs, repeat sets and re-shots from other setups are normal and left alone. A # used for two different things (different code, NEZ with different coords, a different spot from the same setup, a control # reused) is listed; the control point or first in file order keeps it, the others get the next free number (editable), or tick Delete. Identical NEZ re-entries are shown as harmless. Nothing changes until Apply.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
-  ['↓ Export FBK','Write the current points/edits back out as a field-book file. First runs a coding check: any H/V, RT/X/RECT, CPN/RPN or curb-code number with no space after it (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>RT6RECT</code>, <code>R624BC</code>) is listed with the fixed text — fix the ticked ones, export as-is, or cancel. Export (codes) runs the same check. It also catches a missing space <i>before</i> a code (<code>BV0</code>, <code>R624H-0.5</code>, <code>ECPN001</code>, <code>BCR624</code>).'],
+  ['↓ Export FBK','Write the current points/edits back out as a field-book file. First runs a coding check: any H/V, RT/X/RECT, CPN/RPN or curb-code number with no space after it (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>RT6RECT</code>, <code>R624BC</code>) is listed with the fixed text — fix the ticked ones, export as-is, or cancel. Export (codes) runs the same check. It also catches a missing space <i>before</i> a code (<code>BV0</code>, <code>R624H-0.5</code>, <code>ECPN001</code>, <code>BCR624</code>), and a space between H/V and its number (<code>H 0.5 V -0.5</code> → <code>H0.5 V-0.5</code>).'],
   ['🔎 Check codes','Run the same coding check any time without exporting: a report of every description with a missing space after a code number or before a code, with the fix shown — fix the ticked ones or just close.'],
   ['↓ Export (codes)','Same export, but keeps the original curb-code names instead of the baked Knockdown offsets.'],
   ['↓ Export CSV','Write every non-deleted point as a comma-delimited PNEZD file — round-trips with Import CSV.'],
