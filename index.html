@@ -270,7 +270,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -461,6 +461,27 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <button class="btn ghost" id="dupAuto" title="Refill every renamed row with the next free numbers">Auto-number</button>
       <button class="btn ghost" id="dupCancel">Cancel</button>
       <button class="btn gold" id="dupApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="codeChkScrim">
+  <div class="modal wide">
+    <h4>Coding Check Before Export</h4>
+    <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
+      These descriptions have an <b>H</b>, <b>V</b>, <b>CPN</b> or <b>RPN</b> value with no space after the
+      number (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>), so the app and CAD can't read them.
+      Ticked rows get a space added after the number. Untick a row to export it as typed.
+    </div>
+    <div class="row" style="justify-content:flex-start;margin:0 0 6px">
+      <button class="btn ghost" id="codeChkAll">Select all</button>
+      <button class="btn ghost" id="codeChkNone">Clear</button>
+    </div>
+    <div id="codeChkList" style="max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:6px"></div>
+    <div class="row">
+      <button class="btn ghost" id="codeChkCancel" title="Don't export">Cancel</button>
+      <button class="btn ghost" id="codeChkAsIs" title="Export without changing anything">Export as-is</button>
+      <button class="btn gold" id="codeChkFix">Fix selected &amp; export</button>
     </div>
   </div>
 </div>
@@ -759,7 +780,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:129};
+const VERSION={fruit:'🍑',name:'PEACH',build:130};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -4736,6 +4757,49 @@ function expandDescForExport(desc){
   }
   return expanded;
 }
+/* ---------- coding check before FBK export (build 130) ----------
+   An H/V offset value or a CPN/RPN point number must be followed by a space:
+   "H-0.5V0.0" or "CPN9124B" is one unreadable token to parseDesc (and CAD).
+   codingFix() inserts the missing space after the number (repeated until
+   stable, so a whole glued chain like "H-0.5V0H-0.67V-0.5" splits fully).
+   Only a token that STARTS with H/V/CPN/RPN + a number + a letter is touched. */
+const CODING_GLUE_RE=/(^|\s)((?:[HV]\s*-?(?:\d+\.?\d*|\.\d+))|(?:(?:CPN|RPN)\s*\d+))(?=[A-Za-z])/gi;
+function codingFix(desc){let s=desc||'',prev;let n=0;
+  do{prev=s;s=s.replace(CODING_GLUE_RE,'$1$2 ');}while(s!==prev&&++n<50);
+  return s;}
+function findCodingErrors(){const out=[];
+  PTS.forEach((p,i)=>{if(p.deleted||!p.desc)return;const f=codingFix(p.desc);if(f!==p.desc)out.push({i,p,fixed:f,on:true});});
+  out.sort((a,b)=>(a.p.srcLine<0?1e9:a.p.srcLine)-(b.p.srcLine<0?1e9:b.p.srcLine));
+  return out;}
+let codeChkCtx=null;
+function codingCheckThen(run){
+  const rows=findCodingErrors();
+  if(!rows.length){run();return;}
+  codeChkCtx={rows,run};renderCodeChk();$('codeChkScrim').classList.add('show');
+  hud(`${rows.length} description(s) need a space after an H/V/CPN/RPN number`);}
+function renderCodeChk(){const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  $('codeChkList').innerHTML=codeChkCtx.rows.map((r,k)=>`<div class="vrow" style="padding:6px 8px">
+    <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+      <input type="checkbox" data-k="${k}" ${r.on?'checked':''} style="margin-top:3px">
+      <div style="flex:1;min-width:0;font:12px var(--mono)">
+        <div><b>pt ${esc(r.p.id)}</b> <span style="color:var(--mut)">${r.p.srcLine>=0?'line '+(r.p.srcLine+1):'added point'}</span>
+          <button class="btn ghost" data-z="${r.i}" style="padding:1px 6px;margin-left:6px" title="Zoom to this point">⌖</button></div>
+        <div style="color:#ff8f8f;word-break:break-all">${esc(r.p.desc)}</div>
+        <div style="color:#9ff0c8;word-break:break-all">→ ${esc(r.fixed)}</div>
+      </div></label></div>`).join('');
+  $('codeChkList').querySelectorAll('input[data-k]').forEach(c=>c.onchange=()=>{codeChkCtx.rows[+c.dataset.k].on=c.checked;syncCodeChkBtn();});
+  $('codeChkList').querySelectorAll('button[data-z]').forEach(b=>b.onclick=e=>{e.preventDefault();zoomToPoint(+b.dataset.z);});
+  syncCodeChkBtn();}
+function syncCodeChkBtn(){const n=codeChkCtx.rows.filter(r=>r.on).length;$('codeChkFix').textContent=`Fix selected (${n}) & export`;$('codeChkFix').disabled=!n;}
+function closeCodeChk(){codeChkCtx=null;$('codeChkScrim').classList.remove('show');}
+function applyCodeChk(fix){if(!codeChkCtx)return;const{rows,run}=codeChkCtx;
+  const sel=fix?rows.filter(r=>r.on):[];
+  if(sel.length){saveState();
+    sel.forEach(r=>{const p=r.p;logEdit('code',`pt ${p.id} line ${p.srcLine+1}: "${p.desc}" → "${r.fixed}" (coding check: space after number)`);
+      p.desc=r.fixed;p.code=(r.fixed.split(/\s+/)[0]||'').toUpperCase();p.edited=true;});
+    buildLinework();draw();if(sel>=0)inspect();else if(selFig){const f=getFig(selFig);if(f)inspectFig(f);}flagDirty();}
+  closeCodeChk();run();
+  if(sel.length)hud(`fixed ${sel.length} description(s), exported`);}
 function exportFBK(expandCodes=true,textOnly=false){
   const editedContent={};          // lineIdx -> replacement string
   const deletedAfter=new Set();     // lineIdx -> append a Deleted marker
@@ -5202,8 +5266,14 @@ function closeSideMobile(){$('sidePanel').classList.remove('open');$('sideScrim'
 $('sideToggleBtn').onclick=()=>{$('sidePanel').classList.toggle('open');$('sideScrim').classList.toggle('show');};
 $('sideCloseBtn').onclick=closeSideMobile;
 $('sideScrim').onclick=closeSideMobile;
-$('dlBtn').onclick=exportFBK;
-$('dlRawBtn').onclick=()=>exportFBK(false);
+$('dlBtn').onclick=()=>codingCheckThen(()=>exportFBK(true));
+$('dlRawBtn').onclick=()=>codingCheckThen(()=>exportFBK(false));
+$('codeChkFix').onclick=()=>applyCodeChk(true);
+$('codeChkAsIs').onclick=()=>applyCodeChk(false);
+$('codeChkCancel').onclick=()=>{closeCodeChk();hud('export cancelled');};
+$('codeChkAll').onclick=()=>{codeChkCtx.rows.forEach(r=>r.on=true);renderCodeChk();};
+$('codeChkNone').onclick=()=>{codeChkCtx.rows.forEach(r=>r.on=false);renderCodeChk();};
+$('codeChkScrim').onclick=e=>{if(e.target===$('codeChkScrim')){closeCodeChk();hud('export cancelled');}};
 $('dlCsvBtn').onclick=exportCSV;
 $('dlDxfBtn').onclick=exportDXF;
 $('kdBtn').onclick=applyKnockdown;
@@ -5278,6 +5348,7 @@ $('zpickCancel').onclick=closeZPick;
 $('zpickScrim').onclick=e=>{if(e.target===$('zpickScrim'))closeZPick();};
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&dupCtx){e.preventDefault();closeDupCheck();return;}
+  if(e.key==='Escape'&&codeChkCtx){e.preventDefault();closeCodeChk();hud('export cancelled');return;}
   if(e.key==='Escape'&&zpickCtx){e.preventDefault();closeZPick();return;}
   if(e.key==='Escape'&&cogoPick){e.preventDefault();endCogoPick(null);return;}
   if(e.key==='Escape'&&ugwPick!=null){e.preventDefault();endUgwPick(null);return;}
@@ -5320,7 +5391,7 @@ const HELP_TOOLBAR=[
   ['🔢 Dup #','Check for duplicate point numbers. Face 1/face 2 pairs, repeat sets and re-shots from other setups are normal and left alone. A # used for two different things (different code, NEZ with different coords, a different spot from the same setup, a control # reused) is listed; the control point or first in file order keeps it, the others get the next free number (editable), or tick Delete. Identical NEZ re-entries are shown as harmless. Nothing changes until Apply.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
-  ['↓ Export FBK','Write the current points/edits back out as a field-book file.'],
+  ['↓ Export FBK','Write the current points/edits back out as a field-book file. First runs a coding check: any H/V value or CPN/RPN point # with no space after the number (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>) is listed with the fixed text — fix the ticked ones, export as-is, or cancel. Export (codes) runs the same check.'],
   ['↓ Export (codes)','Same export, but keeps the original curb-code names instead of the baked Knockdown offsets.'],
   ['↓ Export CSV','Write every non-deleted point as a comma-delimited PNEZD file — round-trips with Import CSV.'],
   ['📜 FBK code','Floating panel listing every line of the file (with your edits). Selecting a point or line on the canvas scrolls to and highlights its line(s); click a point line to select it; double-click any line to edit (Enter applies, Esc cancels). Find box jumps to the next match. ✎ Edit as text switches to a Notepad-style text box for the whole file — type, paste, add or delete lines, then Apply (Ctrl+S). Drag the header to move, the corner to resize.'],
@@ -5558,7 +5629,7 @@ window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show')||$('codeChkScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
