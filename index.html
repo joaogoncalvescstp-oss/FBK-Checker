@@ -270,7 +270,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -469,8 +469,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   <div class="modal wide">
     <h4>Coding Check Before Export</h4>
     <div class="field" style="margin-bottom:9px;color:var(--mut);font-size:11px;line-height:1.5">
-      These descriptions have an <b>H</b>, <b>V</b>, <b>CPN</b> or <b>RPN</b> value with no space after the
-      number (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>), so the app and CAD can't read them.
+      These descriptions have a code number with no space after it — <b>H</b>/<b>V</b> offsets,
+      <b>RT</b>/<b>X</b>/<b>RECT</b>, <b>CPN</b>/<b>RPN</b>, or a curb code like <b>R624</b>
+      (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>RT6RECT</code>, <code>R624BC</code>),
+      so the app and CAD can't read them.
       Ticked rows get a space added after the number. Untick a row to export it as typed.
     </div>
     <div class="row" style="justify-content:flex-start;margin:0 0 6px">
@@ -780,7 +782,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:130};
+const VERSION={fruit:'🍌',name:'BANANA',build:131};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -4763,9 +4765,13 @@ function expandDescForExport(desc){
    codingFix() inserts the missing space after the number (repeated until
    stable, so a whole glued chain like "H-0.5V0H-0.67V-0.5" splits fully).
    Only a token that STARTS with H/V/CPN/RPN + a number + a letter is touched. */
-const CODING_GLUE_RE=/(^|\s)((?:[HV]\s*-?(?:\d+\.?\d*|\.\d+))|(?:(?:CPN|RPN)\s*\d+))(?=[A-Za-z])/gi;
+// build 131: every number-taking code — H/V offsets, RT/X/RECT jogs, CPN/RPN point #s
+// (glued or spaced value), plus a curb DB code (R624, L006, RD418…) glued to the next word.
+const CODING_GLUE_RE=/(^|\s)((?:(?:RECT|RT|X|H|V)\s*-?(?:\d+\.?\d*|\.\d+))|(?:(?:CPN|RPN)\s*\d+))(?=[A-Za-z])/gi;
+function codingFixCurb(s){return s.split(/(\s+)/).map(t=>{const m=t.match(/^((?:LD|RD|L|R)\d{3})([A-Za-z].*)$/i);
+  return m&&(CURB_BOC[m[1].toUpperCase()]||CURB_FL[m[1].toUpperCase()])?m[1]+' '+m[2]:t;}).join('');}
 function codingFix(desc){let s=desc||'',prev;let n=0;
-  do{prev=s;s=s.replace(CODING_GLUE_RE,'$1$2 ');}while(s!==prev&&++n<50);
+  do{prev=s;s=codingFixCurb(s.replace(CODING_GLUE_RE,'$1$2 '));}while(s!==prev&&++n<50);
   return s;}
 function findCodingErrors(){const out=[];
   PTS.forEach((p,i)=>{if(p.deleted||!p.desc)return;const f=codingFix(p.desc);if(f!==p.desc)out.push({i,p,fixed:f,on:true});});
@@ -4776,7 +4782,7 @@ function codingCheckThen(run){
   const rows=findCodingErrors();
   if(!rows.length){run();return;}
   codeChkCtx={rows,run};renderCodeChk();$('codeChkScrim').classList.add('show');
-  hud(`${rows.length} description(s) need a space after an H/V/CPN/RPN number`);}
+  hud(`${rows.length} description(s) need a space after a code number`);}
 function renderCodeChk(){const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   $('codeChkList').innerHTML=codeChkCtx.rows.map((r,k)=>`<div class="vrow" style="padding:6px 8px">
     <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
@@ -5391,7 +5397,7 @@ const HELP_TOOLBAR=[
   ['🔢 Dup #','Check for duplicate point numbers. Face 1/face 2 pairs, repeat sets and re-shots from other setups are normal and left alone. A # used for two different things (different code, NEZ with different coords, a different spot from the same setup, a control # reused) is listed; the control point or first in file order keeps it, the others get the next free number (editable), or tick Delete. Identical NEZ re-entries are shown as harmless. Nothing changes until Apply.'],
   ['🧭 UGW→CPN','For every UGW (guy wire) point, auto-picks the nearest ULP/UPP/UGP pole, then opens an editable review — retype the target point # or pick it on canvas — before writing the bearing + <code>CPN&lt;pole&gt;</code> tag. Deliberately separate from Knockdown.'],
   ['◈ Add Point (COGO)','Add a point by exact N/E/Z (or pick it on canvas with CAD object snap) at the end of the file.'],
-  ['↓ Export FBK','Write the current points/edits back out as a field-book file. First runs a coding check: any H/V value or CPN/RPN point # with no space after the number (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>) is listed with the fixed text — fix the ticked ones, export as-is, or cancel. Export (codes) runs the same check.'],
+  ['↓ Export FBK','Write the current points/edits back out as a field-book file. First runs a coding check: any H/V, RT/X/RECT, CPN/RPN or curb-code number with no space after it (e.g. <code>H-0.5V0.0</code>, <code>CPN9124B</code>, <code>RT6RECT</code>, <code>R624BC</code>) is listed with the fixed text — fix the ticked ones, export as-is, or cancel. Export (codes) runs the same check.'],
   ['↓ Export (codes)','Same export, but keeps the original curb-code names instead of the baked Knockdown offsets.'],
   ['↓ Export CSV','Write every non-deleted point as a comma-delimited PNEZD file — round-trips with Import CSV.'],
   ['📜 FBK code','Floating panel listing every line of the file (with your edits). Selecting a point or line on the canvas scrolls to and highlights its line(s); click a point line to select it; double-click any line to edit (Enter applies, Esc cancels). Find box jumps to the next match. ✎ Edit as text switches to a Notepad-style text box for the whole file — type, paste, add or delete lines, then Apply (Ctrl+S). Drag the header to move, the corner to resize.'],
