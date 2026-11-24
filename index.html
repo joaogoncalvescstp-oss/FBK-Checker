@@ -271,7 +271,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -477,6 +477,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       Ticked rows get the space added. Untick a row to leave it as typed.
     </div>
     <div id="codeChkSum" style="font:12px var(--mono);margin:0 0 8px"></div>
+    <label class="vrow" style="display:flex;gap:8px;align-items:flex-start;padding:6px 8px;margin:0 0 8px;cursor:pointer" title="Put Deleted- in front of every REF-only shot line in the exported FBK so CAD skips it. The points stay in the app (Knockdown still uses them). Untick to export them as plain lines again.">
+      <input type="checkbox" id="codeChkRefDel" style="margin-top:3px">
+      <span style="font:12px var(--mono)">Add <b>Deleted-</b> in front of every <b>REF-only</b> line on export <span id="codeChkRefDelN" style="color:var(--mut)"></span><br>
+      <span style="color:var(--mut);font-size:11px">Only lines whose description is just REF / REF1 / REF2…; a REF with another code on it is left alone. Untick to restore them.</span></span>
+    </label>
     <div class="row" style="justify-content:flex-start;margin:0 0 6px">
       <button class="btn ghost" id="codeChkAll">Select all</button>
       <button class="btn ghost" id="codeChkNone">Clear</button>
@@ -784,7 +789,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:134};
+const VERSION={fruit:'🍑',name:'PEACH',build:135};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -911,10 +916,26 @@ function updateUndoRedoButtons(){
    OLDER build (84-108) still loads correctly; exporting it again self-heals it
    (step 2d strips any marker it finds, never re-adds one). */
 const REF_HIDE='-- ';
+/* Build 135: optional "Deleted-" prefix on every REF-only shot line (checkbox in 🔎 Check
+   codes). REF-only = the description is nothing but REF / REF1 / REF2… tokens; a REF that
+   rides along with another code ("REF RCFL1 B") is never touched. The flag only changes the
+   exported text — the points stay live in the app (Knockdown still finds them). Loading a
+   file that already has "Deleted-" REF lines strips the prefix back off in RAW (so every
+   parser/editor sees a plain line) and turns the flag on, so a re-export round-trips; untick
+   it to export the lines plain again. */
+const REF_DEL='Deleted-';
+let refDelOn=false;
+function isRefOnlyDesc(d){const t=(d||'').trim().split(/\s+/).filter(Boolean);return t.length>0&&t.every(x=>/^REF\d*$/i.test(x));}
+function isRefOnlyPtLine(ln){const t=(ln||'').trim().split(/\s+/);
+  if(!(t[0]==='NEZ'||((t[0]==='F1'||t[0]==='F2')&&t[1]==='VA')))return false;
+  const m=ln.match(/"([^"]*)"/);return !!m&&isRefOnlyDesc(m[1]);}
+function refDelCount(){return PTS.filter(p=>!p.deleted&&isRefOnlyDesc(p.desc)).length;}
 
 /* ---------- parse + reduce ---------- */
 function parse(text){
   RAW=text.split(/\r?\n/); PTS=[]; const ctrl={};
+  RAW.forEach((ln,idx)=>{if(ln.startsWith(REF_DEL)){const body=ln.slice(REF_DEL.length);
+    if(isRefOnlyPtLine(body)){RAW[idx]=body;refDelOn=true;}}});
   const deHide=ln=>ln.startsWith(REF_HIDE)?{txt:ln.slice(REF_HIDE.length),hidden:true}:{txt:ln,hidden:false};
   RAW.forEach((ln,idx)=>{const {txt,hidden}=deHide(ln);const t=txt.trim().split(/\s+/);
     if(t[0]==='NEZ'){const m=txt.match(/"([^"]*)"/);
@@ -4827,7 +4848,7 @@ function codingCheckThen(run){
   $('codeChkAsIs').style.display=report?'none':'';
   $('codeChkCancel').textContent=report?'Close':'Cancel';
   $('codeChkCancel').title=report?'Close the report':"Don't export";
-  renderCodeChk();$('codeChkScrim').classList.add('show');
+  syncRefDelChk();renderCodeChk();$('codeChkScrim').classList.add('show');
   hud(rows.length?`${rows.length} description(s) have a missing space around a code`:'coding check: no problems found');}
 function renderCodeChk(){const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const rows=codeChkCtx.rows,nA=rows.filter(r=>r.why.has('after')).length,nB=rows.filter(r=>r.why.has('before')).length,nI=rows.filter(r=>r.why.has('inside')).length;
@@ -4851,6 +4872,8 @@ function renderCodeChk(){const esc=s=>String(s).replace(/&/g,'&amp;').replace(/<
 function syncCodeChkBtn(){const n=codeChkCtx.rows.filter(r=>r.on).length,rep=codeChkCtx.report;
   $('codeChkFix').textContent=rep?`Fix selected (${n})`:`Fix selected (${n}) & export`;$('codeChkFix').disabled=!n;
   $('codeChkFix').style.display=rep&&!codeChkCtx.rows.length?'none':'';}
+function syncRefDelChk(){$('codeChkRefDel').checked=refDelOn;const n=refDelCount();
+  $('codeChkRefDelN').textContent=`(${n} REF-only point${n===1?'':'s'}${refDelOn?' · on':''})`;}
 function closeCodeChk(){codeChkCtx=null;$('codeChkScrim').classList.remove('show');}
 function applyCodeChk(fix){if(!codeChkCtx)return;const{rows,run,report}=codeChkCtx;
   const chosen=fix?rows.filter(r=>r.on):[];
@@ -5024,6 +5047,7 @@ function exportFBK(expandCodes=true,textOnly=false){
   PTS.forEach(p=>{if(p.deleted||p.srcLine>=0)return;if(nezDone.has(p.id)||alreadyNEZ.has(p.id))return;
     const d=expandCodes?expandDescForExport(p.desc):p.desc;
     result.push(`NEZ ${p.id} ${p.N.toFixed(3)} ${p.E.toFixed(3)} ${p.Z.toFixed(3)} "${d}"`);});
+  if(refDelOn)result.forEach((ln,k)=>{if(isRefOnlyPtLine(ln))result[k]=REF_DEL+ln;});
   if(textOnly)return result.join('\r\n');          // local auto-save: same text, no download, no log
   const blob=new Blob([result.join('\r\n')],{type:'text/plain'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=($('jobpill').textContent.replace(/\s+/g,'_'))+(expandCodes?'_EDITED':'_CODES')+'.fbk';a.click();
@@ -5333,6 +5357,8 @@ $('codeChkFix').onclick=()=>applyCodeChk(true);
 $('codeChkBtn').onclick=()=>codingCheckThen(null);
 $('codeChkAsIs').onclick=()=>applyCodeChk(false);
 $('codeChkCancel').onclick=()=>{const r=codeChkCtx&&codeChkCtx.report;closeCodeChk();hud(r?'coding check closed':'export cancelled');};
+$('codeChkRefDel').onchange=e=>{refDelOn=e.target.checked;syncRefDelChk();flagDirty();
+  hud(refDelOn?`${refDelCount()} REF-only line(s) will export with Deleted- in front`:'REF-only lines restored — they export as plain lines');};
 $('codeChkAll').onclick=()=>{codeChkCtx.rows.forEach(r=>r.on=true);renderCodeChk();};
 $('codeChkNone').onclick=()=>{codeChkCtx.rows.forEach(r=>r.on=false);renderCodeChk();};
 $('codeChkScrim').onclick=e=>{if(e.target===$('codeChkScrim')){const r=codeChkCtx.report;closeCodeChk();hud(r?'coding check closed':'export cancelled');}};
@@ -5661,7 +5687,7 @@ function loadJobBuffer(buf,name){
 
 function loadFbkText(text,name){
   clearTimeout(asTimer);asTimer=null;curFile=name||'';
-  parse(text);sel=-1;selFig=null;tempLines=[];tempSel=-1;if(tempTool)endTempTool(true);figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
+  refDelOn=false;parse(text);sel=-1;selFig=null;tempLines=[];tempSel=-1;if(tempTool)endTempTool(true);figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
   $('asStatus').textContent='';}
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   if(/\.job$/i.test(f.name)){rd.onload=()=>loadJobBuffer(rd.result,f.name);rd.readAsArrayBuffer(f);e.target.value='';return;}
