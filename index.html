@@ -282,13 +282,13 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn gold" id="dlBtn" disabled>↓ Export FBK</button>
     <button class="btn ghost" id="dlRawBtn" disabled title="Export FBK with curb codes unapplied (preserve original code names, keep edits)">↓ Export (codes)</button>
     <button class="btn ghost" id="dlCsvBtn" disabled title="Export all points as a comma-delimited PNEZD file: Point#, Northing, Easting, Elevation, Description">↓ Export CSV</button>
-    <button class="btn ghost" id="dlDxfBtn" disabled title="Export a DXF drawing: points + labels, all figure linework (curves/circles/jogs rendered exactly as drawn on screen), standalone CTR circles, CPN/RPN tie lines, and the curb offset cross-section lane lines">↓ Export DXF</button>
+    <button class="btn ghost" id="dlDxfBtn" disabled title="Export a DXF drawing: points + labels, all figure linework (curves/circles/jogs rendered exactly as drawn on screen), standalone CTR circles, CPN/RPN tie lines, the curb offset cross-section lane lines, and contours (any still on the drawing, plus elevation labels on major contour linework)">↓ Export DXF</button>
     <button class="btn ghost" id="fbkPanelBtn" title="Floating FBK code panel: every line of the loaded file (with your edits). Selecting a point on the canvas scrolls to and highlights its line; click a line to select that point; double-click a line to edit it (Enter applies, Esc cancels).">📜 FBK code</button>
     <button class="btn ghost" id="labelBtn" title="Point label toolbox: check off which of Point #, Code, Elevation show next to each point on the canvas, and set their text size">🏷 Labels</button>
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
   </div>
 
   <div class="main">
@@ -763,7 +763,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <div class="field"><label>Major contour code</label><input type="text" id="ctrCodeMaj" value="CONTM" autocomplete="off"></div>
       <div class="field"><label>First point #</label><input type="number" id="ctrStart" step="1"></div>
     </div>
-    <div class="hint" style="margin-top:6px">The lidar points inside the polygon are averaged (or the lowest taken) on a square grid, small holes are filled from their neighbours, the grid is smoothed, and contours are traced through it and clipped to the polygon. Z includes the cloud's elevation adjustment. ↓ Export DXF writes 3D polylines on layers CONTOUR-MAJOR / CONTOUR-MINOR (plus CONTOUR-LABELS). ＋ Add as linework makes NEZ points — one line per contour (B…E, or CLS for a closed loop) — exported at the end of the FBK; Ctrl+Z undoes.</div>
+    <div class="hint" style="margin-top:6px">The lidar points inside the polygon are averaged (or the lowest taken) on a square grid, small holes are filled from their neighbours, the grid is smoothed, and contours are traced through it and clipped to the polygon. Z includes the cloud's elevation adjustment. ↓ Export DXF writes 3D polylines on layers CONTOUR-MAJOR / CONTOUR-MINOR (plus CONTOUR-LABELS); contours still on the drawing also go into the main ↓ Export DXF, and contour linework coded with the major code gets elevation labels there. ＋ Add as linework makes NEZ points — one line per contour (B…E, or CLS for a closed loop) — exported at the end of the FBK; Ctrl+Z undoes.</div>
     <div id="ctrMsg" style="font-size:11px;color:var(--ink);margin-top:8px;line-height:1.5"></div>
     <div class="row">
       <button class="btn ghost" id="ctrClear" title="Remove the contours from the drawing">Clear contours</button>
@@ -968,7 +968,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍓',name:'STRAWBERRY',build:141};
+const VERSION={fruit:'🍑',name:'PEACH',build:142};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -5313,12 +5313,14 @@ function exportDXF(){
     const lanes=Math.max(0,...per.map(s=>s?s.length:0));if(!lanes)return;
     for(let L=0;L<lanes;L++)offsetLaneChains(all,per,cont,bcAt,ecAt,ocAt,L).forEach(chain=>{
       if(chain.length<2)return;ents+=dxfPolyline('OFFSET-'+dxfLayer(f.code),chain,false);nOff++;});});
+  const ctrE=contourDxfEnts(figs);ents+=ctrE.ents;                // build 142 — contours + contour labels
   if(!ents){hud('nothing to export');return;}
   const dxf=`0\nSECTION\n2\nENTITIES\n${ents}0\nENDSEC\n0\nEOF\n`;
   const blob=new Blob([dxf],{type:'application/dxf'});const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=(($('jobpill').textContent||'points').replace(/\s+/g,'_'))+'.dxf';a.click();
-  logEdit('code',`exported DXF: ${nPts} pt(s), ${nFig} line(s), ${nCirc} circle(s), ${nOff} offset lane(s), ${nTie} tie(s)`);
-  hud(`exported DXF: ${nPts} pts, ${nFig} lines, ${nCirc} circles, ${nOff} offset lanes`);}
+  const ctrTxt=ctrE.nLines||ctrE.nLbl?`, ${ctrE.nLines} contour(s), ${ctrE.nLbl} contour label(s)`:'';
+  logEdit('code',`exported DXF: ${nPts} pt(s), ${nFig} line(s), ${nCirc} circle(s), ${nOff} offset lane(s), ${nTie} tie(s)${ctrTxt}`);
+  hud(`exported DXF: ${nPts} pts, ${nFig} lines, ${nCirc} circles, ${nOff} offset lanes${ctrTxt}`);}
 
 /* ---------- go to point ---------- */
 function openGoto(){$('scrim').classList.add('show');const i=$('gotoInput');i.value='';$('gotoHint').textContent='type a point #, then Enter';i.focus();}
@@ -6463,10 +6465,31 @@ function drawContours(proj,is3d){const R=ctrRes;if(!R||!R.lines.length)return;ct
       ctx.fillStyle='rgba(10,20,38,.85)';ctx.fillRect(-tw/2-2,-6,tw+4,12);ctx.fillStyle='#E8A05C';ctx.fillText(txt,0,0);ctx.restore();});}
   ctx.restore();}
 function fmtCtrZ(z,I){const dp=I>=1&&Math.abs(I-Math.round(I))<1e-9?0:I>=0.1?1:2;return z.toFixed(dp);}
+/* build 142 — contour elevation labels as DXF TEXT: centred on the line, rotated along it (kept
+   readable, never upside down), one per CTR_LBL_SPACING ft of line (at least one, mid-length). */
+const CTR_LBL_SPACING=300;
+function ctrLabelEnts(pts,z,I,h){if(!(h>0)||!pts||pts.length<2)return{ents:'',n:0};const cum=[0];
+  for(let k=1;k<pts.length;k++)cum.push(cum[k-1]+Math.hypot(pts[k].E-pts[k-1].E,pts[k].N-pts[k-1].N));
+  const L=cum[cum.length-1];if(!(L>0))return{ents:'',n:0};const n=Math.max(1,Math.floor(L/CTR_LBL_SPACING)),txt=fmtCtrZ(z,I);let ents='';
+  for(let q=0;q<n;q++){const s=(q+0.5)*L/n;let k=1;while(k<cum.length-1&&cum[k]<s)k++;
+    const a=pts[k-1],b=pts[k],seg=cum[k]-cum[k-1],t=seg>0?(s-cum[k-1])/seg:0,E=a.E+(b.E-a.E)*t,N=a.N+(b.N-a.N)*t;
+    let ang=Math.atan2(b.N-a.N,b.E-a.E)*180/Math.PI;if(ang>90)ang-=180;if(ang<-90)ang+=180;
+    ents+=`0\nTEXT\n8\nCONTOUR-LABELS\n10\n${dxfNum(E)}\n20\n${dxfNum(N)}\n30\n${dxfNum(z)}\n40\n${h}\n1\n${txt}\n50\n${ang.toFixed(3)}\n72\n1\n11\n${dxfNum(E)}\n21\n${dxfNum(N)}\n31\n${dxfNum(z)}\n73\n2\n`;}
+  return{ents,n};}
+/* contour entities for a DXF: the preview contours (ctrRes, polylines + labels on majors) and any
+   contour linework already added as points (figures coded with the minor/major contour code and a
+   single elevation — labels only, their polylines are written as LINE-<code> like any figure). */
+function contourDxfEnts(figs){let ents='',nLines=0,nLbl=0;const h=Math.max(0,parseFloat($('ctrLblH').value)||0);
+  const R=ctrRes;if(R&&R.lines.length){R.lines.forEach(l=>{const pts=l.closed?l.pts.slice(0,-1):l.pts;ents+=dxfPolyline(l.major?'CONTOUR-MAJOR':'CONTOUR-MINOR',pts,l.closed);nLines++;
+    if(l.major){const r=ctrLabelEnts(l.pts,l.z,R.P.I,h);ents+=r.ents;nLbl+=r.n;}});}
+  const cMaj=($('ctrCodeMaj').value.trim().split(/\s+/)[0]||'CONTM').toUpperCase(),I=parseFloat($('ctrInt').value)||1;
+  (figs||[]).forEach(f=>{if(f.code!==cMaj||f.circle)return;const vs=f.verts.map(v=>PTS[v.i]).filter(p=>p&&!p.deleted);if(vs.length<2)return;
+    const z=vs[0].Z;if(!isFinite(z)||vs.some(p=>Math.abs(p.Z-z)>0.001))return;
+    const pts=vs.map(p=>({E:p.E,N:p.N}));if(f.closed)pts.push({...pts[0]});const r=ctrLabelEnts(pts,z,I,h);ents+=r.ents;nLbl+=r.n;});
+  return{ents,nLines,nLbl};}
 function ctrExportDXF(){const R=ctrRes;if(!R||!R.lines.length)return;let ents='',nl=0;
   R.lines.forEach(l=>{const lay=l.major?'CONTOUR-MAJOR':'CONTOUR-MINOR',pts=l.closed?l.pts.slice(0,-1):l.pts;ents+=dxfPolyline(lay,pts,l.closed);
-    if(l.major&&R.P.lblH>0){const k=Math.floor(l.pts.length/2),a=l.pts[k],b=l.pts[Math.min(l.pts.length-1,k+1)];let ang=Math.atan2(b.N-a.N,b.E-a.E)*180/Math.PI;if(ang>90)ang-=180;if(ang<-90)ang+=180;
-      ents+=`0\nTEXT\n8\nCONTOUR-LABELS\n10\n${dxfNum(a.E)}\n20\n${dxfNum(a.N)}\n30\n${dxfNum(a.Z)}\n40\n${R.P.lblH}\n1\n${fmtCtrZ(l.z,R.P.I)}\n50\n${ang.toFixed(3)}\n72\n1\n11\n${dxfNum(a.E)}\n21\n${dxfNum(a.N)}\n31\n${dxfNum(a.Z)}\n73\n2\n`;}nl++;});
+    if(l.major)ents+=ctrLabelEnts(l.pts,l.z,R.P.I,R.P.lblH).ents;nl++;});
   const dxf=`0\nSECTION\n2\nENTITIES\n${ents}0\nENDSEC\n0\nEOF\n`,blob=new Blob([dxf],{type:'application/dxf'}),el=document.createElement('a');
   const base=(cloud.files.length===1?cloud.name.replace(/\.(laz|las)$/i,''):'cloud').replace(/\s+/g,'_');
   el.href=URL.createObjectURL(blob);el.download=`${base}_contours_${R.P.I}ft.dxf`;el.click();setTimeout(()=>URL.revokeObjectURL(el.href),4000);
