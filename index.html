@@ -274,7 +274,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
   </div>
 
   <div class="main">
@@ -621,11 +621,21 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <div id="lazSuggestMsg" style="font-size:11px;color:var(--mut);margin-top:4px;line-height:1.45"></div>
     </div>
     <div class="field3">
-      <div class="field"><label>Horizontal units</label><select id="lazUnits" class="mSel"><option value="asis">as in file</option><option value="m2us">metres → US survey ft</option><option value="m2ft">metres → international ft</option></select></div>
       <div class="field"><label>Colour by</label><select id="lazColor" class="mSel"><option value="elev">elevation</option><option value="int">intensity</option><option value="rgb">RGB (from file)</option><option value="cls">classification</option></select></div>
       <div class="field" style="max-width:90px"><label>Point size</label><select id="lazSize" class="mSel"><option value="1">1 px</option><option value="2">2 px</option><option value="3">3 px</option></select></div>
     </div>
+    <div class="field"><label>Coordinate system → app (Ramsey County ft)</label><select id="lazUnits" class="mSel">
+      <option value="file">From the file's coordinate system → Ramsey County ft</option>
+      <option value="utm15">UTM zone 15N NAD83 (metres) → Ramsey County ft</option>
+      <option value="asis">As in file — already Ramsey County ft</option>
+      <option value="m2us">Metres → US survey ft (scale only)</option>
+      <option value="m2ft">Metres → international ft (scale only)</option></select></div>
     <div id="lazUnitMsg" style="font-size:11px;color:var(--gold);margin:-4px 0 8px"></div>
+    <div class="field3">
+      <div class="field"><label>E shift (ft)</label><input type="text" inputmode="decimal" id="lazDE" value="0.000" autocomplete="off"></div>
+      <div class="field"><label>N shift (ft)</label><input type="text" inputmode="decimal" id="lazDN" value="0.000" autocomplete="off"></div>
+    </div>
+    <div class="hint" style="margin:-4px 0 10px">Added after the conversion — for a small leftover offset (datum or realization difference). Zero if it already lines up.</div>
     <div style="font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-bottom:4px;display:flex;align-items:center;gap:8px">Classes shown
       <button class="btn ghost" id="lazClsAll" style="padding:2px 8px;font-size:10px">All</button><button class="btn ghost" id="lazClsGnd" style="padding:2px 8px;font-size:10px">Ground only</button></div>
     <div id="lazCls" style="display:flex;flex-direction:column;gap:3px;max-height:24vh;overflow:auto;margin-bottom:8px"></div>
@@ -848,7 +858,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍒',name:'CHERRY',build:136};
+const VERSION={fruit:'🥝',name:'KIWI',build:137};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -5536,7 +5546,7 @@ const HELP_TOOLBAR=[
   ['↥ Load FBK / JOB','Load a field-book .fbk/.txt file, or a Trimble Access .job (decoded and loaded as an FBK).'],
   ['📂 Job','Trimble job viewer: every point record (code edits, deletes, raw HA/VA/SD, target height), station setups and field notes. Click a point row to zoom to it.'],
   ['↥ Import CSV','Import a comma-delimited PNEZD file (point#, N, E, Z, description) — a header row is auto-detected, points are appended to whatever is loaded.'],
-  ['☁ Load LAZ/LAS','Load a lidar point cloud (.laz or .las, LAS 1.0–1.4). It asks for the elevation adjustment (added to every lidar Z — <i>Suggest from survey</i> compares your shots with the nearest lidar ground point), the horizontal units, colour (elevation / intensity / RGB / class), point size and which classes show. Files over 4 million points are thinned evenly on load. The cloud is view-only — never exported in the FBK/CSV/DXF.'],
+  ['☁ Load LAZ/LAS','Load a lidar point cloud (.laz or .las, LAS 1.0–1.4). It reads the file\'s own coordinate system (WKT or GeoTIFF keys — e.g. MnTopo\'s UTM zone 15N metres) and converts the points to Ramsey County ft so they land on the survey; with no coordinate system in the file it guesses (UTM 15N, as-is, or metres→ft), and you can change it or add an E/N shift. It also asks for the elevation adjustment (added to every lidar Z — <i>Suggest from survey</i> compares your shots with the nearest lidar ground point), colour (elevation / intensity / RGB / class), point size and which classes show. Files over 4 million points are thinned evenly on load. The cloud is view-only — never exported in the FBK/CSV/DXF.'],
   ['☁ Cloud','Reopen the point cloud settings (elevation adjustment, units, colour, classes) or unload it.'],
   ['⊡ Fit','Frame the whole survey (F).'],
   ['↻ Refresh','Force a full rebuild of the linework and curb offset lanes from the current point data — use if the drawing (especially the green offset lines) looks stale after an edit.'],
@@ -5817,7 +5827,6 @@ const CLOUD_MAX=4000000;
 const cloudOrd=n=>n+(n%100>=11&&n%100<=13?'th':({1:'st',2:'nd',3:'rd'}[n%10]||'th'));
 const cloudEsc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const LAZPERF_BASE='https://cdn.jsdelivr.net/npm/laz-perf@0.0.7/lib/web/';
-const CLOUD_UNITS={asis:{f:1,label:'as in file'},m2us:{f:3937/1200,label:'metres → US survey feet'},m2ft:{f:1/0.3048,label:'metres → international feet'}};
 const LAS_CLASS={0:'never classified',1:'unclassified',2:'ground',3:'low vegetation',4:'medium vegetation',5:'high vegetation',6:'building',7:'low noise',8:'model key / reserved',9:'water',10:'rail',11:'road surface',12:'overlap / reserved',13:'wire guard',14:'wire conductor',15:'transmission tower',16:'wire connector',17:'bridge deck',18:'high noise'};
 const LAS_CLASS_COL={0:'#9aa3b5',1:'#c8c8c8',2:'#c08a4e',3:'#8ee07a',4:'#45bf4d',5:'#1f8f38',6:'#e05a4f',7:'#ff4fd8',8:'#ffd24a',9:'#3d8bff',10:'#a05aff',11:'#8c8c8c',12:'#6c6c6c',13:'#ffef5a',14:'#ffef5a',15:'#ffef5a',16:'#ffef5a',17:'#ff9f40',18:'#ff4fd8'};
 let lazPerfP=null;
@@ -5832,6 +5841,124 @@ function loadLazPerf(){
     document.head.appendChild(s);});
   lazPerfP.catch(()=>{lazPerfP=null;});
   return lazPerfP;}
+/* ---------- build 137 — point cloud coordinate systems ----------
+   The app works in Ramsey County coordinates (US survey ft, the same system the MAP
+   background and Street View use: RC / llToSurvey / surveyToLL). Lidar from MnTopo /
+   MN Geospatial Commons usually comes in another system (typically UTM zone 15N, NAD83,
+   metres), so it landed in the wrong place. The file's own coordinate system is read from
+   its header (OGC WKT VLR/EVLR, or GeoTIFF keys) and every point is converted exactly:
+   file coords → lat/lon on the file's ellipsoid → Ramsey County ft. A manual E/N shift
+   (ft) is added on top for any small datum/realization difference. */
+const US_FT=1200/3937;                                    // metres per US survey foot
+function cEllip(a,invf){const f=invf?1/invf:0,e2=f*(2-f);return{a,f,e:Math.sqrt(e2)};}
+const GRS80=cEllip(6378137,298.257222101);
+// Transverse Mercator (Krüger series, Karney 2011) — metres, degrees
+function makeTM(el,lat0,lon0,k0,FE,FN){
+  const n=el.f/(2-el.f),n2=n*n,n3=n2*n,n4=n3*n,A=el.a/(1+n)*(1+n2/4+n4/64),e=el.e,D=Math.PI/180,L0=lon0*D;
+  const al=[0,n/2-2*n2/3+5*n3/16+41*n4/180,13*n2/48-3*n3/5+557*n4/1440,61*n3/240-103*n4/140,49561*n4/161280];
+  const be=[0,n/2-2*n2/3+37*n3/96-n4/360,n2/48+n3/15-437*n4/1440,17*n3/480-37*n4/840,4397*n4/161280];
+  const raw=(lat,lon)=>{const s=Math.sin(lat*D),lam=lon*D-L0,t=Math.sinh(Math.atanh(s)-e*Math.atanh(e*s));
+    const xi=Math.atan2(t,Math.cos(lam)),eta=Math.atanh(Math.sin(lam)/Math.sqrt(1+t*t));let x=eta,y=xi;
+    for(let j=1;j<=4;j++){x+=al[j]*Math.cos(2*j*xi)*Math.sinh(2*j*eta);y+=al[j]*Math.sin(2*j*xi)*Math.cosh(2*j*eta);}
+    return[k0*A*x,k0*A*y];};
+  const M0=raw(lat0,lon0)[1];
+  return{fwd(lat,lon){const r=raw(lat,lon);return[FE+r[0],FN+r[1]-M0];},
+    inv(E,N){const xi=(N-FN+M0)/(k0*A),eta=(E-FE)/(k0*A);let xp=xi,ep=eta;
+      for(let j=1;j<=4;j++){xp-=be[j]*Math.sin(2*j*xi)*Math.cosh(2*j*eta);ep-=be[j]*Math.cos(2*j*xi)*Math.sinh(2*j*eta);}
+      const tp=Math.sin(xp)/Math.sqrt(Math.sinh(ep)**2+Math.cos(xp)**2),e2=e*e;let t=tp;
+      for(let i=0;i<6;i++){const s=Math.sinh(e*Math.atanh(e*t/Math.sqrt(1+t*t))),ti=t*Math.sqrt(1+s*s)-s*Math.sqrt(1+t*t);
+        t+=(tp-ti)/Math.sqrt(1+ti*ti)*(1+(1-e2)*t*t)/((1-e2)*Math.sqrt(1+t*t));}
+      return[Math.atan(t)/D,(L0+Math.atan2(Math.sinh(ep),Math.cos(xp)))/D];}};}
+// Lambert Conformal Conic (2SP, or 1SP with k0) — metres, degrees
+function makeLCC(el,lat1,lat2,lat0,lon0,FE,FN,k0){
+  const D=Math.PI/180,e=el.e,m=p=>Math.cos(p)/Math.sqrt(1-e*e*Math.sin(p)**2),
+    t=p=>Math.tan(Math.PI/4-p/2)/Math.pow((1-e*Math.sin(p))/(1+e*Math.sin(p)),e/2);
+  const p1=lat1*D,p2=lat2*D,L0=lon0*D;
+  const n=Math.abs(p1-p2)<1e-10?Math.sin(p1):(Math.log(m(p1))-Math.log(m(p2)))/(Math.log(t(p1))-Math.log(t(p2)));
+  const aF=el.a*m(p1)/(n*Math.pow(t(p1),n))*(k0||1),r0=aF*Math.pow(t(lat0*D),n);
+  return{fwd(lat,lon){const r=aF*Math.pow(t(lat*D),n),th=n*(lon*D-L0);return[FE+r*Math.sin(th),FN+r0-r*Math.cos(th)];},
+    inv(E,N){const x=E-FE,y=r0-(N-FN),sg=Math.sign(n),r=sg*Math.hypot(x,y),th=Math.atan2(sg*x,sg*y),tp=Math.pow(r/aF,1/n);
+      let phi=Math.PI/2-2*Math.atan(tp);for(let i=0;i<10;i++){const es=e*Math.sin(phi);phi=Math.PI/2-2*Math.atan(tp*Math.pow((1-es)/(1+es),e/2));}
+      return[phi/D,(th/n+L0)/D];}};}
+const utmProj=(z,el)=>makeTM(el||GRS80,0,-183+6*z,0.9996,500000,0);
+function wktBlock(s,key){const i=s.search(new RegExp('\\b'+key+'\\[','i'));if(i<0)return null;let d=0;
+  for(let j=s.indexOf('[',i);j<s.length;j++){if(s[j]==='[')d++;else if(s[j]===']'&&!--d)return s.slice(i,j+1);}return null;}
+const wktUnit=s=>{const m=s&&/UNIT\["[^"]*",\s*([-\d.eE+]+)/i.exec(s);return m?+m[1]:null;};
+// WKT2 (PROJCRS … CONVERSION[METHOD, PARAMETER[name,value,UNIT]]), as written by newer PDAL/laspy
+function crsFromWKT2(s){const pc=wktBlock(s,'PROJCRS');if(!pc)return null;
+  const name=(/PROJCRS\["([^"]*)"/i.exec(pc)||[])[1]||'projected';
+  const bg=wktBlock(pc,'BASEGEOGCRS')||wktBlock(pc,'BASEGEODCRS')||'',cv=wktBlock(pc,'CONVERSION')||'';
+  const sp=/(?:ELLIPSOID|SPHEROID)\["[^"]*",\s*([-\d.eE+]+),\s*([-\d.eE+]+)/i.exec(bg);const el=sp?cEllip(+sp[1],+sp[2]):GRS80;
+  const lu=t=>{const m=t&&/LENGTHUNIT\["[^"]*",\s*([-\d.eE+]+)/i.exec(t);return m?+m[1]:null;};
+  const hU=lu(pc.replace(bg,'').replace(cv,''))||1,vc=wktBlock(s,'VERTCRS'),vU=(vc&&lu(vc))||hU;
+  const P={};cv.replace(/PARAMETER\["([^"]+)",\s*([-\d.eE+]+)\s*(?:,\s*(LENGTHUNIT|ANGLEUNIT|SCALEUNIT)\["[^"]*",\s*([-\d.eE+]+))?/gi,(_,k,v,ut,uf)=>{
+    let x=+v;if(/LENGTH/i.test(ut||''))x*=+uf;else if(/ANGLE/i.test(ut||''))x*=+uf*180/Math.PI;P[k.toLowerCase().replace(/[\s-]+/g,'_')]=x;return'';});
+  const g=(...ks)=>{for(const k of ks)if(P[k]!=null)return P[k];return null;};
+  const meth=(/METHOD\["([^"]+)"/i.exec(cv)||[])[1]||'';let proj=null;
+  const FE=g('false_easting','easting_at_false_origin')||0,FN=g('false_northing','northing_at_false_origin')||0,
+    lat0=g('latitude_of_natural_origin','latitude_of_false_origin')||0,lon0=g('longitude_of_natural_origin','longitude_of_false_origin')||0,
+    k=g('scale_factor_at_natural_origin')||1,s1=g('latitude_of_1st_standard_parallel'),s2=g('latitude_of_2nd_standard_parallel');
+  if(/transverse\s*mercator/i.test(meth))proj=makeTM(el,lat0,lon0,k,FE,FN);
+  else if(/lambert\s*conic\s*conformal|lambert_conformal_conic/i.test(meth))proj=s1!=null?makeLCC(el,s1,s2!=null?s2:s1,lat0,lon0,FE,FN,1):makeLCC(el,lat0,lat0,lat0,lon0,FE,FN,k);
+  if(!proj)return{name,unsupported:meth||'unknown method'};
+  return{name,proj,hU,vU,src:'WKT2'};}
+function crsFromWKT(s){const pc=wktBlock(s,'PROJCS');if(!pc)return crsFromWKT2(s);
+  const name=(/PROJCS\["([^"]*)"/i.exec(pc)||[])[1]||'projected';const gc=wktBlock(pc,'GEOGCS')||'';
+  const sp=/SPHEROID\["[^"]*",\s*([-\d.eE+]+),\s*([-\d.eE+]+)/i.exec(gc);const el=sp?cEllip(+sp[1],+sp[2]):GRS80;
+  const hU=wktUnit(pc.replace(gc,''))||1,vc=wktBlock(s,'VERT_CS'),vU=(vc&&wktUnit(vc))||hU;
+  const P={};pc.replace(/PARAMETER\["([^"]+)",\s*([-\d.eE+]+)\]/gi,(_,k,v)=>{P[k.toLowerCase().replace(/[\s-]+/g,'_')]=+v;return'';});
+  const g=(...ks)=>{for(const k of ks)if(P[k]!=null)return P[k];return null;};
+  const FE=(g('false_easting')||0)*hU,FN=(g('false_northing')||0)*hU,lon0=g('central_meridian','longitude_of_origin','longitude_of_center')||0,
+    lat0=g('latitude_of_origin','latitude_of_center')||0,k=g('scale_factor')||1,s1=g('standard_parallel_1'),s2=g('standard_parallel_2');
+  const pj=(/PROJECTION\["([^"]+)"/i.exec(pc)||[])[1]||'';let proj=null;
+  if(/transverse_mercator/i.test(pj))proj=makeTM(el,lat0,lon0,k,FE,FN);
+  else if(/lambert_conformal_conic/i.test(pj))proj=s1!=null?makeLCC(el,s1,s2!=null?s2:s1,lat0,lon0,FE,FN,s2!=null?1:k):makeLCC(el,lat0,lat0,lat0,lon0,FE,FN,k);
+  if(!proj)return{name,unsupported:pj||'unknown projection'};
+  return{name,proj,hU,vU,src:'WKT'};}
+// GeoTIFF keys → the UTM systems (the common case for MN lidar); anything else needs WKT
+function crsFromGeoKeys(keys){const code=keys[3072],lu={9001:1,9002:0.3048,9003:US_FT},hU=lu[keys[3076]]||1,vU=lu[keys[4099]]||hU;
+  if(!code||code===32767)return null;let z=null,datum='NAD83';
+  if(code>=26901&&code<=26923)z=code-26900;else if(code>=6330&&code<=6348){z=code-6329;datum='NAD83(2011)';}
+  else if(code>=3740&&code<=3751){z=code-3730;datum='NAD83(HARN)';}else if(code>=32601&&code<=32660){z=code-32600;datum='WGS 84';}
+  if(!z)return{name:'EPSG:'+code,unsupported:'EPSG '+code};
+  return{name:`${datum} / UTM zone ${z}N (EPSG:${code})`,proj:utmProj(z),hU,vU,src:'GeoTIFF keys'};}
+function lasCRS(buf,hdrSize,nVlr,vMaj,vMin){const dv=new DataView(buf),recs=[],str=(o,n)=>{let s='';for(let i=0;i<n;i++){const c=dv.getUint8(o+i);if(!c)break;s+=String.fromCharCode(c);}return s;};
+  let off=hdrSize;for(let k=0;k<nVlr&&off+54<=buf.byteLength;k++){const len=dv.getUint16(off+20,true);recs.push({uid:str(off+2,16),rid:dv.getUint16(off+18,true),o:off+54,len});off+=54+len;}
+  if(vMaj===1&&vMin>=4&&hdrSize>=247){let eo=Number(dv.getBigUint64(235,true));const ne=dv.getUint32(243,true);
+    for(let k=0;k<ne&&eo>0&&eo+60<=buf.byteLength;k++){const len=Number(dv.getBigUint64(eo+20,true));recs.push({uid:str(eo+2,16),rid:dv.getUint16(eo+18,true),o:eo+60,len});eo+=60+len;}}
+  const pr=recs.filter(r=>/LASF_Projection/i.test(r.uid)&&r.o+r.len<=buf.byteLength);let found=null;
+  const w=pr.find(r=>r.rid===2112);
+  if(w){found=crsFromWKT(new TextDecoder().decode(new Uint8Array(buf,w.o,w.len)).replace(/\0+$/,''));}
+  if(!found||found.unsupported){const g=pr.find(r=>r.rid===34735);
+    if(g){const keys={},n=dv.getUint16(g.o+6,true);for(let i=0;i<n;i++){const b=g.o+8+i*8;if(dv.getUint16(b+2,true)===0)keys[dv.getUint16(b,true)]=dv.getUint16(b+6,true);}
+      const k=crsFromGeoKeys(keys);if(k&&(!found||!k.unsupported))found=k;}}
+  return found;}
+// transforms: file coords → app coords (Ramsey County US ft). zf = Z scale.
+const CLOUD_XF={asis:'as in file (no change)',file:'from the file\'s coordinate system → Ramsey County ft',
+  utm15:'UTM zone 15N NAD83 metres → Ramsey County ft',m2us:'metres → US survey ft (scale only)',m2ft:'metres → international ft (scale only)'};
+function cloudXf(c,xf){const crs=c.hdr.crs,toApp=(proj,u)=>({f:(x,y)=>{const[la,lo]=proj.inv(x*u,y*u);return llToSurvey(la,lo);},
+    i:(E,N)=>{const[la,lo]=surveyToLL(E,N),r=proj.fwd(la,lo);return[r[0]/u,r[1]/u];}});
+  if(xf==='file'&&crs&&crs.proj)return{...toApp(crs.proj,crs.hU),zf:crs.vU/US_FT};
+  if(xf==='utm15')return{...toApp(utmProj(15),1),zf:1/US_FT};
+  const k=xf==='m2us'?1/US_FT:xf==='m2ft'?1/0.3048:1;return{f:(x,y)=>[x*k,y*k],i:(E,N)=>[E/k,N/k],zf:k};}
+// re-transform every point in place (exact, via the inverse of the current transform)
+function cloudSetXf(c,xf,dE,dN){if(xf===c.xf&&dE===c.dE&&dN===c.dN)return false;
+  const A=cloudXf(c,c.xf),B=cloudXf(c,xf),zr=B.zf/A.zf,same=xf===c.xf;
+  for(let i=0;i<c.n;i++){let E=c.E[i]-c.dE,N=c.N[i]-c.dN;
+    if(!same){const r=A.i(E,N),q=B.f(r[0],r[1]);E=q[0];N=q[1];}
+    c.E[i]=E+dE;c.N[i]=N+dN;if(zr!==1)c.Z[i]*=zr;}
+  c.xf=xf;c.dE=dE;c.dN=dN;cloudBounds(c);c.col=null;return true;}
+// where a transform would put the cloud (file bbox corners), for the auto-guess
+function cloudXfBox(c,xf){const m=c.hdr.mx,T=cloudXf(c,xf),pts=[[m.minX,m.minY],[m.maxX,m.minY],[m.minX,m.maxY],[m.maxX,m.maxY]].map(p=>T.f(p[0],p[1]));
+  return{minE:Math.min(...pts.map(p=>p[0])),maxE:Math.max(...pts.map(p=>p[0])),minN:Math.min(...pts.map(p=>p[1])),maxN:Math.max(...pts.map(p=>p[1]))};}
+function cloudGuessXf(c){const crs=c.hdr.crs,m=c.hdr.mx,cands=(crs&&crs.proj?['file']:[]).concat(['asis','utm15','m2us','m2ft']);
+  const live=PTS.filter(p=>!p.deleted&&isFinite(p.E)&&isFinite(p.N));
+  if(live.length){let mE=0,mN=0;live.forEach(p=>{mE+=p.E;mN+=p.N;});mE/=live.length;mN/=live.length;let best=null,bd=Infinity;
+    cands.forEach(k=>{const b=cloudXfBox(c,k),d=Math.hypot(Math.max(0,b.minE-mE,mE-b.maxE),Math.max(0,b.minN-mN,mN-b.maxN));if(d<bd-1e-6){bd=d;best=k;}});
+    if(bd<5000)return{xf:best,why:'lands on the loaded survey'};}
+  if(crs&&crs.proj)return{xf:'file',why:'from the file header'};
+  if(m.minX>100000&&m.maxX<900000&&m.minY>4700000&&m.maxY<5500000)return{xf:'utm15',why:'the coordinates look like UTM zone 15N metres (no coordinate system in the file)'};
+  return{xf:'asis',why:''};}
 function lasHeader(buf){
   const dv=new DataView(buf);
   if(buf.byteLength<227||String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3))!=='LASF')throw new Error('not a LAS/LAZ file (no LASF signature)');
@@ -5848,7 +5975,8 @@ function lasHeader(buf){
   let laszipVlr=false,off=hdrSize;
   for(let k=0;k<nVlr&&off+54<=buf.byteLength;k++){let uid='';for(let i=2;i<18;i++){const c=dv.getUint8(off+i);if(!c)break;uid+=String.fromCharCode(c);}
     if(/laszip encoded/i.test(uid))laszipVlr=true;off+=54+dv.getUint16(off+20,true);}
-  return{version:vMaj+'.'+vMin,hdrSize,dataOff,fmt:fmtByte&0x3f,compressed:!!(fmtByte&0xc0)||laszipVlr,recLen,count,sc,of,mx,sys,gen};}
+  let crs=null;try{crs=lasCRS(buf,hdrSize,nVlr,vMaj,vMin);}catch(err){crs=null;}
+  return{version:vMaj+'.'+vMin,hdrSize,dataOff,fmt:fmtByte&0x3f,compressed:!!(fmtByte&0xc0)||laszipVlr,recLen,count,sc,of,mx,sys,gen,crs};}
 // byte offsets inside one (uncompressed) point record for the fields we use
 function lasLayout(fmt){const ext=fmt>=6;
   const rgb={2:20,3:28,5:28,7:30,8:30,10:30}[fmt];
@@ -5856,7 +5984,7 @@ function lasLayout(fmt){const ext=fmt>=6;
 function newCloud(h,keep,name){
   return{name,hdr:h,n:0,cap:keep,E:new Float64Array(keep),N:new Float64Array(keep),Z:new Float32Array(keep),
     I:new Uint16Array(keep),C:new Uint8Array(keep),RGB:lasLayout(h.fmt).rgb>=0?new Uint16Array(keep*3):null,
-    col:null,zAdj:0,unit:'asis',colorBy:'elev',size:1,show:true,hidden:new Set(),stride:1,grid:null};}
+    col:null,zAdj:0,xf:'asis',dE:0,dN:0,colorBy:'elev',size:1,show:true,hidden:new Set(),stride:1,grid:null};}
 function cloudPush(c,dv,o,L){const h=c.hdr,k=c.n;
   c.E[k]=dv.getInt32(o,true)*h.sc[0]+h.of[0];c.N[k]=dv.getInt32(o+4,true)*h.sc[1]+h.of[1];c.Z[k]=dv.getInt32(o+8,true)*h.sc[2]+h.of[2];
   c.I[k]=dv.getUint16(o+12,true);c.C[k]=dv.getUint8(o+L.cls)&L.clsMask;
@@ -5945,31 +6073,25 @@ function cloudNearest(c,E,N,r,filt){const g=cloudGrid(c),b=c.b;const gx=Math.flo
     for(let j=g.start[k];j<g.start[k+1];j++){const i=g.idx[j];if(filt&&!filt(i))continue;const d=(c.E[i]-E)**2+(c.N[i]-N)**2;if(d<bd){bd=d;best=i;}}}}
   return best;}
 // suggested Z adjustment = median(survey Z − nearest lidar Z) over survey shots with a lidar point within 1 ft (ground class if the file has one)
-function cloudSuggestZ(c,unitF){const f=unitF/CLOUD_UNITS[c.unit].f,useGnd=(c.clsCount[2]||0)>0,filt=useGnd?(i=>c.C[i]===2):null,r=1/f;
-  const d=[];PTS.forEach(p=>{if(p.deleted||!isFinite(p.Z)||!isFinite(p.E))return;const E=p.E/f,N=p.N/f;
+function cloudSuggestZ(c){const useGnd=(c.clsCount[2]||0)>0,filt=useGnd?(i=>c.C[i]===2):null,r=1;
+  const d=[];PTS.forEach(p=>{if(p.deleted||!isFinite(p.Z)||!isFinite(p.E))return;const E=p.E,N=p.N;
     if(E<c.b.minE-r||E>c.b.maxE+r||N<c.b.minN-r||N>c.b.maxN+r)return;
-    const i=cloudNearest(c,E,N,r,filt);if(i>=0)d.push(p.Z-c.Z[i]*f);});
+    const i=cloudNearest(c,E,N,r,filt);if(i>=0)d.push(p.Z-c.Z[i]);});
   if(!d.length)return null;d.sort((a,b)=>a-b);const q=t=>d[Math.floor(t*(d.length-1))];
   return{dz:q(0.5),n:d.length,iqr:q(0.75)-q(0.25),gnd:useGnd};}
-// which unit setting puts the cloud on top of the loaded survey (null if nothing to compare)
-function cloudGuessUnit(c){const live=PTS.filter(p=>!p.deleted&&isFinite(p.E)&&isFinite(p.N));if(!live.length)return null;
-  let mE=0,mN=0;live.forEach(p=>{mE+=p.E;mN+=p.N;});mE/=live.length;mN/=live.length;
-  let best=null,bd=Infinity;Object.keys(CLOUD_UNITS).forEach(k=>{const f=CLOUD_UNITS[k].f/CLOUD_UNITS[c.unit].f,b=c.b;
-    const dx=Math.max(0,b.minE*f-mE,mE-b.maxE*f),dy=Math.max(0,b.minN*f-mN,mN-b.maxN*f),d=Math.hypot(dx,dy);if(d<bd){bd=d;best=k;}});
-  return bd<5000?best:null;}
-function cloudSetUnit(c,u){if(u===c.unit)return;const f=CLOUD_UNITS[u].f/CLOUD_UNITS[c.unit].f;
-  for(let i=0;i<c.n;i++){c.E[i]*=f;c.N[i]*=f;c.Z[i]*=f;}c.zAdj*=f;c.unit=u;cloudBounds(c);c.col=null;}
 let cloudDlg=null;                                        // {isNew} while the Point Cloud dialog is open
 function openCloudDialog(isNew){const c=cloud;if(!c){hud('load a .laz or .las file first');return;}
-  cloudDlg={isNew};const h=c.hdr,b=c.b;const fmtN=v=>v.toLocaleString();
+  cloudDlg={isNew,xf0:c.xf,dE0:c.dE,dN0:c.dN};const h=c.hdr,b=c.b,m=h.mx;const fmtN=v=>v.toLocaleString();
   $('lazInfo').innerHTML=`<b>${cloudEsc(c.name)}</b> · LAS ${h.version} · point format ${h.fmt}${h.compressed?' (LAZ compressed)':''}<br>`+
     `${fmtN(h.count)} points in file${c.stride>1?` · <span style="color:var(--gold)">showing every ${cloudOrd(c.stride)} — ${fmtN(c.n)} kept</span>`:` · ${fmtN(c.n)} loaded`}<br>`+
-    `E ${b.minE.toFixed(2)} – ${b.maxE.toFixed(2)} · N ${b.minN.toFixed(2)} – ${b.maxN.toFixed(2)}<br>Z ${b.minZ.toFixed(2)} – ${b.maxZ.toFixed(2)} (file, before adjustment)`+
+    `File: X ${m.minX.toFixed(2)} – ${m.maxX.toFixed(2)} · Y ${m.minY.toFixed(2)} – ${m.maxY.toFixed(2)} · Z ${m.minZ.toFixed(2)} – ${m.maxZ.toFixed(2)}<br>`+
+    `Now: E ${b.minE.toFixed(2)} – ${b.maxE.toFixed(2)} · N ${b.minN.toFixed(2)} – ${b.maxN.toFixed(2)} · Z ${b.minZ.toFixed(2)} – ${b.maxZ.toFixed(2)} (before Z adjustment)<br>`+
+    `Coordinate system in file: ${h.crs?(h.crs.unsupported?`<span style="color:var(--fail)">${cloudEsc(h.crs.name)} — not supported (${cloudEsc(h.crs.unsupported)})</span>`:`<b>${cloudEsc(h.crs.name)}</b> <span style="color:var(--mut)">(${h.crs.src}; ${cloudUnitName(h.crs.hU)}, Z ${cloudUnitName(h.crs.vU)})</span>`):'<span style="color:var(--mut)">none recorded</span>'}`+
     (h.sys||h.gen?`<br><span style="color:var(--mut)">${cloudEsc([h.sys,h.gen].filter(Boolean).join(' · '))}</span>`:'');
-  let u=c.unit,guess=null;if(isNew){guess=cloudGuessUnit(c);if(guess)u=guess;}
-  $('lazUnits').value=u;
-  $('lazUnitMsg').textContent=isNew&&guess&&guess!=='asis'?'The coordinates look like metres — converted so the cloud lands on the survey. Change it if that is wrong.':
-    (isNew&&!guess&&PTS.length?'The cloud does not overlap the loaded survey with any unit setting — check the file\'s coordinate system.':'');
+  $('lazUnits').querySelector('option[value=file]').disabled=!(h.crs&&h.crs.proj);
+  let u=c.xf,msg='';if(isNew){const g=cloudGuessXf(c);u=g.xf;
+    msg=g.why&&g.xf!=='asis'?`Picked “${CLOUD_XF[u]}” — ${g.why}. Change it if that is wrong.`:(PTS.length?'No setting puts the cloud on the loaded survey — pick the coordinate system by hand or use the E/N shift.':'');}
+  $('lazUnits').value=u;$('lazUnitMsg').textContent=msg;$('lazDE').value=(c.dE||0).toFixed(3);$('lazDN').value=(c.dN||0).toFixed(3);
   $('lazZAdj').value=(c.zAdj||0).toFixed(3);
   $('lazColor').value=c.colorBy;$('lazColor').querySelector('option[value=rgb]').disabled=!c.RGB;
   $('lazSize').value=String(c.size);$('lazShow').checked=c.show;
@@ -5980,22 +6102,25 @@ function openCloudDialog(isNew){const c=cloud;if(!c){hud('load a .laz or .las fi
   $('lazSuggest').disabled=!PTS.some(p=>!p.deleted);
   $('lazScrim').classList.add('show');setTimeout(()=>{$('lazZAdj').focus();$('lazZAdj').select();},30);}
 function closeCloudDialog(){$('lazScrim').classList.remove('show');
+  if(cloudDlg&&cloud&&!cloudDlg.isNew&&cloudSetXf(cloud,cloudDlg.xf0,cloudDlg.dE0,cloudDlg.dN0))draw();   // Cancel undoes a Suggest preview
   if(cloudDlg&&cloudDlg.isNew&&cloud){cloudFirstShow();hud(`point cloud loaded — elevation adjustment ${(cloud.zAdj>=0?'+':'')+cloud.zAdj.toFixed(3)} · ☁ Cloud to change`);}cloudDlg=null;}
 function cloudFirstShow(){$('fitBtn').disabled=false;if(!PTS.some(p=>!p.deleted)||!onScreen(cloud))fit();else draw();}
 function applyCloudDialog(){const c=cloud;if(!c)return;const z=parseFloat($('lazZAdj').value);
   if($('lazZAdj').value.trim()!==''&&!isFinite(z)){hud('elevation adjustment must be a number');$('lazZAdj').focus();return;}
-  cloudSetUnit(c,$('lazUnits').value);c.zAdj=isFinite(z)?z:0;
+  const dE=parseFloat($('lazDE').value)||0,dN=parseFloat($('lazDN').value)||0;
+  const moved=cloudSetXf(c,$('lazUnits').value,dE,dN)||(cloudDlg&&(cloudDlg.xf0!==c.xf||cloudDlg.dE0!==dE||cloudDlg.dN0!==dN));c.zAdj=isFinite(z)?z:0;
   const cb=$('lazColor').value;if(cb!==c.colorBy){c.colorBy=cb;c.col=null;}
   c.size=+$('lazSize').value||1;c.show=$('lazShow').checked;
   c.hidden=new Set();$('lazCls').querySelectorAll('input[data-c]').forEach(x=>{if(!x.checked)c.hidden.add(+x.dataset.c);});
-  if(cloudDlg&&cloudDlg.isNew)cloudFirstShow();cloudDlg=null;$('lazScrim').classList.remove('show');
-  draw();hud(`point cloud: ${c.n.toLocaleString()} pts · Z adjustment ${(c.zAdj>=0?'+':'')+c.zAdj.toFixed(3)} · ${CLOUD_UNITS[c.unit].label}`);}
+  if(cloudDlg&&cloudDlg.isNew)cloudFirstShow();else if(moved&&!onScreen(c))fit();cloudDlg=null;$('lazScrim').classList.remove('show');
+  draw();hud(`point cloud: ${c.n.toLocaleString()} pts · ${CLOUD_XF[c.xf]}${c.dE||c.dN?` · shift E ${c.dE.toFixed(3)} N ${c.dN.toFixed(3)}`:''} · Z adjustment ${(c.zAdj>=0?'+':'')+c.zAdj.toFixed(3)}`);}
+function cloudUnitName(u){return Math.abs(u-1)<1e-9?'metres':Math.abs(u-US_FT)<1e-9?'US ft':Math.abs(u-0.3048)<1e-9?'intl ft':u+' m/unit';}
 function onScreen(c){if(is3D)return true;const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,[a,bb]=W2S(c.b.minE,c.b.maxN),[d,e]=W2S(c.b.maxE,c.b.minN);
   return d>0&&a<w&&e>0&&bb<h;}
-function cloudSuggestClick(){const c=cloud;if(!c)return;const u=$('lazUnits').value,f=CLOUD_UNITS[u].f;
+function cloudSuggestClick(){const c=cloud;if(!c)return;
   $('lazSuggestMsg').textContent='matching survey shots to the cloud…';
-  setTimeout(()=>{const r=cloudSuggestZ(c,f);
-    if(!r){$('lazSuggestMsg').textContent='No survey shot has a lidar point within 1 ft — nothing to compare (check the units).';return;}
+  setTimeout(()=>{cloudSetXf(c,$('lazUnits').value,parseFloat($('lazDE').value)||0,parseFloat($('lazDN').value)||0);draw();const r=cloudSuggestZ(c);
+    if(!r){$('lazSuggestMsg').textContent='No survey shot has a lidar point within 1 ft — nothing to compare (check the coordinate system / E-N shift).';return;}
     $('lazZAdj').value=r.dz.toFixed(3);
     $('lazSuggestMsg').textContent=`Suggested ${(r.dz>=0?'+':'')+r.dz.toFixed(3)} — median of ${r.n} shot(s) vs the nearest lidar ${r.gnd?'ground ':''}point (spread ${r.iqr.toFixed(3)} middle half). Apply to use it.`;},20);}
 function unloadCloud(){if(!cloud)return;if(!confirm('Unload the point cloud?'))return;cloud=null;cloudImg=null;closeCloudDialog();$('cloudBtn').disabled=true;
