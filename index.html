@@ -196,6 +196,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .modal input:focus{outline:none;border-color:var(--gold)}
 .modal .hint{font:11px var(--mono);color:var(--mut);margin-top:8px;min-height:14px}
 .modal .row{display:flex;gap:8px;margin-top:14px}
+.mSel{width:100%;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:6px;padding:7px 9px;font:12px var(--mono)}
 .modal .row .btn{flex:1;justify-content:center}
 /* help modal */
 .modal.help{width:min(860px,94vw)}
@@ -251,6 +252,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <label class="btn file" title="Load a field book (.fbk/.txt) or a Trimble Access job (.job)">↥ Load FBK / JOB<input type="file" id="fileInput" accept=".fbk,.txt,.job"></label>
     <button class="btn ghost" id="jobBtn" disabled title="Job file viewer: points (with field code edits and deletes), station setups and notes read from the loaded Trimble .job">📂 Job</button>
     <label class="btn file" title="Import a comma-delimited coordinate file: Point#, Northing, Easting, Elevation, Description (PNEZD). A header row is auto-detected. Points are added as NEZ records.">↥ Import CSV<input type="file" id="csvInput" accept=".csv,.txt"></label>
+    <label class="btn file" title="Load a lidar point cloud (.laz compressed or .las). You'll be asked for the elevation adjustment and units; the cloud draws in 2D and 3D under the linework. Use ⬠ POLY to export the points inside a polygon as a PNEZD CSV.">☁ Load LAZ/LAS<input type="file" id="lazInput" accept=".laz,.las"></label>
+    <button class="btn ghost" id="cloudBtn" disabled title="Point cloud settings: elevation adjustment, units, colour, point size, which classes show, unload">☁ Cloud</button>
     <button class="btn ghost" id="fitBtn" disabled>⊡ Fit</button>
     <button class="btn ghost" id="refreshBtn" disabled title="Force a full redraw — rebuild the linework and curb offset lanes from the current point data. Use this if the drawing (especially the green offset lines) looks stale after a line edit.">↻ Refresh</button>
     <button class="btn ghost" id="undoBtn" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
@@ -271,7 +274,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍑 PEACH</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍒 CHERRY</span>
   </div>
 
   <div class="main">
@@ -290,6 +293,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <button class="tool" id="tCircle" title="Draw circle (C)"><span>◯</span><span class="sub">CIR</span></button>
         <button class="tool" id="tCircleCtr" title="Place a point at the center of a 3-point circle — click 3 points, or click an existing CIR-coded line to use its own 3 points"><span>⊙</span><span class="sub">CTR</span></button>
         <button class="tool" id="tTemp" title="Temp line (L) — click two spots (with snap) to draw a construction line for computing; select it to edit, or create points along it. Not exported."><span>⟋</span><span class="sub">TMP</span></button>
+        <button class="tool" id="tPoly" title="Polygon select (Y) — click corners, double-click / Enter / click the first corner to close; exports the lidar and/or survey points inside as a PNEZD CSV"><span>⬠</span><span class="sub">POLY</span></button>
         <button class="tool" id="tArr" title="Toggle direction arrows (A)"><span>➤</span><span class="sub">DIR</span></button>
         <button class="tool" id="tMap" title="Toggle GIS map background (M)" style="margin-top:12px"><span>🗺</span><span class="sub">MAP</span></button>
         <button class="tool" id="zIn" title="Zoom in" style="margin-top:12px">＋</button>
@@ -607,6 +611,61 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 </div>
 
 <!-- simple cogo - add point to file -->
+<div class="scrim" id="lazScrim">
+  <div class="modal wide">
+    <h4>Point Cloud — LAZ / LAS</h4>
+    <div id="lazInfo" style="font:11px/1.6 var(--mono);color:var(--ink);margin-bottom:12px"></div>
+    <div class="field">
+      <label>Elevation adjustment (ft) — added to every lidar Z</label>
+      <div style="display:flex;gap:6px;align-items:center"><input type="text" inputmode="decimal" id="lazZAdj" value="0.000" autocomplete="off" style="flex:1"><button class="btn ghost" id="lazSuggest" title="Compare the survey shots with the nearest lidar ground point (within 1 ft) and fill in the median difference">Suggest from survey</button></div>
+      <div id="lazSuggestMsg" style="font-size:11px;color:var(--mut);margin-top:4px;line-height:1.45"></div>
+    </div>
+    <div class="field3">
+      <div class="field"><label>Horizontal units</label><select id="lazUnits" class="mSel"><option value="asis">as in file</option><option value="m2us">metres → US survey ft</option><option value="m2ft">metres → international ft</option></select></div>
+      <div class="field"><label>Colour by</label><select id="lazColor" class="mSel"><option value="elev">elevation</option><option value="int">intensity</option><option value="rgb">RGB (from file)</option><option value="cls">classification</option></select></div>
+      <div class="field" style="max-width:90px"><label>Point size</label><select id="lazSize" class="mSel"><option value="1">1 px</option><option value="2">2 px</option><option value="3">3 px</option></select></div>
+    </div>
+    <div id="lazUnitMsg" style="font-size:11px;color:var(--gold);margin:-4px 0 8px"></div>
+    <div style="font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mut);margin-bottom:4px;display:flex;align-items:center;gap:8px">Classes shown
+      <button class="btn ghost" id="lazClsAll" style="padding:2px 8px;font-size:10px">All</button><button class="btn ghost" id="lazClsGnd" style="padding:2px 8px;font-size:10px">Ground only</button></div>
+    <div id="lazCls" style="display:flex;flex-direction:column;gap:3px;max-height:24vh;overflow:auto;margin-bottom:8px"></div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="lazShow" checked>Show the point cloud</label>
+    <div class="hint" style="margin-top:6px">The cloud is for viewing and polygon export only — it is never written to the FBK, CSV, DXF exports or the auto-save. ⬠ POLY exports the shown classes.</div>
+    <div class="row">
+      <button class="btn ghost" id="lazUnload">Unload</button>
+      <button class="btn ghost" id="lazCancel">Cancel</button>
+      <button class="btn gold" id="lazApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="polyScrim">
+  <div class="modal wide">
+    <h4>Polygon Export — PNEZD CSV</h4>
+    <div id="polyInfo" style="font:11px var(--mono);color:var(--mut);margin-bottom:10px"></div>
+    <div id="polyCloudRow" style="margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="polyIncCloud">Lidar points</label>
+      <div id="polyCloudN" style="font-size:11px;color:var(--mut);margin:2px 0 8px 20px"></div>
+      <div class="field3" style="margin-left:20px">
+        <div class="field"><label>Min spacing (ft, 0 = all)</label><input type="number" id="polyThin" value="0" min="0" step="0.5"></div>
+        <div class="field"><label>First point #</label><input type="number" id="polyStart" step="1"></div>
+      </div>
+      <div class="field3" style="margin-left:20px">
+        <div class="field"><label>Description</label><input type="text" id="polyDesc" value="LIDAR" autocomplete="off"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:11px;margin-left:20px"><input type="checkbox" id="polyClsDesc">add the class name (e.g. LIDAR GROUND)</label>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="polyIncPts">Survey points</label>
+    <div id="polyPtsN" style="font-size:11px;color:var(--mut);margin:2px 0 8px 20px"></div>
+    <div id="polyMsg" style="font-size:11px;color:var(--ink);margin-top:6px"></div>
+    <div class="row">
+      <button class="btn ghost" id="polyClear" title="Remove the polygon from the drawing">Clear polygon</button>
+      <button class="btn ghost" id="polyCancel">Close</button>
+      <button class="btn gold" id="polyExport">↓ Export CSV</button>
+    </div>
+  </div>
+</div>
+
 <div class="scrim" id="simplCogoScrim">
   <div class="modal">
     <h4>Add Point (COGO)</h4>
@@ -789,7 +848,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍑',name:'PEACH',build:135};
+const VERSION={fruit:'🍒',name:'CHERRY',build:136};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -799,7 +858,7 @@ window.addEventListener('load',showVersion);
 // filter on those devices — the loader reads any file as plain text anyway. iPadOS reports a desktop
 // "Macintosh" UA, so it's detected by touch support.
 (function(){const ua=navigator.userAgent||'';const iOS=/iPad|iPhone|iPod/.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
-if(iOS){const fi=$('fileInput');if(fi)fi.removeAttribute('accept');}})();
+if(iOS){['fileInput','lazInput'].forEach(id=>{const fi=$(id);if(fi)fi.removeAttribute('accept');});}})();
 
 /* ---------- DMS ---------- */
 function dms2deg(v){const s=Math.abs(v).toFixed(6),[d,fr]=s.split('.');
@@ -820,6 +879,7 @@ let figExtra={};                                          // figId -> [{i,after}
 let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
 let ordPick=null;                                        // build 119 — reorder a line by clicking its points in order: {figId, seq:[ptIdx...]}
 let tempLines=[],tempTool=null,tempSel=-1,tempSeq=0;   // build 129 — temp construction lines {id,a,b} (session only, never exported); tempTool={a,snap,cur} while drawing; tempSel = selected line
+let cloud=null;                                          // build 136 — loaded LAZ/LAS point cloud (session only)
 let npAdd=null;                                           // build 122 — add a NEW point after a chosen vertex: {figId,afterIdx,stage:'after'|'loc'|'dlg',snap,ret}
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
@@ -2922,7 +2982,7 @@ function endCogoPick(snap){
 function tempEnd(L,k){return k?L.b:L.a;}
 function tempZOf(P,L){if(isFinite(P.Z))return P.Z;const o=P===L.a?L.b:L.a;return isFinite(o.Z)?o.Z:NaN;}   // a blank end takes the other end's Z; NaN if neither has one
 function startTempTool(){
-  if(is3D)setMode('sel');
+  if(is3D)setMode('sel');if(polyTool)endPolyTool(true);
   if(tempTool){endTempTool();return;}
   tempTool={a:null,snap:null,cur:null};
   $('tTemp').classList.add('on');prevCursor=cv.style.cursor;cv.style.cursor='crosshair';
@@ -3656,6 +3716,7 @@ function bounds(shotsOnly){const live=PTS.filter(p=>!p.deleted&&isFinite(p.N)&&i
     b.minZ=Math.min(b.minZ,p.Z);b.maxZ=Math.max(b.maxZ,p.Z);});return b;}
 function fit(){
   let b=bounds(true);if(b.minN>b.maxN)b=bounds(false);   // frame the surveyed topo; distant control monuments stay drawn but don't dwarf the data
+  if(b.minN>b.maxN&&cloud&&cloud.n){const cb=cloud.b;b={minN:cb.minN,maxN:cb.maxN,minE:cb.minE,maxE:cb.maxE,minZ:cb.minZ+cloud.zAdj,maxZ:cb.maxZ+cloud.zAdj};}
   if(b.minN>b.maxN)return;
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,pad=60;
   if(!is3D){
@@ -3726,13 +3787,14 @@ function draw2D(){
   for(let E=Math.ceil(tl[0]/step)*step;E<br[0];E+=step){const[x]=W2S(E,0);ctx.moveTo(x,0);ctx.lineTo(x,h);}
   for(let N=Math.ceil(br[1]/step)*step;N<tl[1];N+=step){const[,y]=W2S(0,N);ctx.moveTo(0,y);ctx.lineTo(w,y);}
   ctx.strokeStyle='#16203a';ctx.stroke();
+  drawCloud();
   ctx.lineWidth=1.6;const figs2=figures();figs2.forEach(f=>strokeFigure(f,(E,N)=>W2S(E,N)));
   drawConnectLinks(figs2,(E,N)=>W2S(E,N));
   drawOffsets((E,N)=>W2S(E,N));
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawTempLines((E,N)=>W2S(E,N),false);drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
+  drawPoly();drawTempLines((E,N)=>W2S(E,N),false);drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -3744,6 +3806,7 @@ function draw3D(){
   for(let N=Math.ceil(b.minN/gs)*gs;N<=b.maxN;N+=gs){const a=P3(b.minE,N,b.minZ),c=P3(b.maxE,N,b.minZ);
     ctx.moveTo(a[0],a[1]);ctx.lineTo(c[0],c[1]);}
   ctx.stroke();
+  drawCloud();
   // figures in 3D
   ctx.lineWidth=1.5;const figs3=figures();figs3.forEach(f=>strokeFigure(f,(E,N,Z)=>P3(E,N,Z)));
   drawConnectLinks(figs3,(E,N,Z)=>P3(E,N,Z));
@@ -5222,6 +5285,7 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     }else hud('click a point, or a CIR-coded line, for the circle center');
     return;}
   if(tempTool){tempClick(sx,sy);return;}
+  if(polyTool){polyClick(sx,sy);return;}
   if(mode==='pan'){drag={pan:true,sx,sy,x0:view.x,y0:view.y};return;}
   if(mode==='zoom'){zw={x0:sx,y0:sy,x1:sx,y1:sy};$('zwbox').style.display='block';return;}
   if(mode==='inv'){const i=pick(sx,sy);
@@ -5243,6 +5307,8 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     const E=s_?s_.E:fE,N=s_?s_.N:fN;let t=`${s_?s_.label:'free'} · E ${E.toFixed(2)} N ${N.toFixed(2)}${s_&&isFinite(s_.Z)?' Z '+s_.Z.toFixed(2):''}`;
     if(tempTool.a){const dE=E-tempTool.a.E,dN=N-tempTool.a.N;t+=` · len ${Math.hypot(dE,dN).toFixed(2)} az ${fmtDMS((Math.atan2(dE,dN)*180/Math.PI+360)%360)}`;}
     hud(t+' · Esc '+(tempTool.a?'cancels this line':'stops'));draw();return;}
+  if(polyTool&&!is3D&&!drag&&!pinch){polyTool.cur={sx,sy};const[E,N]=S2W(sx,sy);
+    hud(`polygon: ${polyTool.pts.length} corner(s) · E ${E.toFixed(2)} N ${N.toFixed(2)} · ${polyTool.pts.length>=3?'double-click / Enter to close · ':''}Backspace undo · Esc cancel`);draw();return;}
   if(npAdd&&npAdd.stage==='loc'){npAdd.snap=npSnapAt(sx,sy);const s_=npAdd.snap;
     if(s_)hud(`${s_.label} · E ${s_.E.toFixed(2)} N ${s_.N.toFixed(2)}${isFinite(s_.Z)?' Z '+s_.Z.toFixed(2):''} · Enter = key in`);
     else if(!is3D){const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Enter = key in · Esc cancels`);}
@@ -5314,7 +5380,7 @@ function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
 function setMode(m){
-  if(tempTool)endTempTool(true);
+  if(tempTool)endTempTool(true);if(polyTool)endPolyTool(true);
   const wasOrbit=is3D;addPt=null;if(npAdd&&!['orbit','sel','zoom','pan'].includes(m))cancelNpAdd();if(ordPick&&m!=='orbit'&&m!=='sel'&&m!=='zoom'&&m!=='pan')ordPick=null;
   if(m==='orbit')is3D=true;else if(m!=='zoom')is3D=false;   // 'zoom' leaves the view as-is — window-zoom works in whichever view (2D or 3D) is already active
   mode=(m==='orbit')?'orbit':m;
@@ -5470,6 +5536,8 @@ const HELP_TOOLBAR=[
   ['↥ Load FBK / JOB','Load a field-book .fbk/.txt file, or a Trimble Access .job (decoded and loaded as an FBK).'],
   ['📂 Job','Trimble job viewer: every point record (code edits, deletes, raw HA/VA/SD, target height), station setups and field notes. Click a point row to zoom to it.'],
   ['↥ Import CSV','Import a comma-delimited PNEZD file (point#, N, E, Z, description) — a header row is auto-detected, points are appended to whatever is loaded.'],
+  ['☁ Load LAZ/LAS','Load a lidar point cloud (.laz or .las, LAS 1.0–1.4). It asks for the elevation adjustment (added to every lidar Z — <i>Suggest from survey</i> compares your shots with the nearest lidar ground point), the horizontal units, colour (elevation / intensity / RGB / class), point size and which classes show. Files over 4 million points are thinned evenly on load. The cloud is view-only — never exported in the FBK/CSV/DXF.'],
+  ['☁ Cloud','Reopen the point cloud settings (elevation adjustment, units, colour, classes) or unload it.'],
   ['⊡ Fit','Frame the whole survey (F).'],
   ['↻ Refresh','Force a full rebuild of the linework and curb offset lanes from the current point data — use if the drawing (especially the green offset lines) looks stale after an edit.'],
   ['↶ Undo / ↷ Redo','Step edit history back/forward (Ctrl+Z / Ctrl+Y) — covers point moves, code edits, deletes, Knockdown, UGW→CPN, and inserts.'],
@@ -5497,13 +5565,14 @@ const HELP_CANVAS_TOOLS=[
   ['◯ CIR','Draw a circle by center point + radius (C).'],
   ['⊙ CTR','Place a new point at the circumcircle center of 3 clicked points, or of an existing CIR-coded line\'s own first 3 vertices.'],
   ['⟋ TMP','Temp line (L) — click two spots (full snap) to draw a dashed construction line for computing. It snaps like any other line, so two temp lines give an intersection to place a point on. Click it (SEL) to see bearing/length, edit its ends (or azimuth + length), and create points along it — divide, every interval, or at a distance, with an optional offset and code; tick “make linework” to give the new points B/E so they draw a line. Temp lines are not exported.'],
+  ['⬠ POLY','Polygon select (Y): click the corners; double-click, Enter or click the first corner to close (Backspace removes the last corner, Esc cancels). Then choose lidar points (shown classes, optional minimum spacing, numbering and description) and/or survey points inside, and export them as a PNEZD CSV — lidar Z includes the elevation adjustment.'],
   ['➤ DIR','Toggle direction arrows on the linework (A).'],
   ['🗺 MAP','Toggle the aerial imagery background (2D only).'],
   ['＋ / －','Zoom in / out, centered on the current view.'],
 ];
 const HELP_KEYS=[
   ['V','Select tool'],['M','Move tool'],['P','Pan tool'],['Z','Zoom window tool'],
-  ['O','3D orbit'],['I','Inverse tool'],['C','Draw circle'],['L','Temp line tool'],['A','Toggle direction arrows'],
+  ['O','3D orbit'],['I','Inverse tool'],['C','Draw circle'],['L','Temp line tool'],['Y','Polygon select (POLY)'],['A','Toggle direction arrows'],
   ['F','Fit to the whole survey'],['G','Go to point #'],
   ['Ctrl+Z','Undo'],['Ctrl+Y or Ctrl+Shift+Z','Redo'],
   ['Delete / Backspace','Delete the box-selected points'],['Esc','Cancel a pick/insert in progress, or clear a box selection'],
@@ -5718,7 +5787,7 @@ window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show')||$('codeChkScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show')||$('codeChkScrim').classList.contains('show')||$('lazScrim').classList.contains('show')||$('polyScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
@@ -5726,7 +5795,301 @@ window.addEventListener('keydown',e=>{
   else if(k==='f'){if(!$('fitBtn').disabled)fit();}
   else if(k==='g'){if(!$('gotoBtn').disabled)openGoto();}
   else if(k==='c'){circleTool={centerPt:-1};openCircleTool();}
-  else if(k==='l')startTempTool();});
+  else if(k==='l')startTempTool();
+  else if(k==='y')startPolyTool();});
+/* ---------- build 136 — LAZ / LAS point cloud viewer + polygon select → PNEZD CSV ----------
+   ☁ Load LAZ/LAS reads a LAS 1.0–1.4 file (point formats 0–10). A plain .las is read directly; a
+   compressed .laz is decoded with laz-perf (WASM, fetched from jsDelivr the first time a .laz is
+   opened). Up to CLOUD_MAX points are kept — a bigger file is thinned evenly (every k-th point) so
+   the browser stays responsive; the dialog says when that happened. Right after loading, the
+   Point Cloud dialog asks for the elevation adjustment (added to every lidar Z — e.g. a geoid /
+   datum shift), the horizontal units (as in file, or metres → US / international feet), colour,
+   point size and which classes to show. "Suggest" compares the survey shots with the nearest
+   lidar ground point and offers the median difference. ☁ Cloud reopens the dialog any time.
+   The cloud is drawn in 2D and 3D (raw pixels into an offscreen buffer — millions of points
+   stay fast), session only: it is never written to FBK/CSV/DXF exports or the auto-save.
+   ⬠ POLY (Y) draws a polygon (click vertices; double-click, Enter or click the first vertex to
+   close; Backspace removes the last vertex; Esc cancels). Closing it opens Polygon Export: the
+   visible-class lidar points inside (optionally thinned to a minimum spacing) and/or the survey
+   points inside are written as a comma-delimited PNEZD file — Point#, Northing, Easting,
+   Elevation (lidar Z includes the adjustment), Description. */
+const CLOUD_MAX=4000000;
+const cloudOrd=n=>n+(n%100>=11&&n%100<=13?'th':({1:'st',2:'nd',3:'rd'}[n%10]||'th'));
+const cloudEsc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const LAZPERF_BASE='https://cdn.jsdelivr.net/npm/laz-perf@0.0.7/lib/web/';
+const CLOUD_UNITS={asis:{f:1,label:'as in file'},m2us:{f:3937/1200,label:'metres → US survey feet'},m2ft:{f:1/0.3048,label:'metres → international feet'}};
+const LAS_CLASS={0:'never classified',1:'unclassified',2:'ground',3:'low vegetation',4:'medium vegetation',5:'high vegetation',6:'building',7:'low noise',8:'model key / reserved',9:'water',10:'rail',11:'road surface',12:'overlap / reserved',13:'wire guard',14:'wire conductor',15:'transmission tower',16:'wire connector',17:'bridge deck',18:'high noise'};
+const LAS_CLASS_COL={0:'#9aa3b5',1:'#c8c8c8',2:'#c08a4e',3:'#8ee07a',4:'#45bf4d',5:'#1f8f38',6:'#e05a4f',7:'#ff4fd8',8:'#ffd24a',9:'#3d8bff',10:'#a05aff',11:'#8c8c8c',12:'#6c6c6c',13:'#ffef5a',14:'#ffef5a',15:'#ffef5a',16:'#ffef5a',17:'#ff9f40',18:'#ff4fd8'};
+let lazPerfP=null;
+function loadLazPerf(){
+  if(lazPerfP)return lazPerfP;
+  lazPerfP=new Promise((res,rej)=>{
+    const go=()=>{try{window.createLazPerf({locateFile:p=>LAZPERF_BASE+p}).then(res,rej);}catch(err){rej(err);}};
+    if(window.createLazPerf){go();return;}
+    const s=document.createElement('script');s.src=LAZPERF_BASE+'laz-perf.js';s.async=true;
+    s.onload=()=>window.createLazPerf?go():rej(new Error('laz-perf did not load'));
+    s.onerror=()=>rej(new Error('could not download the LAZ decoder (laz-perf from cdn.jsdelivr.net) — check the internet connection, or convert the file to .las'));
+    document.head.appendChild(s);});
+  lazPerfP.catch(()=>{lazPerfP=null;});
+  return lazPerfP;}
+function lasHeader(buf){
+  const dv=new DataView(buf);
+  if(buf.byteLength<227||String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3))!=='LASF')throw new Error('not a LAS/LAZ file (no LASF signature)');
+  const vMaj=dv.getUint8(24),vMin=dv.getUint8(25),hdrSize=dv.getUint16(94,true),dataOff=dv.getUint32(96,true),nVlr=dv.getUint32(100,true);
+  const fmtByte=dv.getUint8(104),recLen=dv.getUint16(105,true);
+  let count=dv.getUint32(107,true);
+  if(vMaj===1&&vMin>=4&&hdrSize>=375){const c64=Number(dv.getBigUint64(247,true));if(c64>0)count=c64;}
+  const sc=[dv.getFloat64(131,true),dv.getFloat64(139,true),dv.getFloat64(147,true)];
+  const of=[dv.getFloat64(155,true),dv.getFloat64(163,true),dv.getFloat64(171,true)];
+  const mx={maxX:dv.getFloat64(179,true),minX:dv.getFloat64(187,true),maxY:dv.getFloat64(195,true),minY:dv.getFloat64(203,true),maxZ:dv.getFloat64(211,true),minZ:dv.getFloat64(219,true)};
+  let sys='';for(let i=26;i<58;i++){const c=dv.getUint8(i);if(!c)break;sys+=String.fromCharCode(c);}
+  let gen='';for(let i=58;i<90;i++){const c=dv.getUint8(i);if(!c)break;gen+=String.fromCharCode(c);}
+  // a LASzip VLR (user id "laszip encoded") or the high bits of the format byte mark a compressed file
+  let laszipVlr=false,off=hdrSize;
+  for(let k=0;k<nVlr&&off+54<=buf.byteLength;k++){let uid='';for(let i=2;i<18;i++){const c=dv.getUint8(off+i);if(!c)break;uid+=String.fromCharCode(c);}
+    if(/laszip encoded/i.test(uid))laszipVlr=true;off+=54+dv.getUint16(off+20,true);}
+  return{version:vMaj+'.'+vMin,hdrSize,dataOff,fmt:fmtByte&0x3f,compressed:!!(fmtByte&0xc0)||laszipVlr,recLen,count,sc,of,mx,sys,gen};}
+// byte offsets inside one (uncompressed) point record for the fields we use
+function lasLayout(fmt){const ext=fmt>=6;
+  const rgb={2:20,3:28,5:28,7:30,8:30,10:30}[fmt];
+  return{cls:ext?16:15,clsMask:ext?0xff:0x1f,rgb:rgb==null?-1:rgb};}
+function newCloud(h,keep,name){
+  return{name,hdr:h,n:0,cap:keep,E:new Float64Array(keep),N:new Float64Array(keep),Z:new Float32Array(keep),
+    I:new Uint16Array(keep),C:new Uint8Array(keep),RGB:lasLayout(h.fmt).rgb>=0?new Uint16Array(keep*3):null,
+    col:null,zAdj:0,unit:'asis',colorBy:'elev',size:1,show:true,hidden:new Set(),stride:1,grid:null};}
+function cloudPush(c,dv,o,L){const h=c.hdr,k=c.n;
+  c.E[k]=dv.getInt32(o,true)*h.sc[0]+h.of[0];c.N[k]=dv.getInt32(o+4,true)*h.sc[1]+h.of[1];c.Z[k]=dv.getInt32(o+8,true)*h.sc[2]+h.of[2];
+  c.I[k]=dv.getUint16(o+12,true);c.C[k]=dv.getUint8(o+L.cls)&L.clsMask;
+  if(c.RGB&&L.rgb>=0){c.RGB[k*3]=dv.getUint16(o+L.rgb,true);c.RGB[k*3+1]=dv.getUint16(o+L.rgb+2,true);c.RGB[k*3+2]=dv.getUint16(o+L.rgb+4,true);}
+  c.n++;}
+const cloudYield=()=>new Promise(r=>setTimeout(r,0));
+async function readLasBuffer(buf,name){
+  const h=lasHeader(buf);
+  if(!h.count)throw new Error('the file has no points');
+  if(h.fmt>10)throw new Error('point format '+h.fmt+' is not supported');
+  const stride=Math.max(1,Math.ceil(h.count/CLOUD_MAX)),keep=Math.ceil(h.count/stride);
+  const c=newCloud(h,keep,name);c.stride=stride;const L=lasLayout(h.fmt);
+  if(!h.compressed){
+    const dv=new DataView(buf);const avail=Math.floor((buf.byteLength-h.dataOff)/h.recLen),n=Math.min(h.count,avail);
+    for(let i=0;i<n;i+=stride){cloudPush(c,dv,h.dataOff+i*h.recLen,L);
+      if(i%(stride*400000)===0&&i){hud(`reading ${name}: ${Math.round(100*i/n)}%`);await cloudYield();}}
+  }else{
+    hud('loading the LAZ decoder…');
+    const M=await loadLazPerf();
+    const fp=M._malloc(buf.byteLength);M.HEAPU8.set(new Uint8Array(buf),fp);
+    const lz=new M.LASZip();let pp=0;
+    try{
+      lz.open(fp,buf.byteLength);
+      const n=lz.getCount(),pl=lz.getPointLength();pp=M._malloc(pl);
+      for(let i=0;i<n;i++){lz.getPoint(pp);
+        if(i%stride===0){const dv=new DataView(M.HEAPU8.buffer,pp,pl);cloudPush(c,dv,0,L);}
+        if(i%250000===0&&i){hud(`decompressing ${name}: ${Math.round(100*i/n)}%`);await cloudYield();}}
+    }finally{if(pp)M._free(pp);lz.delete();M._free(fp);}
+  }
+  if(!c.n)throw new Error('no points could be read');
+  cloudBounds(c);c.hidden=new Set();
+  return c;}
+function cloudBounds(c){let b={minE:Infinity,maxE:-Infinity,minN:Infinity,maxN:-Infinity,minZ:Infinity,maxZ:-Infinity};
+  for(let i=0;i<c.n;i++){const e=c.E[i],n=c.N[i],z=c.Z[i];
+    if(e<b.minE)b.minE=e;if(e>b.maxE)b.maxE=e;if(n<b.minN)b.minN=n;if(n>b.maxN)b.maxN=n;if(z<b.minZ)b.minZ=z;if(z>b.maxZ)b.maxZ=z;}
+  c.b=b;c.grid=null;
+  const cnt={};for(let i=0;i<c.n;i++){const k=c.C[i];cnt[k]=(cnt[k]||0)+1;}c.clsCount=cnt;}
+function cloudPct(arr,n,lo,hi){const m=Math.min(n,100000),s=new Float64Array(m),st=n/m;for(let k=0;k<m;k++)s[k]=arr[Math.floor(k*st)];s.sort();
+  return[s[Math.floor(lo*(m-1))],s[Math.floor(hi*(m-1))]];}
+function hexRGB(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function hslRGB(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l),f=n=>l-a*Math.max(-1,Math.min(k(n)-3,Math.min(9-k(n),1)));
+  return[Math.round(255*f(0)),Math.round(255*f(8)),Math.round(255*f(4))];}
+const px32=(r,g,b)=>((255<<24)|(b<<16)|(g<<8)|r)>>>0;
+function cloudRecolor(c){const n=c.n,col=new Uint32Array(n);
+  if(c.colorBy==='rgb'&&c.RGB){let mx=0;for(let i=0;i<Math.min(n*3,300000);i++)if(c.RGB[i]>mx)mx=c.RGB[i];const sh=mx>255?8:0;
+    for(let i=0;i<n;i++)col[i]=px32(c.RGB[i*3]>>sh,c.RGB[i*3+1]>>sh,c.RGB[i*3+2]>>sh);}
+  else if(c.colorBy==='int'){const[lo,hi]=cloudPct(c.I,n,0.02,0.98),sp=(hi-lo)||1;
+    for(let i=0;i<n;i++){const t=Math.max(0,Math.min(1,(c.I[i]-lo)/sp)),g=(40+215*t)|0;col[i]=px32(g,g,g);}}
+  else if(c.colorBy==='cls'){const lut={};Object.keys(LAS_CLASS_COL).forEach(k=>{const[r,g,b]=hexRGB(LAS_CLASS_COL[k]);lut[k]=px32(r,g,b);});const def=lut[0];
+    for(let i=0;i<n;i++)col[i]=lut[c.C[i]]||def;}
+  else{const[lo,hi]=cloudPct(c.Z,n,0.02,0.98),sp=(hi-lo)||1,lut=new Uint32Array(256);
+    for(let k=0;k<256;k++){const t=k/255,[r,g,b]=hslRGB(210-180*t,75,42+22*t);lut[k]=px32(r,g,b);}
+    for(let i=0;i<n;i++){const t=Math.max(0,Math.min(1,(c.Z[i]-lo)/sp));col[i]=lut[(t*255)|0];}}
+  c.col=col;}
+let cloudOff=null,cloudImg=null;
+function drawCloud(){const c=cloud;if(!c||!c.show||!c.n)return;if(!c.col)cloudRecolor(c);
+  const W=cv.width,H=cv.height,dpr=devicePixelRatio;if(!W||!H)return;
+  if(!cloudOff){cloudOff=document.createElement('canvas');}
+  if(cloudOff.width!==W||cloudOff.height!==H||!cloudImg){cloudOff.width=W;cloudOff.height=H;cloudImg=cloudOff.getContext('2d').createImageData(W,H);}
+  const buf=new Uint32Array(cloudImg.data.buffer);buf.fill(0);
+  const busy=!!(drag&&(drag.pan||drag.orbit))||!!pinch,step=busy&&c.n>1500000?Math.ceil(c.n/1500000):1;
+  const sz=c.size,hid=c.hidden,anyHid=hid.size>0,col=c.col,E=c.E,N=c.N,Z=c.Z,C=c.C,za=c.zAdj;
+  const put=(ix,iy,v)=>{if(sz===1){if(ix>=0&&iy>=0&&ix<W&&iy<H)buf[iy*W+ix]=v;return;}
+    for(let dy=0;dy<sz;dy++){const y=iy+dy;if(y<0||y>=H)continue;for(let dx=0;dx<sz;dx++){const x=ix+dx;if(x>=0&&x<W)buf[y*W+x]=v;}}};
+  if(!is3D){const a=view.s*dpr,bx=view.x*dpr,by=view.y*dpr;
+    for(let i=0;i<c.n;i+=step){if(anyHid&&hid.has(C[i]))continue;
+      const ix=(E[i]*a+bx)|0,iy=(-N[i]*a+by)|0;if(ix<-3||iy<-3||ix>=W||iy>=H)continue;put(ix,iy,col[i]);}}
+  else{const w=W/dpr,h=H/dpr,cA=Math.cos(orbit.az),sA=Math.sin(orbit.az),cE=Math.cos(orbit.el),sE=Math.sin(orbit.el),s=orbit.s,ve=orbit.ve,
+      cx=orbit.cx,cy=orbit.cy,cz=orbit.cz,ox=w/2+orbit.ox,oy=h/2+orbit.oy;
+    for(let i=0;i<c.n;i+=step){if(anyHid&&hid.has(C[i]))continue;
+      const e=E[i]-cx,n=N[i]-cy,u=(Z[i]+za-cz)*ve,x1=e*cA+n*sA,y1=-e*sA+n*cA;
+      const ix=((x1*s+ox)*dpr)|0,iy=((-(y1*sE+u*cE)*s+oy)*dpr)|0;if(ix<-3||iy<-3||ix>=W||iy>=H)continue;put(ix,iy,col[i]);}}
+  cloudOff.getContext('2d').putImageData(cloudImg,0,0);
+  ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(cloudOff,0,0);ctx.restore();}
+// spatial grid over the cloud (counting sort) for nearest-point lookups
+function cloudGrid(c){if(c.grid)return c.grid;const b=c.b;let cs=Math.max(1,(b.maxE-b.minE)/3000,(b.maxN-b.minN)/3000);
+  const gw=Math.max(1,Math.ceil((b.maxE-b.minE)/cs)+1),gh=Math.max(1,Math.ceil((b.maxN-b.minN)/cs)+1);
+  const cell=new Int32Array(c.n),start=new Int32Array(gw*gh+1);
+  for(let i=0;i<c.n;i++){const k=Math.floor((c.N[i]-b.minN)/cs)*gw+Math.floor((c.E[i]-b.minE)/cs);cell[i]=k;start[k+1]++;}
+  for(let k=0;k<gw*gh;k++)start[k+1]+=start[k];
+  const fill=start.slice(0,gw*gh),idx=new Int32Array(c.n);for(let i=0;i<c.n;i++)idx[fill[cell[i]]++]=i;
+  c.grid={cs,gw,gh,start,idx};return c.grid;}
+function cloudNearest(c,E,N,r,filt){const g=cloudGrid(c),b=c.b;const gx=Math.floor((E-b.minE)/g.cs),gy=Math.floor((N-b.minN)/g.cs),rr=Math.ceil(r/g.cs);
+  let best=-1,bd=r*r;
+  for(let y=gy-rr;y<=gy+rr;y++){if(y<0||y>=g.gh)continue;for(let x=gx-rr;x<=gx+rr;x++){if(x<0||x>=g.gw)continue;const k=y*g.gw+x;
+    for(let j=g.start[k];j<g.start[k+1];j++){const i=g.idx[j];if(filt&&!filt(i))continue;const d=(c.E[i]-E)**2+(c.N[i]-N)**2;if(d<bd){bd=d;best=i;}}}}
+  return best;}
+// suggested Z adjustment = median(survey Z − nearest lidar Z) over survey shots with a lidar point within 1 ft (ground class if the file has one)
+function cloudSuggestZ(c,unitF){const f=unitF/CLOUD_UNITS[c.unit].f,useGnd=(c.clsCount[2]||0)>0,filt=useGnd?(i=>c.C[i]===2):null,r=1/f;
+  const d=[];PTS.forEach(p=>{if(p.deleted||!isFinite(p.Z)||!isFinite(p.E))return;const E=p.E/f,N=p.N/f;
+    if(E<c.b.minE-r||E>c.b.maxE+r||N<c.b.minN-r||N>c.b.maxN+r)return;
+    const i=cloudNearest(c,E,N,r,filt);if(i>=0)d.push(p.Z-c.Z[i]*f);});
+  if(!d.length)return null;d.sort((a,b)=>a-b);const q=t=>d[Math.floor(t*(d.length-1))];
+  return{dz:q(0.5),n:d.length,iqr:q(0.75)-q(0.25),gnd:useGnd};}
+// which unit setting puts the cloud on top of the loaded survey (null if nothing to compare)
+function cloudGuessUnit(c){const live=PTS.filter(p=>!p.deleted&&isFinite(p.E)&&isFinite(p.N));if(!live.length)return null;
+  let mE=0,mN=0;live.forEach(p=>{mE+=p.E;mN+=p.N;});mE/=live.length;mN/=live.length;
+  let best=null,bd=Infinity;Object.keys(CLOUD_UNITS).forEach(k=>{const f=CLOUD_UNITS[k].f/CLOUD_UNITS[c.unit].f,b=c.b;
+    const dx=Math.max(0,b.minE*f-mE,mE-b.maxE*f),dy=Math.max(0,b.minN*f-mN,mN-b.maxN*f),d=Math.hypot(dx,dy);if(d<bd){bd=d;best=k;}});
+  return bd<5000?best:null;}
+function cloudSetUnit(c,u){if(u===c.unit)return;const f=CLOUD_UNITS[u].f/CLOUD_UNITS[c.unit].f;
+  for(let i=0;i<c.n;i++){c.E[i]*=f;c.N[i]*=f;c.Z[i]*=f;}c.zAdj*=f;c.unit=u;cloudBounds(c);c.col=null;}
+let cloudDlg=null;                                        // {isNew} while the Point Cloud dialog is open
+function openCloudDialog(isNew){const c=cloud;if(!c){hud('load a .laz or .las file first');return;}
+  cloudDlg={isNew};const h=c.hdr,b=c.b;const fmtN=v=>v.toLocaleString();
+  $('lazInfo').innerHTML=`<b>${cloudEsc(c.name)}</b> · LAS ${h.version} · point format ${h.fmt}${h.compressed?' (LAZ compressed)':''}<br>`+
+    `${fmtN(h.count)} points in file${c.stride>1?` · <span style="color:var(--gold)">showing every ${cloudOrd(c.stride)} — ${fmtN(c.n)} kept</span>`:` · ${fmtN(c.n)} loaded`}<br>`+
+    `E ${b.minE.toFixed(2)} – ${b.maxE.toFixed(2)} · N ${b.minN.toFixed(2)} – ${b.maxN.toFixed(2)}<br>Z ${b.minZ.toFixed(2)} – ${b.maxZ.toFixed(2)} (file, before adjustment)`+
+    (h.sys||h.gen?`<br><span style="color:var(--mut)">${cloudEsc([h.sys,h.gen].filter(Boolean).join(' · '))}</span>`:'');
+  let u=c.unit,guess=null;if(isNew){guess=cloudGuessUnit(c);if(guess)u=guess;}
+  $('lazUnits').value=u;
+  $('lazUnitMsg').textContent=isNew&&guess&&guess!=='asis'?'The coordinates look like metres — converted so the cloud lands on the survey. Change it if that is wrong.':
+    (isNew&&!guess&&PTS.length?'The cloud does not overlap the loaded survey with any unit setting — check the file\'s coordinate system.':'');
+  $('lazZAdj').value=(c.zAdj||0).toFixed(3);
+  $('lazColor').value=c.colorBy;$('lazColor').querySelector('option[value=rgb]').disabled=!c.RGB;
+  $('lazSize').value=String(c.size);$('lazShow').checked=c.show;
+  const cls=Object.keys(c.clsCount).map(Number).sort((a,b)=>a-b);
+  $('lazCls').innerHTML=cls.map(k=>`<label style="display:flex;align-items:center;gap:6px;font-size:11px"><input type="checkbox" data-c="${k}" ${c.hidden.has(k)?'':'checked'}>`+
+    `<i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${LAS_CLASS_COL[k]||'#9aa3b5'}"></i>${k} ${cloudEsc(LAS_CLASS[k]||'class')} <span style="color:var(--mut)">${fmtN(c.clsCount[k])}</span></label>`).join('');
+  $('lazSuggestMsg').textContent=PTS.some(p=>!p.deleted)?'':'Load the survey (FBK/CSV) to get a suggested adjustment from the shots.';
+  $('lazSuggest').disabled=!PTS.some(p=>!p.deleted);
+  $('lazScrim').classList.add('show');setTimeout(()=>{$('lazZAdj').focus();$('lazZAdj').select();},30);}
+function closeCloudDialog(){$('lazScrim').classList.remove('show');
+  if(cloudDlg&&cloudDlg.isNew&&cloud){cloudFirstShow();hud(`point cloud loaded — elevation adjustment ${(cloud.zAdj>=0?'+':'')+cloud.zAdj.toFixed(3)} · ☁ Cloud to change`);}cloudDlg=null;}
+function cloudFirstShow(){$('fitBtn').disabled=false;if(!PTS.some(p=>!p.deleted)||!onScreen(cloud))fit();else draw();}
+function applyCloudDialog(){const c=cloud;if(!c)return;const z=parseFloat($('lazZAdj').value);
+  if($('lazZAdj').value.trim()!==''&&!isFinite(z)){hud('elevation adjustment must be a number');$('lazZAdj').focus();return;}
+  cloudSetUnit(c,$('lazUnits').value);c.zAdj=isFinite(z)?z:0;
+  const cb=$('lazColor').value;if(cb!==c.colorBy){c.colorBy=cb;c.col=null;}
+  c.size=+$('lazSize').value||1;c.show=$('lazShow').checked;
+  c.hidden=new Set();$('lazCls').querySelectorAll('input[data-c]').forEach(x=>{if(!x.checked)c.hidden.add(+x.dataset.c);});
+  if(cloudDlg&&cloudDlg.isNew)cloudFirstShow();cloudDlg=null;$('lazScrim').classList.remove('show');
+  draw();hud(`point cloud: ${c.n.toLocaleString()} pts · Z adjustment ${(c.zAdj>=0?'+':'')+c.zAdj.toFixed(3)} · ${CLOUD_UNITS[c.unit].label}`);}
+function onScreen(c){if(is3D)return true;const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,[a,bb]=W2S(c.b.minE,c.b.maxN),[d,e]=W2S(c.b.maxE,c.b.minN);
+  return d>0&&a<w&&e>0&&bb<h;}
+function cloudSuggestClick(){const c=cloud;if(!c)return;const u=$('lazUnits').value,f=CLOUD_UNITS[u].f;
+  $('lazSuggestMsg').textContent='matching survey shots to the cloud…';
+  setTimeout(()=>{const r=cloudSuggestZ(c,f);
+    if(!r){$('lazSuggestMsg').textContent='No survey shot has a lidar point within 1 ft — nothing to compare (check the units).';return;}
+    $('lazZAdj').value=r.dz.toFixed(3);
+    $('lazSuggestMsg').textContent=`Suggested ${(r.dz>=0?'+':'')+r.dz.toFixed(3)} — median of ${r.n} shot(s) vs the nearest lidar ${r.gnd?'ground ':''}point (spread ${r.iqr.toFixed(3)} middle half). Apply to use it.`;},20);}
+function unloadCloud(){if(!cloud)return;if(!confirm('Unload the point cloud?'))return;cloud=null;cloudImg=null;closeCloudDialog();$('cloudBtn').disabled=true;
+  if(!PTS.length)$('fitBtn').disabled=true;draw();hud('point cloud unloaded');}
+function cloudFileChosen(f){if(!f)return;const rd=new FileReader();hud(`reading ${f.name}…`);
+  rd.onload=async()=>{try{const c=await readLasBuffer(rd.result,f.name);cloud=c;cloudImg=null;$('cloudBtn').disabled=false;openCloudDialog(true);}
+    catch(err){hud('point cloud: '+(err&&err.message||err));alert('Could not read '+f.name+':\n'+(err&&err.message||err));}};
+  rd.onerror=()=>hud('could not read '+f.name);rd.readAsArrayBuffer(f);}
+$('lazInput').onchange=e=>{const f=e.target.files[0];e.target.value='';cloudFileChosen(f);};
+$('cloudBtn').onclick=()=>openCloudDialog(false);
+$('lazApply').onclick=applyCloudDialog;$('lazCancel').onclick=closeCloudDialog;$('lazUnload').onclick=unloadCloud;$('lazSuggest').onclick=cloudSuggestClick;
+$('lazScrim').onclick=e=>{if(e.target===$('lazScrim'))closeCloudDialog();};
+$('lazZAdj').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();applyCloudDialog();}});
+$('lazClsAll').onclick=()=>$('lazCls').querySelectorAll('input').forEach(x=>x.checked=true);
+$('lazClsGnd').onclick=()=>$('lazCls').querySelectorAll('input').forEach(x=>x.checked=x.dataset.c==='2');
+$('lazUnits').onchange=()=>{$('lazUnitMsg').textContent='';};
+
+/* ---------- ⬠ POLY polygon select ---------- */
+let polyTool=null,polyShape=null,polyCtx=null;           // polyTool={pts:[{E,N}],cur,lastT,lastXY} while drawing; polyShape=[{E,N}] once closed
+function startPolyTool(){
+  if(is3D)setMode('sel');if(tempTool)endTempTool(true);
+  if(polyTool){endPolyTool();return;}
+  polyTool={pts:[],cur:null,lastT:0,lastXY:null};polyShape=null;selSet.clear();sel=-1;selFig=null;$('tPoly').classList.add('on');cv.style.cursor='crosshair';
+  hud('polygon: click the corners · double-click, Enter or click the first corner to close · Backspace undoes a corner · Esc cancels');draw();}
+function endPolyTool(quiet){if(!polyTool)return;polyTool=null;$('tPoly').classList.remove('on');if(!quiet)hud('polygon cancelled');draw();}
+function polyClick(sx,sy){const P=polyTool,now=performance.now();
+  if(P.lastXY&&now-P.lastT<350&&Math.hypot(sx-P.lastXY[0],sy-P.lastXY[1])<6){closePoly();return;}   // double-click closes
+  P.lastT=now;P.lastXY=[sx,sy];
+  if(P.pts.length>=3){const[fx,fy]=W2S(P.pts[0].E,P.pts[0].N);if(Math.hypot(sx-fx,sy-fy)<10){closePoly();return;}}
+  const[E,N]=S2W(sx,sy);P.pts.push({E,N});
+  hud(`polygon: ${P.pts.length} corner(s)${P.pts.length>=3?' · double-click / Enter / click the first corner to close':''}`);draw();}
+function closePoly(){const P=polyTool;if(!P)return;if(P.pts.length<3){hud('a polygon needs at least 3 corners');return;}
+  polyShape=P.pts.slice();polyTool=null;$('tPoly').classList.remove('on');draw();openPolyDialog();}
+function inPoly(E,N,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
+  if((a.N>N)!==(b.N>N)&&E<(b.E-a.E)*(N-a.N)/(b.N-a.N)+a.E)ins=!ins;}return ins;}
+function polyArea(poly){let s=0;for(let i=0,j=poly.length-1;i<poly.length;j=i++)s+=(poly[j].E+poly[i].E)*(poly[j].N-poly[i].N);return Math.abs(s)/2;}
+function drawPoly(){const pts=polyTool?polyTool.pts:polyShape;if(!pts||!pts.length||is3D)return;
+  ctx.save();ctx.beginPath();pts.forEach((p,k)=>{const[x,y]=W2S(p.E,p.N);k?ctx.lineTo(x,y):ctx.moveTo(x,y);});
+  if(polyTool&&polyTool.cur)ctx.lineTo(polyTool.cur.sx,polyTool.cur.sy);
+  if(!polyTool){ctx.closePath();ctx.fillStyle='rgba(241,180,52,.10)';ctx.fill();}
+  ctx.setLineDash([6,4]);ctx.lineWidth=1.8;ctx.strokeStyle='#F1B434';ctx.stroke();ctx.setLineDash([]);
+  pts.forEach((p,k)=>{const[x,y]=W2S(p.E,p.N);ctx.beginPath();ctx.arc(x,y,k===0&&polyTool?5:3.5,0,7);ctx.fillStyle=k===0?'#fff':'#F1B434';ctx.fill();});
+  ctx.restore();}
+function polyGather(){const poly=polyShape,ctx_={cloud:[],pts:[]};if(!poly)return ctx_;
+  let minE=Infinity,maxE=-Infinity,minN=Infinity,maxN=-Infinity;poly.forEach(p=>{minE=Math.min(minE,p.E);maxE=Math.max(maxE,p.E);minN=Math.min(minN,p.N);maxN=Math.max(maxN,p.N);});
+  PTS.forEach((p,i)=>{if(p.deleted||!isFinite(p.E)||!isFinite(p.N))return;if(p.E<minE||p.E>maxE||p.N<minN||p.N>maxN)return;if(inPoly(p.E,p.N,poly))ctx_.pts.push(i);});
+  const c=cloud;if(c){const hid=c.hidden;for(let i=0;i<c.n;i++){const e=c.E[i],n=c.N[i];if(e<minE||e>maxE||n<minN||n>maxN)continue;if(hid.has(c.C[i]))continue;if(inPoly(e,n,poly))ctx_.cloud.push(i);}}
+  return ctx_;}
+function polyThinned(list,sp){const c=cloud;if(!(sp>0))return list;const seen=new Set(),out=[];
+  for(const i of list){const k=Math.floor(c.E[i]/sp)*4294967296+Math.floor(c.N[i]/sp);if(seen.has(k))continue;seen.add(k);out.push(i);}return out;}
+function openPolyDialog(){if(!polyShape)return;hud('finding the points inside the polygon…');
+  setTimeout(()=>{polyCtx=polyGather();
+    $('polyInfo').textContent=`${polyShape.length} corners · area ${polyArea(polyShape).toFixed(1)} sq ft (${(polyArea(polyShape)/43560).toFixed(3)} ac)`;
+    $('polyCloudRow').style.display=cloud?'':'none';
+    $('polyIncCloud').checked=!!cloud&&polyCtx.cloud.length>0;$('polyIncPts').checked=polyCtx.pts.length>0&&!(cloud&&polyCtx.cloud.length);
+    $('polyCloudN').textContent=cloud?`${polyCtx.cloud.length.toLocaleString()} lidar point(s) inside (shown classes only${cloud.stride>1?`; the file was thinned to every ${cloudOrd(cloud.stride)} on load`:''})`:'';
+    $('polyPtsN').textContent=`${polyCtx.pts.length} survey point(s) inside — written with their own point # and description`;
+    $('polyStart').value=String(PTS.length?getNextPointNumber():1);
+    $('polyScrim').classList.add('show');polyCount();},20);}
+function polyCount(){if(!polyCtx)return;const sp=parseFloat($('polyThin').value)||0;
+  const nc=$('polyIncCloud').checked&&cloud?polyThinned(polyCtx.cloud,sp).length:0,np=$('polyIncPts').checked?polyCtx.pts.length:0;
+  const start=parseInt($('polyStart').value,10);let warn='';
+  if(nc&&isFinite(start)){const ids=new Set(PTS.filter(p=>!p.deleted).map(p=>String(p.id)));let hit=0;for(let k=0;k<nc&&hit<1;k++)if(ids.has(String(start+k)))hit++;
+    if(hit)warn=' · ⚠ the lidar point numbers overlap existing survey point numbers';}
+  $('polyMsg').textContent=`will write ${(nc+np).toLocaleString()} row(s)${nc?` · lidar Z includes the ${(cloud.zAdj>=0?'+':'')+cloud.zAdj.toFixed(3)} adjustment`:''}${warn}`;
+  $('polyExport').disabled=!(nc+np)||(nc>0&&!isFinite(start));}
+function closePolyDialog(){$('polyScrim').classList.remove('show');polyCtx=null;draw();}
+function exportPolyCSV(){if(!polyCtx)return;const sp=parseFloat($('polyThin').value)||0,start=parseInt($('polyStart').value,10);
+  const desc=$('polyDesc').value.trim()||'LIDAR',addCls=$('polyClsDesc').checked;
+  const q=d=>/[",\n\r]/.test(d)?'"'+d.replace(/"/g,'""')+'"':d;
+  const rows=['Point,Northing,Easting,Elevation,Description'];let np=0,nc=0;
+  if($('polyIncPts').checked)polyCtx.pts.forEach(i=>{const p=PTS[i];rows.push(`${p.id},${p.N.toFixed(3)},${p.E.toFixed(3)},${isFinite(p.Z)?p.Z.toFixed(3):''},${q(p.desc||'')}`);np++;});
+  if($('polyIncCloud').checked&&cloud){const c=cloud;polyThinned(polyCtx.cloud,sp).forEach(i=>{
+    const d=addCls?`${desc} ${(LAS_CLASS[c.C[i]]||'class '+c.C[i]).toUpperCase()}`:desc;
+    rows.push(`${start+nc},${c.N[i].toFixed(3)},${c.E[i].toFixed(3)},${(c.Z[i]+c.zAdj).toFixed(3)},${q(d)}`);nc++;});}
+  if(!(np+nc)){hud('nothing to export');return;}
+  const base=(cloud&&nc?cloud.name.replace(/\.(laz|las)$/i,''):($('jobpill').textContent||'points')).replace(/\s+/g,'_');
+  const blob=new Blob([rows.join('\r\n')],{type:'text/csv'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=base+'_polygon_PNEZD.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  closePolyDialog();hud(`exported ${(np+nc).toLocaleString()} row(s) to CSV (${np} survey, ${nc.toLocaleString()} lidar)`);}
+$('tPoly').onclick=startPolyTool;
+$('polyCancel').onclick=closePolyDialog;$('polyExport').onclick=exportPolyCSV;
+$('polyClear').onclick=()=>{polyShape=null;closePolyDialog();hud('polygon cleared');};
+$('polyScrim').onclick=e=>{if(e.target===$('polyScrim'))closePolyDialog();};
+['polyThin','polyStart'].forEach(id=>$(id).addEventListener('input',polyCount));
+['polyIncCloud','polyIncPts'].forEach(id=>$(id).addEventListener('change',polyCount));
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&$('lazScrim').classList.contains('show')){e.preventDefault();e.stopPropagation();closeCloudDialog();return;}
+  if(e.key==='Escape'&&$('polyScrim').classList.contains('show')){e.preventDefault();e.stopPropagation();closePolyDialog();return;}
+  if(!polyTool)return;const t=e.target;if(t&&(/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)||t.isContentEditable))return;
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();endPolyTool();}
+  else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();closePoly();}
+  else if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();e.stopPropagation();polyTool.pts.pop();hud(`polygon: ${polyTool.pts.length} corner(s)`);draw();}},true);
+
 window.addEventListener('resize',resize);
 resize();
 </script>
