@@ -81,6 +81,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .drawbox button{background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:4px 9px;font:700 11px var(--mono);cursor:pointer}
 .drawbox button:disabled{opacity:.4;cursor:default}
 .drawbox button.on{background:var(--gold);color:#1b1300;border-color:var(--gold)}
+.drawbox input[type=checkbox]{width:auto;padding:0;accent-color:var(--gold)}
 .drawbox input{width:84px;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:3px 6px;font:12px var(--mono)}
 #dlnTitle{color:var(--gold);letter-spacing:.09em;font-size:10px}
 .snapbox .sbTitle{color:var(--gold-dim);letter-spacing:.09em;font-size:9px;margin-bottom:2px}
@@ -282,7 +283,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍇 GRAPE</span>
   </div>
 
   <div class="main">
@@ -340,6 +341,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <div class="dlnRow"><span id="dlnTarget">tags:</span><button id="dlnTagBC" title="Begin curve on this vertex">BC</button><button id="dlnTagOC" title="On-curve point: rounds the corner at this vertex">OC</button><button id="dlnTagEC" title="End curve on this vertex">EC</button></div>
         <div class="dlnRow"><span title="Elevation for a click that doesn't snap to anything (a snapped click fills this in)">Z free</span><input type="text" inputmode="decimal" id="dlnZ" autocomplete="off"></div>
         <div class="dlnRow"><button id="dlnUndo" title="Remove the last vertex (Backspace)">↶ Undo</button><button id="dlnEnd" title="Finish — last point gets E (Enter)">End (E)</button><button id="dlnCls" title="Finish and close back to the first point — last point gets CLS">Close (CLS)</button><button id="dlnX" title="Cancel (Esc)">✕</button></div>
+        <label class="dlnRow" id="dlnCloudRow" style="display:none;cursor:pointer" title="When nothing else is under the cursor, snap to the nearest shown point-cloud point (its Z includes the cloud elevation adjustment)"><input type="checkbox" id="dlnCloudChk" checked> snap to point cloud</label>
       </div>
       <div class="vex" id="vex">
         <span class="dragGrip" id="vexGrip" title="Drag to move · double-click to put it back">⠿</span><span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
@@ -885,7 +887,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍌',name:'BANANA',build:138};
+const VERSION={fruit:'🍇',name:'GRAPE',build:139};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -6291,7 +6293,34 @@ function dlnZField(){const z=parseFloat($('dlnZ').value);return isFinite(z)?z:Na
 function unprojectAtZ(sx,sy,z0){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,cA=Math.cos(orbit.az),sA=Math.sin(orbit.az),cE=Math.cos(orbit.el),sE=Math.sin(orbit.el);
   const u=(z0-orbit.cz)*orbit.ve,x1=(sx-w/2-orbit.ox)/orbit.s,y1=(-(sy-h/2-orbit.oy)/orbit.s-u*cE)/sE;
   return[x1*cA-y1*sA+orbit.cx,x1*sA+y1*cA+orbit.cy];}
-function dlnSnapAt(sx,sy){return is3D?snap3D(sx,sy):snapPoint(sx,sy);}
+// build 139: the draw tool also snaps to its own earlier vertices (e.g. back onto vertex 1) and,
+// when nothing else is under the cursor, to the nearest shown point-cloud (lidar) point
+let dlnCloudSnap=true;
+function dlnProj(E,N,Z){return is3D?P3(E,N,Z):W2S(E,N);}
+function dlnOwnSnap(sx,sy,tol){if(!dln||!dln.verts.length)return null;if(!is3D&&!snapEnabled.endpoint)return null;let best=null,bd=tol;
+  dln.verts.forEach((v,k)=>{if(k===dln.verts.length-1)return;const[x,y]=dlnProj(v.E,v.N,v.Z),d=Math.hypot(x-sx,y-sy);
+    if(d<bd){bd=d;best={E:v.E,N:v.N,Z:v.Z,sx:x,sy:y,d,type:'endpoint',label:'endpoint · vertex '+(k+1)+(k===0?' (start)':'')};}});
+  return best;}
+function cloudSnapAt(sx,sy,tol){const c=cloud;if(!c||!c.show||!c.n)return null;const hid=c.hidden,anyHid=hid.size>0,za=c.zAdj;let bi=-1,bd=tol;
+  if(!is3D){const[E,N]=S2W(sx,sy),r=tol/view.s;
+    if(E<c.b.minE-r||E>c.b.maxE+r||N<c.b.minN-r||N>c.b.maxN+r)return null;
+    // plan view stacks every return at one spot: prefer a ground (class 2) point when one is in range
+    if((c.clsCount[2]||0)>0&&!hid.has(2))bi=cloudNearest(c,E,N,r,i=>c.C[i]===2);
+    if(bi<0)bi=cloudNearest(c,E,N,r,anyHid?(i=>!hid.has(c.C[i])):null);if(bi<0)return null;
+    const[x,y]=W2S(c.E[bi],c.N[bi]);bd=Math.hypot(x-sx,y-sy);
+    return{E:c.E[bi],N:c.N[bi],Z:c.Z[bi]+za,sx:x,sy:y,d:bd,type:'endpoint',label:'cloud pt (class '+c.C[bi]+')'};}
+  const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,cA=Math.cos(orbit.az),sA=Math.sin(orbit.az),cE=Math.cos(orbit.el),sE=Math.sin(orbit.el),s=orbit.s,ve=orbit.ve,
+    cx=orbit.cx,cy=orbit.cy,cz=orbit.cz,ox=w/2+orbit.ox,oy=h/2+orbit.oy,E=c.E,N=c.N,Z=c.Z,C=c.C;
+  for(let i=0;i<c.n;i++){const e=E[i]-cx,n=N[i]-cy,x1=e*cA+n*sA,x=x1*s+ox,dx=x-sx;if(dx>tol||dx<-tol)continue;
+    if(anyHid&&hid.has(C[i]))continue;const u=(Z[i]+za-cz)*ve,y1=-e*sA+n*cA,y=-(y1*sE+u*cE)*s+oy,dy=y-sy;if(dy>tol||dy<-tol)continue;
+    const d=Math.hypot(dx,dy);if(d<bd){bd=d;bi=i;}}
+  if(bi<0)return null;const[x,y]=P3(E[bi],N[bi],Z[bi]+za);
+  return{E:E[bi],N:N[bi],Z:Z[bi]+za,sx:x,sy:y,d:bd,type:'endpoint',label:'cloud pt (class '+C[bi]+')'};}
+function dlnSnapAt(sx,sy){let s=is3D?snap3D(sx,sy):snapPoint(sx,sy);
+  const own=dlnOwnSnap(sx,sy,12);
+  if(own){const ds=s?Math.hypot(s.sx-sx,s.sy-sy):Infinity;if(!s||s.type!=='endpoint'&&s.type!=='center'&&s.type!=='quadrant'||own.d<=ds)s=own;}
+  if(!s&&dlnCloudSnap){const cs=cloudSnapAt(sx,sy,8);if(cs)s=cs;}
+  return s;}
 function dlnLocate(sx,sy){const s=dlnSnapAt(sx,sy);
   if(s){let Z=s.Z;if(!isFinite(Z))Z=dlnZField();return{E:s.E,N:s.N,Z,label:s.label,snapped:true};}
   let Z=dlnZField();if(!isFinite(Z)&&dln.verts.length)Z=dln.verts[dln.verts.length-1].Z;
@@ -6324,6 +6353,7 @@ function finishDrawLine(end){if(!dln)return;const n=dln.verts.length;
   const f=figuresOfPoint(made[0])[0];sel=-1;selSet.clear();if(f){selFig=f.id;inspectFig(f);}else{selFig=null;inspect();}draw();
   hud(`${code}: ${n} new NEZ point(s) ${PTS[made[0]].id}–${PTS[made[made.length-1]].id} added (${end}) — they export at the end of the FBK · Ctrl+Z undoes`);}
 function syncDrawBox(){const box=$('drawBox');box.classList.toggle('show',!!dln);if(!dln)return;
+  $('dlnCloudRow').style.display=cloud&&cloud.n&&cloud.show?'flex':'none';$('dlnCloudChk').checked=dlnCloudSnap;
   const n=dln.verts.length,set=n?dln.verts[n-1].tags:dln.armed;
   $('dlnTitle').textContent=`DRAW ${dln.code} · ${n} pt${n===1?'':'s'}`;
   $('dlnTarget').textContent=n?`tags on vertex ${n}:`:'tags for the first vertex:';
@@ -6352,6 +6382,7 @@ $('dlnScrim').onclick=e=>{if(e.target===$('dlnScrim'))$('dlnScrim').classList.re
 DLN_TAGS.forEach(t=>$('dlnTag'+t).onclick=()=>dlnToggleTag(t));
 $('dlnUndo').onclick=dlnUndo;$('dlnEnd').onclick=()=>finishDrawLine('E');$('dlnCls').onclick=()=>finishDrawLine('CLS');$('dlnX').onclick=()=>cancelDrawLine();
 $('dlnZ').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'||e.key==='Escape'){e.preventDefault();e.target.blur();}});
+$('dlnCloudChk').onchange=e=>{dlnCloudSnap=e.target.checked;hud(dlnCloudSnap?'draw: snaps to point cloud when nothing else is under the cursor':'draw: point-cloud snap off');if(dln){dln.snap=null;draw();}};
 makeDraggable($('drawBox'),$('dlnTitle'),()=>document.querySelector('.stage').getBoundingClientRect());
 window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('dlnScrim').classList.contains('show')){e.preventDefault();e.stopPropagation();$('dlnScrim').classList.remove('show');return;}
