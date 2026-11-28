@@ -89,7 +89,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .snapbox label.active{background:rgba(53,193,132,.24);color:#9ff0c8}
 .snapbox input{width:13px;height:13px;cursor:pointer}
 .labelbox{left:64px;right:auto;bottom:44px}
-.cloudbox{left:auto;right:12px;top:auto;bottom:44px;max-width:330px}
+.cloudbox{left:auto;right:12px;top:auto;bottom:44px;max-width:400px}
 .cloudbox input[type=range]{width:140px;padding:0;background:none;border:none;accent-color:var(--gold)}
 #cbTitle{color:var(--gold);letter-spacing:.09em;font-size:10px;cursor:move}
 .cbFile{position:relative;overflow:hidden;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:4px 9px;font:700 11px var(--mono);cursor:pointer}
@@ -288,7 +288,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍊 ORANGE</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍓 STRAWBERRY</span>
   </div>
 
   <div class="main">
@@ -308,7 +308,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <button class="tool" id="tCircleCtr" title="Place a point at the center of a 3-point circle — click 3 points, or click an existing CIR-coded line to use its own 3 points"><span>⊙</span><span class="sub">CTR</span></button>
         <button class="tool" id="tTemp" title="Temp line (L) — click two spots (with snap) to draw a construction line for computing; select it to edit, or create points along it. Not exported."><span>⟋</span><span class="sub">TMP</span></button>
         <button class="tool" id="tDraw" title="Draw line (D) — asks for the code, then click points (snaps to existing points/lines, 2D or 3D); the floating box adds BC / OC / EC, End writes E, Close writes CLS. The vertices become new NEZ points at the end of the FBK."><span>✎</span><span class="sub">DRAW</span></button>
-        <button class="tool" id="tPoly" title="Polygon select (Y) — click corners, double-click / Enter / click the first corner to close; exports the lidar and/or survey points inside as a PNEZD CSV"><span>⬠</span><span class="sub">POLY</span></button>
+        <button class="tool" id="tPoly" title="Polygon select (Y) — click corners, double-click / Enter / click the first corner to close; exports the lidar and/or survey points inside as a PNEZD CSV, or makes contours from the lidar inside it"><span>⬠</span><span class="sub">POLY</span></button>
         <button class="tool" id="tXsec" title="Cross sections (X) — click the alignment (or select a line first), then set the section width, interval and spacing; makes points with lidar elevations along each section (NEZ points and/or a PNEZD CSV)"><span>⫴</span><span class="sub">XSEC</span></button>
         <button class="tool" id="tArr" title="Toggle direction arrows (A)"><span>➤</span><span class="sub">DIR</span></button>
         <button class="tool" id="tMap" title="Toggle GIS map background (M)" style="margin-top:12px"><span>🗺</span><span class="sub">MAP</span></button>
@@ -353,7 +353,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <div id="cbTitle" title="Drag to move · double-click to put it back">☁ POINT CLOUD</div>
         <div id="cbInfo" style="font-weight:400;color:var(--ink)"></div>
         <div class="dlnRow"><span title="How many of the loaded points are drawn (display only — snapping in 2D, POLY and XSEC use them all)">Shown</span><input type="range" id="cbDens" min="1" max="100" step="1" value="10"><span id="cbDensV">10%</span></div>
-        <div class="dlnRow"><label class="file cbFile" title="Add more .laz / .las files to the loaded cloud">＋ Add files<input type="file" id="lazAddInput" accept=".laz,.las" multiple></label><button id="cbSettings" title="Elevation adjustment, coordinate system, colour, classes">⚙ Settings</button><button id="cbHide" title="Hide this panel (☁ Cloud shows it again)">✕</button></div>
+        <div class="dlnRow"><label class="file cbFile" title="Add more .laz / .las files to the loaded cloud">＋ Add files<input type="file" id="lazAddInput" accept=".laz,.las" multiple></label><button id="cbCtr" title="Contours: draw a polygon (or use the last one) and make contour lines from the lidar inside it">〰 Contours</button><button id="cbSettings" title="Elevation adjustment, coordinate system, colour, classes">⚙ Settings</button><button id="cbHide" title="Hide this panel (☁ Cloud shows it again)">✕</button></div>
       </div>
       <div class="vex" id="vex">
         <span class="dragGrip" id="vexGrip" title="Drag to move · double-click to put it back">⠿</span><span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
@@ -700,6 +700,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <div class="row">
       <button class="btn ghost" id="polyClear" title="Remove the polygon from the drawing">Clear polygon</button>
       <button class="btn ghost" id="polyCancel">Close</button>
+      <button class="btn ghost" id="polyCtr" title="Make contour lines from the lidar points inside this polygon">〰 Contours…</button>
       <button class="btn gold" id="polyExport">↓ Export CSV</button>
     </div>
   </div>
@@ -733,6 +734,42 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
       <button class="btn ghost" id="xsCancel">Close</button>
       <button class="btn ghost" id="xsCsv">↓ Export CSV</button>
       <button class="btn gold" id="xsCreate">＋ Create points</button>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="ctrScrim">
+  <div class="modal wide">
+    <h4>Contours from the Point Cloud</h4>
+    <div id="ctrInfo" style="font:11px var(--mono);color:var(--mut);margin-bottom:10px"></div>
+    <div class="field3">
+      <div class="field"><label>Contour interval (ft)</label><input type="number" id="ctrInt" value="1" min="0.01" step="0.5"></div>
+      <div class="field"><label>Major every (contours)</label><input type="number" id="ctrMaj" value="5" min="1" step="1"></div>
+      <div class="field"><label>Grid cell (ft)</label><input type="number" id="ctrCell" value="2" min="0.1" step="0.5"></div>
+    </div>
+    <div class="field3">
+      <div class="field"><label>Cell elevation from</label><select id="ctrZMode" class="mSel"><option value="avg">average of lidar points</option><option value="low">lowest lidar point</option></select></div>
+      <div class="field"><label>Fill gaps up to (cells)</label><input type="number" id="ctrFill" value="3" min="0" step="1"></div>
+      <div class="field"><label>Smoothing passes</label><input type="number" id="ctrSmooth" value="1" min="0" max="10" step="1"></div>
+    </div>
+    <div class="field3">
+      <div class="field"><label>Simplify tolerance (ft)</label><input type="number" id="ctrSimp" value="0.1" min="0" step="0.05"></div>
+      <div class="field"><label>Drop contours shorter than (ft)</label><input type="number" id="ctrMinLen" value="5" min="0" step="1"></div>
+      <div class="field"><label>DXF label height (ft, 0 = none)</label><input type="number" id="ctrLblH" value="1" min="0" step="0.25"></div>
+    </div>
+    <label id="ctrGndRow" style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" id="ctrGnd" checked>Ground class only</label>
+    <div class="field3" style="margin-top:8px">
+      <div class="field"><label>Minor contour code</label><input type="text" id="ctrCodeMin" value="CONT" autocomplete="off"></div>
+      <div class="field"><label>Major contour code</label><input type="text" id="ctrCodeMaj" value="CONTM" autocomplete="off"></div>
+      <div class="field"><label>First point #</label><input type="number" id="ctrStart" step="1"></div>
+    </div>
+    <div class="hint" style="margin-top:6px">The lidar points inside the polygon are averaged (or the lowest taken) on a square grid, small holes are filled from their neighbours, the grid is smoothed, and contours are traced through it and clipped to the polygon. Z includes the cloud's elevation adjustment. ↓ Export DXF writes 3D polylines on layers CONTOUR-MAJOR / CONTOUR-MINOR (plus CONTOUR-LABELS). ＋ Add as linework makes NEZ points — one line per contour (B…E, or CLS for a closed loop) — exported at the end of the FBK; Ctrl+Z undoes.</div>
+    <div id="ctrMsg" style="font-size:11px;color:var(--ink);margin-top:8px;line-height:1.5"></div>
+    <div class="row">
+      <button class="btn ghost" id="ctrClear" title="Remove the contours from the drawing">Clear contours</button>
+      <button class="btn ghost" id="ctrCancel" title="Close — the contours stay on the drawing until cleared">Close</button>
+      <button class="btn ghost" id="ctrDxf">↓ Export DXF</button>
+      <button class="btn gold" id="ctrCreate">＋ Add as linework</button>
     </div>
   </div>
 </div>
@@ -931,7 +968,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🍊',name:'ORANGE',build:140};
+const VERSION={fruit:'🍓',name:'STRAWBERRY',build:141};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -963,7 +1000,7 @@ let figNEZ={};                                            // figId -> true: expo
 let ordPick=null;                                        // build 119 — reorder a line by clicking its points in order: {figId, seq:[ptIdx...]}
 let tempLines=[],tempTool=null,tempSel=-1,tempSeq=0;   // build 129 — temp construction lines {id,a,b} (session only, never exported); tempTool={a,snap,cur} while drawing; tempSel = selected line
 let dln=null;                                              // build 138 — ✎ DRAW line in progress (see the DRAW module)
-let cloud=null;let xsTool=null,xsAlign=null,xsCtx=null,xsTimer=0,cloudLoading=false,cloudBoxOpen=true;                                          // build 136 — loaded LAZ/LAS point cloud (session only)
+let cloud=null;let ctrRes=null,ctrCtx=null,ctrTimer=0,polyThen=null;let xsTool=null,xsAlign=null,xsCtx=null,xsTimer=0,cloudLoading=false,cloudBoxOpen=true;                                          // build 136 — loaded LAZ/LAS point cloud (session only)
 let npAdd=null;                                           // build 122 — add a NEW point after a chosen vertex: {figId,afterIdx,stage:'after'|'loc'|'dlg',snap,ret}
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
 let insertPt=null;                                        // insert-point flow: {figId}
@@ -3879,7 +3916,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawPoly();drawXs();drawTempLines((E,N)=>W2S(E,N),false);drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawDrawLine((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
+  drawContours((E,N)=>W2S(E,N),false);drawPoly();drawXs();drawTempLines((E,N)=>W2S(E,N),false);drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawDrawLine((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -3892,6 +3929,7 @@ function draw3D(){
     ctx.moveTo(a[0],a[1]);ctx.lineTo(c[0],c[1]);}
   ctx.stroke();
   drawCloud();
+  drawContours((E,N,Z)=>P3(E,N,Z),true);
   // figures in 3D
   ctx.lineWidth=1.5;const figs3=figures();figs3.forEach(f=>strokeFigure(f,(E,N,Z)=>P3(E,N,Z)));
   drawConnectLinks(figs3,(E,N,Z)=>P3(E,N,Z));
@@ -5662,7 +5700,7 @@ const HELP_CANVAS_TOOLS=[
   ['⊙ CTR','Place a new point at the circumcircle center of 3 clicked points, or of an existing CIR-coded line\'s own first 3 vertices.'],
   ['⟋ TMP','Temp line (L) — click two spots (full snap) to draw a dashed construction line for computing. It snaps like any other line, so two temp lines give an intersection to place a point on. Click it (SEL) to see bearing/length, edit its ends (or azimuth + length), and create points along it — divide, every interval, or at a distance, with an optional offset and code; tick “make linework” to give the new points B/E so they draw a line. Temp lines are not exported.'],
   ['✎ DRAW','Draw line (D): asks for the figure code (plus optional extra text for the first point, e.g. a curb code) and the first point #. Click points in 2D or 3D — clicks snap to existing points and lines and take their elevation; a free click uses the Z in the floating box (in 3D it lands on that elevation). Dragging still pans (2D) / orbits (3D). The floating box puts BC / OC / EC on the last vertex, ↶ Undo (Backspace) removes it, End (Enter) writes E on the last point, Close writes CLS. The first point gets B. The vertices become new NEZ points written at the end of the FBK (numbers in use are skipped); Ctrl+Z undoes the whole line.'],
-  ['⬠ POLY','Polygon select (Y): click the corners; double-click, Enter or click the first corner to close (Backspace removes the last corner, Esc cancels). Then choose lidar points (shown classes, optional minimum spacing, numbering and description) and/or survey points inside, and export them as a PNEZD CSV — lidar Z includes the elevation adjustment.'],
+  ['⬠ POLY','Polygon select (Y): click the corners; double-click, Enter or click the first corner to close (Backspace removes the last corner, Esc cancels). Then choose lidar points (shown classes, optional minimum spacing, numbering and description) and/or survey points inside, and export them as a PNEZD CSV — lidar Z includes the elevation adjustment. 〰 Contours… (also 〰 Contours in the ☁ panel) makes contour lines from the lidar inside the polygon: interval, major every N, grid cell, average/lowest, gap filling, smoothing, simplify; preview in 2D/3D, ↓ Export DXF (CONTOUR-MAJOR/MINOR) or ＋ Add as linework (NEZ points, one B…E / CLS line per contour).'],
   ['⫴ XSEC','Cross sections from the point cloud (X): click the alignment points (2D, with snap; double-click / Enter finishes) — or select a line first and use it. Set the section width (total, centred), the interval along the line, the point spacing across, the search radius and how Z is taken (nearest / average / lowest lidar point, ground class only by default). Preview the sections, then ＋ Create points (new NEZ points, one B…E line per section, at the end of the FBK; Ctrl+Z undoes) and/or ↓ Export CSV.'],
   ['➤ DIR','Toggle direction arrows on the linework (A).'],
   ['🗺 MAP','Toggle the aerial imagery background (2D only).'],
@@ -5885,7 +5923,7 @@ window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show')||$('codeChkScrim').classList.contains('show')||$('lazScrim').classList.contains('show')||$('polyScrim').classList.contains('show')||$('dlnScrim').classList.contains('show')||$('xsScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show')||$('codeChkScrim').classList.contains('show')||$('lazScrim').classList.contains('show')||$('polyScrim').classList.contains('show')||$('dlnScrim').classList.contains('show')||$('xsScrim').classList.contains('show')||$('ctrScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
@@ -6219,7 +6257,7 @@ function cloudSuggestClick(){const c=cloud;if(!c)return;
     if(!r){$('lazSuggestMsg').textContent='No survey shot has a lidar point within 1 ft — nothing to compare (check the coordinate system / E-N shift).';return;}
     $('lazZAdj').value=r.dz.toFixed(3);
     $('lazSuggestMsg').textContent=`Suggested ${(r.dz>=0?'+':'')+r.dz.toFixed(3)} — median of ${r.n} shot(s) vs the nearest lidar ${r.gnd?'ground ':''}point (spread ${r.iqr.toFixed(3)} middle half). Apply to use it.`;},20);}
-function unloadCloud(){if(!cloud)return;if(!confirm('Unload the point cloud?'))return;cloud=null;cloudImg=null;closeCloudDialog();syncCloudBox();if(xsTool)endXsTool(true);$('cloudBtn').disabled=true;
+function unloadCloud(){if(!cloud)return;if(!confirm('Unload the point cloud?'))return;cloud=null;cloudImg=null;closeCloudDialog();syncCloudBox();if(xsTool)endXsTool(true);ctrRes=null;ctrCtx=null;$('ctrScrim').classList.remove('show');$('cloudBtn').disabled=true;
   if(!PTS.length)$('fitBtn').disabled=true;draw();hud('point cloud unloaded');}
 function cloudFilesChosen(fs){if(!fs.length)return;
   if(cloud&&cloud.n){const add=confirm(`A point cloud is already loaded (${cloud.files.length} file(s), ${cloud.n.toLocaleString()} points).\n\nOK = add the ${fs.length} file(s) to it · Cancel = replace it`);
@@ -6241,7 +6279,7 @@ function startPolyTool(){
   if(polyTool){endPolyTool();return;}
   polyTool={pts:[],cur:null,lastT:0,lastXY:null};polyShape=null;selSet.clear();sel=-1;selFig=null;$('tPoly').classList.add('on');cv.style.cursor='crosshair';
   hud('polygon: click the corners · double-click, Enter or click the first corner to close · Backspace undoes a corner · Esc cancels');draw();}
-function endPolyTool(quiet){if(!polyTool)return;polyTool=null;$('tPoly').classList.remove('on');if(!quiet)hud('polygon cancelled');draw();}
+function endPolyTool(quiet){if(!polyTool)return;polyTool=null;polyThen=null;$('tPoly').classList.remove('on');if(!quiet)hud('polygon cancelled');draw();}
 function polyClick(sx,sy){const P=polyTool,now=performance.now();
   if(P.lastXY&&now-P.lastT<350&&Math.hypot(sx-P.lastXY[0],sy-P.lastXY[1])<6){closePoly();return;}   // double-click closes
   P.lastT=now;P.lastXY=[sx,sy];
@@ -6249,7 +6287,8 @@ function polyClick(sx,sy){const P=polyTool,now=performance.now();
   const[E,N]=S2W(sx,sy);P.pts.push({E,N});
   hud(`polygon: ${P.pts.length} corner(s)${P.pts.length>=3?' · double-click / Enter / click the first corner to close':''}`);draw();}
 function closePoly(){const P=polyTool;if(!P)return;if(P.pts.length<3){hud('a polygon needs at least 3 corners');return;}
-  polyShape=P.pts.slice();polyTool=null;$('tPoly').classList.remove('on');draw();openPolyDialog();}
+  polyShape=P.pts.slice();polyTool=null;$('tPoly').classList.remove('on');draw();
+  if(polyThen==='ctr'){polyThen=null;openCtrDialog();}else openPolyDialog();}
 function inPoly(E,N,poly){let ins=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
   if((a.N>N)!==(b.N>N)&&E<(b.E-a.E)*(N-a.N)/(b.N-a.N)+a.E)ins=!ins;}return ins;}
 function polyArea(poly){let s=0;for(let i=0,j=poly.length-1;i<poly.length;j=i++)s+=(poly[j].E+poly[i].E)*(poly[j].N-poly[i].N);return Math.abs(s)/2;}
@@ -6270,7 +6309,7 @@ function polyThinned(list,sp){const c=cloud;if(!(sp>0))return list;const seen=ne
 function openPolyDialog(){if(!polyShape)return;hud('finding the points inside the polygon…');
   setTimeout(()=>{polyCtx=polyGather();
     $('polyInfo').textContent=`${polyShape.length} corners · area ${polyArea(polyShape).toFixed(1)} sq ft (${(polyArea(polyShape)/43560).toFixed(3)} ac)`;
-    $('polyCloudRow').style.display=cloud?'':'none';
+    $('polyCloudRow').style.display=cloud?'':'none';$('polyCtr').style.display=cloud?'':'none';
     $('polyIncCloud').checked=!!cloud&&polyCtx.cloud.length>0;$('polyIncPts').checked=polyCtx.pts.length>0&&!(cloud&&polyCtx.cloud.length);
     $('polyCloudN').textContent=cloud?`${polyCtx.cloud.length.toLocaleString()} lidar point(s) inside (shown classes only${cloud.stride>1?`; the file was thinned to every ${cloudOrd(cloud.stride)} on load`:''})`:'';
     $('polyPtsN').textContent=`${polyCtx.pts.length} survey point(s) inside — written with their own point # and description`;
@@ -6310,6 +6349,147 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'){e.preventDefault();e.stopPropagation();endPolyTool();}
   else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();closePoly();}
   else if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();e.stopPropagation();polyTool.pts.pop();hud(`polygon: ${polyTool.pts.length} corner(s)`);draw();}},true);
+
+/* ---------- build 141 — 〰 contours from the point cloud, inside a ⬠ POLY polygon ----------
+   Owner: "add poly tool to create contours from pt cloud." Draw a polygon with ⬠ POLY, then
+   〰 Contours… in its dialog (or 〰 Contours in the ☁ panel, which draws a new polygon or reuses
+   the last one). The lidar points (shown classes; ground only by default) in and just around the
+   polygon are binned on a square grid (cell = average or lowest Z), holes up to N cells are filled
+   from their neighbours, the grid is smoothed (1-2-1 kernel, N passes), nodes outside the polygon
+   are dropped, and contours are traced with marching squares (saddles resolved by the cell
+   centre), joined into polylines, simplified (Douglas-Peucker) and short pieces dropped. Shown as
+   a preview in 2D and 3D (major = thicker, labelled). ↓ Export DXF writes 3D polylines;
+   ＋ Add as linework writes NEZ points (one line per contour, B…E or CLS). Uses every loaded
+   point, whatever the display density. */
+const CTR_MAX_NODES=4000000;
+function ctrParams(){const v=id=>parseFloat($(id).value);
+  return{I:v('ctrInt'),maj:Math.max(1,Math.round(v('ctrMaj'))||5),cs:v('ctrCell'),mode:$('ctrZMode').value,fill:Math.max(0,Math.round(v('ctrFill'))||0),
+    smooth:Math.max(0,Math.min(10,Math.round(v('ctrSmooth'))||0)),simp:Math.max(0,v('ctrSimp')||0),minLen:Math.max(0,v('ctrMinLen')||0),
+    gnd:$('ctrGnd').checked&&!$('ctrGndRow').hidden,lblH:Math.max(0,v('ctrLblH')||0),
+    codeMin:($('ctrCodeMin').value.trim().split(/\s+/)[0]||'CONT').toUpperCase(),codeMaj:($('ctrCodeMaj').value.trim().split(/\s+/)[0]||'CONTM').toUpperCase(),
+    start:parseInt($('ctrStart').value,10)};}
+function ctrBox(poly){let minE=Infinity,maxE=-Infinity,minN=Infinity,maxN=-Infinity;
+  poly.forEach(p=>{minE=Math.min(minE,p.E);maxE=Math.max(maxE,p.E);minN=Math.min(minN,p.N);maxN=Math.max(maxN,p.N);});return{minE,maxE,minN,maxN};}
+function ctrSuggestCell(){const c=cloud,poly=polyShape,b=ctrBox(poly),gnd=(c.clsCount[2]||0)>0&&$('ctrGnd').checked,hid=c.hidden;let n=0;
+  for(let i=0;i<c.n;i++){const e=c.E[i],nn=c.N[i];if(e<b.minE||e>b.maxE||nn<b.minN||nn>b.maxN)continue;if(hid.has(c.C[i]))continue;if(gnd&&c.C[i]!==2)continue;if(inPoly(e,nn,poly))n++;}
+  const A=polyArea(poly);if(!n)return{cs:2,n};let cs=Math.sqrt(A/n)*1.5;
+  cs=Math.max(cs,Math.sqrt((b.maxE-b.minE+4)*(b.maxN-b.minN+4)/(CTR_MAX_NODES*0.8)));cs=Math.max(0.5,Math.ceil(cs*2)/2);return{cs,n};}
+function ctrDP(pts,tol){if(tol<=0||pts.length<3)return pts;const keep=new Uint8Array(pts.length);keep[0]=keep[pts.length-1]=1;const st=[[0,pts.length-1]];
+  while(st.length){const[a,b]=st.pop();const A=pts[a],B=pts[b],dx=B.E-A.E,dy=B.N-A.N,L=Math.hypot(dx,dy);let md=-1,mi=-1;
+    for(let k=a+1;k<b;k++){const P=pts[k];const d=L<1e-12?Math.hypot(P.E-A.E,P.N-A.N):Math.abs(dy*(P.E-A.E)-dx*(P.N-A.N))/L;if(d>md){md=d;mi=k;}}
+    if(md>tol){keep[mi]=1;st.push([a,mi],[mi,b]);}}
+  return pts.filter((_,k)=>keep[k]);}
+function ctrCompute(){const c=cloud,poly=polyShape,P=ctrParams();
+  if(!c||!c.n)return{err:'no point cloud loaded',P};if(!poly||poly.length<3)return{err:'no polygon',P};
+  if(!(P.I>0))return{err:'set a contour interval above 0',P};if(!(P.cs>0))return{err:'set a grid cell size above 0',P};
+  const t0=performance.now(),b=ctrBox(poly),cs=P.cs,pad=cs*(P.fill+2);
+  const x0=b.minE-pad,y0=b.minN-pad,nx=Math.ceil((b.maxE-b.minE+2*pad)/cs)+1,ny=Math.ceil((b.maxN-b.minN+2*pad)/cs)+1,NN=nx*ny;
+  if(NN>CTR_MAX_NODES)return{err:`the grid would have ${NN.toLocaleString()} cells — raise the grid cell to at least ${(cs*Math.sqrt(NN/CTR_MAX_NODES)).toFixed(1)} ft or draw a smaller polygon`,P};
+  const sum=new Float64Array(NN),cnt=new Uint32Array(NN),low=new Float32Array(NN).fill(Infinity),hid=c.hidden,gnd=P.gnd;let used=0;
+  for(let i=0;i<c.n;i++){const e=c.E[i],n=c.N[i];const ix=Math.round((e-x0)/cs),iy=Math.round((n-y0)/cs);if(ix<0||iy<0||ix>=nx||iy>=ny)continue;
+    const cl=c.C[i];if(hid.has(cl)||(gnd&&cl!==2))continue;const k=iy*nx+ix,z=c.Z[i];sum[k]+=z;cnt[k]++;if(z<low[k])low[k]=z;used++;}
+  if(!used)return{err:'no lidar points (of the shown'+(gnd?' ground':'')+' classes) in the polygon',P};
+  let z=new Float32Array(NN);for(let k=0;k<NN;k++)z[k]=cnt[k]?(P.mode==='low'?low[k]:sum[k]/cnt[k])+c.zAdj:NaN;
+  for(let pass=0;pass<P.fill;pass++){const z2=z.slice();let ch=0;                 // fill holes from ≥3 of the 8 neighbours
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i;if(z[k]===z[k])continue;let s=0,m=0;
+      for(let dj=-1;dj<=1;dj++){const jj=j+dj;if(jj<0||jj>=ny)continue;for(let di=-1;di<=1;di++){const ii=i+di;if((!di&&!dj)||ii<0||ii>=nx)continue;const v=z[jj*nx+ii];if(v===v){s+=v;m++;}}}
+      if(m>=3){z2[k]=s/m;ch++;}}z=z2;if(!ch)break;}
+  for(let pass=0;pass<P.smooth;pass++){const z2=z.slice();                         // 1-2-1 smoothing over the cells that have a value
+    for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const k=j*nx+i;if(z[k]!==z[k])continue;let s=0,w=0;
+      for(let dj=-1;dj<=1;dj++){const jj=j+dj;if(jj<0||jj>=ny)continue;for(let di=-1;di<=1;di++){const ii=i+di;if(ii<0||ii>=nx)continue;const v=z[jj*nx+ii];if(v!==v)continue;const ww=(di?1:2)*(dj?1:2);s+=v*ww;w+=ww;}}
+      z2[k]=s/w;}z=z2;}
+  let zmin=Infinity,zmax=-Infinity,nOk=0;                                        // clip to the polygon
+  for(let j=0;j<ny;j++){const N=y0+j*cs;for(let i=0;i<nx;i++){const k=j*nx+i;if(z[k]!==z[k])continue;if(!inPoly(x0+i*cs,N,poly)){z[k]=NaN;continue;}
+    nOk++;if(z[k]<zmin)zmin=z[k];if(z[k]>zmax)zmax=z[k];}}
+  if(nOk<4)return{err:'too few grid cells with lidar inside the polygon — try a smaller grid cell or more gap filling',P};
+  const I=P.I,k0=Math.ceil(zmin/I-1e-9),k1=Math.floor(zmax/I+1e-9),nL=k1-k0+1;
+  if(nL<=0)return{err:`the surface is flat at this interval (Z ${zmin.toFixed(2)}–${zmax.toFixed(2)})`,P};
+  if(nL>2000)return{err:`${nL} contour levels — raise the interval (Z range ${zmin.toFixed(1)}–${zmax.toFixed(1)} ft)`,P};
+  const NH=NN,segs=Array.from({length:nL},()=>[]);
+  const ek=(e,i,j)=>e===0?j*nx+i:e===1?NH+j*nx+i+1:e===2?(j+1)*nx+i:NH+j*nx+i;   // 0 bottom 1 right 2 top 3 left
+  const T={1:[[3,0]],2:[[0,1]],3:[[3,1]],4:[[1,2]],6:[[0,2]],7:[[3,2]],8:[[2,3]],9:[[0,2]],11:[[1,2]],12:[[1,3]],13:[[0,1]],14:[[3,0]]};
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=z[j*nx+i],bb=z[j*nx+i+1],cc=z[(j+1)*nx+i+1],d=z[(j+1)*nx+i];
+    if(a!==a||bb!==bb||cc!==cc||d!==d)continue;const lo=Math.min(a,bb,cc,d),hi=Math.max(a,bb,cc,d);
+    const ka=Math.max(k0,Math.ceil(lo/I-1e-12)),kb=Math.min(k1,Math.floor(hi/I+1e-12));
+    for(let k=ka;k<=kb;k++){const L=k*I,id=(a>=L)|((bb>=L)<<1)|((cc>=L)<<2)|((d>=L)<<3);if(!id||id===15)continue;let list=T[id];
+      if(id===5||id===10){const ctrH=(a+bb+cc+d)/4>=L;list=(id===5)===ctrH?[[0,1],[2,3]]:[[3,0],[1,2]];}
+      const S=segs[k-k0];for(const[e1,e2]of list)S.push(ek(e1,i,j),ek(e2,i,j));}}
+  const edgePt=(key,L)=>{let n1,n2;if(key<NH){n1=key;n2=key+1;}else{n1=key-NH;n2=n1+nx;}const v1=z[n1],v2=z[n2],t=v2===v1?0.5:(L-v1)/(v2-v1);
+    const i1=n1%nx,j1=(n1-i1)/nx,i2=n2%nx,j2=(n2-i2)/nx;return{E:x0+(i1+(i2-i1)*t)*cs,N:y0+(j1+(j2-j1)*t)*cs};};
+  const lines=[];let nDrop=0;
+  segs.forEach((S,li)=>{const k=k0+li,L=k*I,ns=S.length/2;if(!ns)return;const adj=new Map(),used2=new Uint8Array(ns);
+    const add=(key,s)=>{const v=adj.get(key);if(v)v.push(s);else adj.set(key,[s]);};for(let s=0;s<ns;s++){add(S[2*s],s);add(S[2*s+1],s);}
+    const other=(s,key)=>S[2*s]===key?S[2*s+1]:S[2*s];
+    const walk=(s,from,out)=>{let key=other(s,from);for(;;){out.push(key);const nb=adj.get(key).find(t=>!used2[t]);if(nb===undefined)return key;used2[nb]=1;key=other(nb,key);}};
+    for(let s=0;s<ns;s++){if(used2[s])continue;used2[s]=1;const fwd=[S[2*s]],end=walk(s,S[2*s],fwd);
+      let keys=fwd,closed=end===S[2*s]&&fwd.length>2;
+      if(!closed){const bwd=[];walk(s,S[2*s+1],bwd);keys=bwd.reverse().concat(fwd.slice(0));keys=keys.filter((q,x)=>x===0||q!==keys[x-1]);}   // extend backwards from the start too
+      let pts=keys.map(q=>edgePt(q,L));if(closed&&keys[keys.length-1]!==keys[0])pts.push({...pts[0]});
+      pts=ctrDP(pts,P.simp);let len=0;for(let q=1;q<pts.length;q++)len+=Math.hypot(pts[q].E-pts[q-1].E,pts[q].N-pts[q-1].N);
+      if(pts.length<2||len<P.minLen||(closed&&pts.length<4)){nDrop++;continue;}
+      lines.push({z:L,k,major:((k%P.maj)+P.maj)%P.maj===0,closed,len,pts:pts.map(q=>({E:q.E,N:q.N,Z:L}))});}});
+  return{P,lines,nDrop,used,nx,ny,zmin,zmax,ms:performance.now()-t0};}
+function ctrRefresh(now){clearTimeout(ctrTimer);const run=()=>{if(!$('ctrScrim').classList.contains('show'))return;$('ctrMsg').textContent='computing…';
+    setTimeout(()=>{ctrCtx=ctrCompute();const R=ctrCtx;
+      if(R.err){ctrRes=null;$('ctrMsg').textContent='⚠ '+R.err;$('ctrCreate').disabled=$('ctrDxf').disabled=true;draw();return;}
+      ctrRes=R;const nv=R.lines.reduce((t,l)=>t+(l.closed?l.pts.length-1:l.pts.length),0),nMaj=R.lines.filter(l=>l.major).length;
+      $('ctrMsg').innerHTML=`<b>${R.lines.length.toLocaleString()}</b> contour line(s) (${nMaj} major) from ${R.used.toLocaleString()} lidar point(s) · Z ${R.zmin.toFixed(2)}–${R.zmax.toFixed(2)} · grid ${R.nx}×${R.ny}`+
+        `${R.nDrop?` · ${R.nDrop} short piece(s) dropped`:''} · ${nv.toLocaleString()} vertices · ${Math.round(R.ms)} ms · Z includes the ${(cloud.zAdj>=0?'+':'')+cloud.zAdj.toFixed(3)} adjustment`+
+        (nv>20000?` · <span style="color:var(--gold)">a lot of vertices for linework — raise the simplify tolerance or the interval</span>`:'');
+      $('ctrDxf').disabled=!R.lines.length;$('ctrCreate').disabled=!R.lines.length||!isFinite(R.P.start);draw();},10);};
+  if(now)run();else ctrTimer=setTimeout(run,300);}
+function openCtrDialog(){const c=cloud;if(!c||!c.n){hud('load a point cloud (☁ Load LAZ/LAS) first');return;}if(!polyShape){hud('draw a polygon first');return;}
+  const hasG=(c.clsCount[2]||0)>0;$('ctrGndRow').hidden=!hasG;
+  const key=polyShape.map(p=>p.E.toFixed(2)+','+p.N.toFixed(2)).join(';');
+  if(openCtrDialog.key!==key){openCtrDialog.key=key;const sg=ctrSuggestCell();$('ctrCell').value=String(sg.cs);openCtrDialog.n=sg.n;}
+  $('ctrInfo').textContent=`polygon ${polyShape.length} corners · ${polyArea(polyShape).toFixed(0)} sq ft · ${(openCtrDialog.n||0).toLocaleString()} lidar point(s) inside · all loaded points are used, whatever the display density`;
+  if(!$('ctrStart').value||dlnIdUsed($('ctrStart').value))$('ctrStart').value=String(PTS.length?getNextPointNumber():1);
+  $('ctrScrim').classList.add('show');ctrRefresh(true);}
+function closeCtrDialog(){$('ctrScrim').classList.remove('show');clearTimeout(ctrTimer);draw();
+  if(ctrRes)hud(`contours stay on the drawing — 〰 Contours in the ☁ panel reopens them, Clear contours removes them`);}
+function startCtr(){if(!cloud||!cloud.n){hud('load a point cloud first');return;}
+  if(polyShape&&confirm('Make contours inside the last polygon?\n\nOK = use it · Cancel = draw a new polygon')){openCtrDialog();return;}
+  startPolyTool();if(polyTool){polyThen='ctr';hud('contours: click the polygon corners · double-click, Enter or click the first corner to close · Esc cancels');}}
+function drawContours(proj,is3d){const R=ctrRes;if(!R||!R.lines.length)return;ctx.save();
+  const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
+  for(const pass of[0,1])R.lines.forEach(l=>{if(l.major!==!!pass)return;ctx.beginPath();
+    l.pts.forEach((p,k)=>{const s=proj(p.E,p.N,p.Z);k?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);});
+    ctx.lineWidth=l.major?1.8:0.9;ctx.strokeStyle=l.major?'rgba(232,160,92,.95)':'rgba(196,140,90,.65)';ctx.stroke();});
+  if(!is3d){ctx.font='600 10px ui-monospace,monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+    R.lines.forEach(l=>{if(!l.major)return;const m=l.pts[Math.floor(l.pts.length/2)],n2=l.pts[Math.min(l.pts.length-1,Math.floor(l.pts.length/2)+1)];
+      const[a,b]=proj(m.E,m.N),[c2,d]=proj(n2.E,n2.N);if(a<0||b<0||a>w||b>h)return;if(l.len*view.s<60)return;
+      let ang=Math.atan2(d-b,c2-a);if(ang>Math.PI/2)ang-=Math.PI;if(ang<-Math.PI/2)ang+=Math.PI;
+      const txt=fmtCtrZ(l.z,R.P.I);ctx.save();ctx.translate(a,b);ctx.rotate(ang);const tw=ctx.measureText(txt).width;
+      ctx.fillStyle='rgba(10,20,38,.85)';ctx.fillRect(-tw/2-2,-6,tw+4,12);ctx.fillStyle='#E8A05C';ctx.fillText(txt,0,0);ctx.restore();});}
+  ctx.restore();}
+function fmtCtrZ(z,I){const dp=I>=1&&Math.abs(I-Math.round(I))<1e-9?0:I>=0.1?1:2;return z.toFixed(dp);}
+function ctrExportDXF(){const R=ctrRes;if(!R||!R.lines.length)return;let ents='',nl=0;
+  R.lines.forEach(l=>{const lay=l.major?'CONTOUR-MAJOR':'CONTOUR-MINOR',pts=l.closed?l.pts.slice(0,-1):l.pts;ents+=dxfPolyline(lay,pts,l.closed);
+    if(l.major&&R.P.lblH>0){const k=Math.floor(l.pts.length/2),a=l.pts[k],b=l.pts[Math.min(l.pts.length-1,k+1)];let ang=Math.atan2(b.N-a.N,b.E-a.E)*180/Math.PI;if(ang>90)ang-=180;if(ang<-90)ang+=180;
+      ents+=`0\nTEXT\n8\nCONTOUR-LABELS\n10\n${dxfNum(a.E)}\n20\n${dxfNum(a.N)}\n30\n${dxfNum(a.Z)}\n40\n${R.P.lblH}\n1\n${fmtCtrZ(l.z,R.P.I)}\n50\n${ang.toFixed(3)}\n72\n1\n11\n${dxfNum(a.E)}\n21\n${dxfNum(a.N)}\n31\n${dxfNum(a.Z)}\n73\n2\n`;}nl++;});
+  const dxf=`0\nSECTION\n2\nENTITIES\n${ents}0\nENDSEC\n0\nEOF\n`,blob=new Blob([dxf],{type:'application/dxf'}),el=document.createElement('a');
+  const base=(cloud.files.length===1?cloud.name.replace(/\.(laz|las)$/i,''):'cloud').replace(/\s+/g,'_');
+  el.href=URL.createObjectURL(blob);el.download=`${base}_contours_${R.P.I}ft.dxf`;el.click();setTimeout(()=>URL.revokeObjectURL(el.href),4000);
+  logEdit('code',`exported contours DXF: ${nl} contour(s) at ${R.P.I} ft (major every ${R.P.maj})`);hud(`exported ${nl} contour(s) to DXF`);}
+function ctrCreateLinework(){const R=ctrRes;if(!R||!R.lines.length)return;const P=R.P;if(!isFinite(P.start)){hud('set the first point #');return;}
+  const usedIds=new Set(PTS.map(p=>String(p.id)));let num=P.start;const rows=[];
+  R.lines.forEach(l=>{const pts=l.closed?l.pts.slice(0,-1):l.pts,code=l.major?P.codeMaj:P.codeMin,n=pts.length;if(n<2||(l.closed&&n<3))return;
+    pts.forEach((p,q)=>{while(usedIds.has(String(num)))num++;const id=String(num++);usedIds.add(id);
+      rows.push({id,E:p.E,N:p.N,Z:p.Z,desc:[code,q===0?'B':'',q===n-1?(l.closed?'CLS':'E'):''].filter(Boolean).join(' ')});});});
+  if(!rows.length)return;
+  if(rows.length>20000&&!confirm(`Add ${rows.length.toLocaleString()} points to the job? (raise the simplify tolerance or the interval for fewer)`))return;
+  saveState();rows.forEach(r=>PTS.push({id:r.id,code:'NEZ',desc:r.desc,N:r.N,E:r.E,Z:r.Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true}));
+  logEdit('code',`contours from the point cloud: ${R.lines.length} line(s) at ${P.I} ft, ${rows.length} NEZ pt(s) ${rows[0].id}–${rows[rows.length-1].id} (${P.codeMin}/${P.codeMaj})`);
+  ctrRes=null;ctrCtx=null;buildLinework();flagDirty();$('fitBtn').disabled=false;$('ctrScrim').classList.remove('show');draw();
+  hud(`${R.lines.length} contour line(s) added as ${rows.length.toLocaleString()} NEZ point(s) (${rows[0].id}–${rows[rows.length-1].id}) — exported at the end of the FBK · Ctrl+Z undoes`);}
+$('polyCtr').onclick=()=>{if(!cloud){hud('load a point cloud first');return;}$('polyScrim').classList.remove('show');polyCtx=null;openCtrDialog();};
+$('cbCtr').onclick=startCtr;
+$('ctrCancel').onclick=closeCtrDialog;$('ctrDxf').onclick=ctrExportDXF;$('ctrCreate').onclick=ctrCreateLinework;
+$('ctrClear').onclick=()=>{ctrRes=null;ctrCtx=null;$('ctrScrim').classList.remove('show');draw();hud('contours cleared');};
+$('ctrScrim').onclick=e=>{if(e.target===$('ctrScrim'))closeCtrDialog();};
+['ctrInt','ctrMaj','ctrCell','ctrFill','ctrSmooth','ctrSimp','ctrMinLen','ctrStart'].forEach(id=>$(id).addEventListener('input',()=>ctrRefresh(false)));
+['ctrZMode','ctrGnd'].forEach(id=>$(id).addEventListener('change',()=>ctrRefresh(true)));
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('ctrScrim').classList.contains('show')){e.preventDefault();e.stopPropagation();closeCtrDialog();}},true);
 
 /* ---------- build 140 — load many LAZ/LAS files into one cloud + density panel ----------
    Owner: "make it load all laz files and add slider floating pop up, load multiple laz files,
