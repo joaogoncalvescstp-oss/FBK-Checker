@@ -75,6 +75,14 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
 .vex.show{display:flex}
 .snapbox{position:absolute;right:12px;bottom:44px;display:none;flex-direction:column;gap:3px;background:rgba(7,11,22,.85);border:1px solid var(--rule);border-radius:8px;padding:8px 10px;font:600 11px var(--mono);color:var(--mut);z-index:5;pointer-events:none}
 .snapbox.show{display:flex}
+.drawbox{position:absolute;left:72px;top:12px;display:none;flex-direction:column;gap:6px;background:rgba(7,11,22,.92);border:1px solid var(--rule);border-top:2px solid var(--gold);border-radius:8px;padding:8px 10px;font:600 11px var(--mono);color:var(--mut);z-index:6;max-width:calc(100% - 140px)}
+.drawbox.show{display:flex}
+.drawbox .dlnRow{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.drawbox button{background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:4px 9px;font:700 11px var(--mono);cursor:pointer}
+.drawbox button:disabled{opacity:.4;cursor:default}
+.drawbox button.on{background:var(--gold);color:#1b1300;border-color:var(--gold)}
+.drawbox input{width:84px;background:var(--panel2);border:1px solid var(--rule);color:var(--ink);border-radius:5px;padding:3px 6px;font:12px var(--mono)}
+#dlnTitle{color:var(--gold);letter-spacing:.09em;font-size:10px}
 .snapbox .sbTitle{color:var(--gold-dim);letter-spacing:.09em;font-size:9px;margin-bottom:2px}
 .snapbox label{display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 5px;border-radius:5px;transition:background .12s,color .12s;pointer-events:auto}
 .snapbox label.active{background:rgba(53,193,132,.24);color:#9ff0c8}
@@ -274,7 +282,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
     <button class="btn ghost" id="asBtn" title="Restore work auto-saved in this browser (last 5 jobs)">🕘 Restore</button>
     <button class="btn ghost" id="helpBtn" title="Help — quick start, tool reference, description-key codes, and the built-in curb cross-section database">❓ Help</button>
     <button class="btn gold sideToggle" id="sideToggleBtn" title="Show inspector">☰ Inspector</button>
-    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🥝 KIWI</span>
+    <span id="fruitBadge" style="font-size:14px;font-weight:700;letter-spacing:.06em;margin-left:12px;cursor:pointer;transition:transform 0.2s;white-space:nowrap" title="version" onclick="rotateFruit()">🍌 BANANA</span>
   </div>
 
   <div class="main">
@@ -293,6 +301,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
         <button class="tool" id="tCircle" title="Draw circle (C)"><span>◯</span><span class="sub">CIR</span></button>
         <button class="tool" id="tCircleCtr" title="Place a point at the center of a 3-point circle — click 3 points, or click an existing CIR-coded line to use its own 3 points"><span>⊙</span><span class="sub">CTR</span></button>
         <button class="tool" id="tTemp" title="Temp line (L) — click two spots (with snap) to draw a construction line for computing; select it to edit, or create points along it. Not exported."><span>⟋</span><span class="sub">TMP</span></button>
+        <button class="tool" id="tDraw" title="Draw line (D) — asks for the code, then click points (snaps to existing points/lines, 2D or 3D); the floating box adds BC / OC / EC, End writes E, Close writes CLS. The vertices become new NEZ points at the end of the FBK."><span>✎</span><span class="sub">DRAW</span></button>
         <button class="tool" id="tPoly" title="Polygon select (Y) — click corners, double-click / Enter / click the first corner to close; exports the lidar and/or survey points inside as a PNEZD CSV"><span>⬠</span><span class="sub">POLY</span></button>
         <button class="tool" id="tArr" title="Toggle direction arrows (A)"><span>➤</span><span class="sub">DIR</span></button>
         <button class="tool" id="tMap" title="Toggle GIS map background (M)" style="margin-top:12px"><span>🗺</span><span class="sub">MAP</span></button>
@@ -325,6 +334,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
           <span>Size</span><input type="range" id="lblSizeR" min="7" max="20" step="1" value="10" style="width:80px;accent-color:var(--gold)">
           <span id="lblSizeV">10px</span>
         </div>
+      </div>
+      <div class="drawbox" id="drawBox">
+        <div id="dlnTitle">DRAW</div>
+        <div class="dlnRow"><span id="dlnTarget">tags:</span><button id="dlnTagBC" title="Begin curve on this vertex">BC</button><button id="dlnTagOC" title="On-curve point: rounds the corner at this vertex">OC</button><button id="dlnTagEC" title="End curve on this vertex">EC</button></div>
+        <div class="dlnRow"><span title="Elevation for a click that doesn't snap to anything (a snapped click fills this in)">Z free</span><input type="text" inputmode="decimal" id="dlnZ" autocomplete="off"></div>
+        <div class="dlnRow"><button id="dlnUndo" title="Remove the last vertex (Backspace)">↶ Undo</button><button id="dlnEnd" title="Finish — last point gets E (Enter)">End (E)</button><button id="dlnCls" title="Finish and close back to the first point — last point gets CLS">Close (CLS)</button><button id="dlnX" title="Cancel (Esc)">✕</button></div>
       </div>
       <div class="vex" id="vex">
         <span class="dragGrip" id="vexGrip" title="Drag to move · double-click to put it back">⠿</span><span>VERT&nbsp;EXAG</span><input type="range" id="vexR" min="1" max="12" step="0.5" value="3">
@@ -676,6 +691,18 @@ canvas{display:block;width:100%;height:100%;touch-action:none;position:relative;
   </div>
 </div>
 
+<div class="scrim" id="dlnScrim">
+  <div class="modal">
+    <h4>Draw line</h4>
+    <div class="field"><label>Figure code</label><input type="text" id="dlnCode" autocomplete="off" placeholder="e.g. RBCB1"></div>
+    <div class="field"><label>Extra text on the first point (optional)</label><input type="text" id="dlnExtra" autocomplete="off" placeholder="e.g. R624"></div>
+    <div class="field"><label>First point #</label><input type="number" id="dlnStart" step="1"></div>
+    <div class="hint" style="margin:-4px 0 6px;line-height:1.5">Click points on the drawing (2D or 3D) — clicks snap to existing points and lines and take their elevation. The first point gets <b>B</b>; End puts <b>E</b> on the last, Close puts <b>CLS</b>. The new points are written as NEZ records at the end of the FBK; numbers already in use are skipped.</div>
+    <div id="dlnMsg" style="font-size:11px;color:var(--fail)"></div>
+    <div class="row"><button class="btn ghost" id="dlnCancel">Cancel</button><button class="btn gold" id="dlnGo">Start drawing</button></div>
+  </div>
+</div>
+
 <div class="scrim" id="simplCogoScrim">
   <div class="modal">
     <h4>Add Point (COGO)</h4>
@@ -858,7 +885,7 @@ const cv = $('cv'), ctx = cv.getContext('2d');
 const FRUITS=['🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥝','🍍','🥭','🍌','🍐','🥥'];
 // VERSION MARKER — bumped on every push so you can confirm the page isn't cached.
 // If the badge below matches what Claude said it pushed, you have the latest build.
-const VERSION={fruit:'🥝',name:'KIWI',build:137};
+const VERSION={fruit:'🍌',name:'BANANA',build:138};
 function randomFruit(){return FRUITS[Math.floor(Math.random()*FRUITS.length)];}
 function rotateFruit(){const badge=$('fruitBadge');badge.style.transform='rotate(360deg)';setTimeout(()=>{badge.style.transform='rotate(0deg)';},200);}
 function showVersion(){const b=$('fruitBadge');b.textContent=`${VERSION.fruit} ${VERSION.name}`;b.title=`Build ${VERSION.build} · ${VERSION.name} — if this matches what Claude pushed, you're on the latest (no cache)`;}
@@ -889,6 +916,7 @@ let figExtra={};                                          // figId -> [{i,after}
 let figNEZ={};                                            // figId -> true: export every vertex as an NEZ record (setup-independent)
 let ordPick=null;                                        // build 119 — reorder a line by clicking its points in order: {figId, seq:[ptIdx...]}
 let tempLines=[],tempTool=null,tempSel=-1,tempSeq=0;   // build 129 — temp construction lines {id,a,b} (session only, never exported); tempTool={a,snap,cur} while drawing; tempSel = selected line
+let dln=null;                                              // build 138 — ✎ DRAW line in progress (see the DRAW module)
 let cloud=null;                                          // build 136 — loaded LAZ/LAS point cloud (session only)
 let npAdd=null;                                           // build 122 — add a NEW point after a chosen vertex: {figId,afterIdx,stage:'after'|'loc'|'dlg',snap,ret}
 let addPt=null;                                           // add-point flow: {figId, anchor:ptIdx|-1}
@@ -2941,7 +2969,7 @@ function snapPoint(sx,sy){
     if(d<bnd){bnd=d;const[E,N]=S2W(x,y);best={E,N,Z:s.aZ+t*(s.bZ-s.aZ),sx:x,sy:y,type:'nearest',label:'nearest'};}});
   return best;}
 function drawSnapMarker(){
-  const s=cogoPick?cogoSnap:tempTool?tempTool.snap:(insertPt&&!is3D?insertSnap:(npAdd&&npAdd.stage==='loc'?npAdd.snap:null));
+  const s=dln?dln.snap:cogoPick?cogoSnap:tempTool?tempTool.snap:(insertPt&&!is3D?insertSnap:(npAdd&&npAdd.stage==='loc'?npAdd.snap:null));
   if(!s)return;const x=s.sx,y=s.sy,r=7;ctx.save();
   ctx.lineWidth=2;ctx.strokeStyle='#35c184';ctx.fillStyle='rgba(53,193,132,.18)';
   if(s.type==='endpoint'){ctx.fillRect(x-r,y-r,2*r,2*r);ctx.strokeRect(x-r,y-r,2*r,2*r);}   // box = endpoint (any point/vertex)
@@ -2961,10 +2989,10 @@ function drawSnapMarker(){
    it always reflects current tool/mode state, not just pointermove ticks. */
 function syncSnapBox(){
   const box=$('snapBox');if(!box)return;
-  const live=cogoPick||(tempTool&&!is3D)||(insertPt&&!is3D)||(npAdd&&npAdd.stage==='loc'&&!is3D);
+  const live=(dln&&!is3D)||cogoPick||(tempTool&&!is3D)||(insertPt&&!is3D)||(npAdd&&npAdd.stage==='loc'&&!is3D);
   box.classList.toggle('show',!!live);
   if(!live)return;
-  const s=cogoPick?cogoSnap:tempTool?tempTool.snap:insertPt?insertSnap:npAdd.snap;
+  const s=dln?dln.snap:cogoPick?cogoSnap:tempTool?tempTool.snap:insertPt?insertSnap:npAdd.snap;
   const active=s&&(s.type==='center'||s.type==='quadrant'?'endpoint':s.type);   // circle center/quadrant fold under the endpoint toggle — see snapEnabled/collectCircles (build 107)
   ['endpoint','intersection','midpoint','nearest'].forEach(t=>{
     const lbl=$('snapLbl_'+t);if(lbl)lbl.classList.toggle('active',active===t);});
@@ -2992,7 +3020,7 @@ function endCogoPick(snap){
 function tempEnd(L,k){return k?L.b:L.a;}
 function tempZOf(P,L){if(isFinite(P.Z))return P.Z;const o=P===L.a?L.b:L.a;return isFinite(o.Z)?o.Z:NaN;}   // a blank end takes the other end's Z; NaN if neither has one
 function startTempTool(){
-  if(is3D)setMode('sel');if(polyTool)endPolyTool(true);
+  if(is3D)setMode('sel');if(polyTool)endPolyTool(true);if(dln)cancelDrawLine('draw line cancelled');
   if(tempTool){endTempTool();return;}
   tempTool={a:null,snap:null,cur:null};
   $('tTemp').classList.add('on');prevCursor=cv.style.cursor;cv.style.cursor='crosshair';
@@ -3804,7 +3832,7 @@ function draw2D(){
   if(showArrows)drawArrows((E,N)=>W2S(E,N));
   drawCircles((E,N)=>W2S(E,N));
   PTS.forEach((p,i)=>{const[x,y]=W2S(p.E,p.N);if(x<-20||x>w+20||y<-20||y>h+20)return;drawPt(p,i,x,y);});
-  drawPoly();drawTempLines((E,N)=>W2S(E,N),false);drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
+  drawPoly();drawTempLines((E,N)=>W2S(E,N),false);drawInverse((E,N)=>W2S(E,N));drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N)=>W2S(E,N));drawNpAdd((E,N)=>W2S(E,N));drawDrawLine((E,N)=>W2S(E,N));drawMapError();drawSnapMarker();drawCircleCtrPick((E,N)=>W2S(E,N));drawRefKdPick((E,N)=>W2S(E,N));
 }
 function draw3D(){
   const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;ctx.clearRect(0,0,w,h);
@@ -3833,7 +3861,7 @@ function draw3D(){
     if(p.kind==='ctrl'||i===sel){ctx.fillStyle=p.kind==='ctrl'?'#ffd24a':'#cfe0ff';
       const lbl=pointLabelText(p);
       if(lbl){ctx.font=`600 ${labelSize}px ui-monospace,monospace`;ctx.fillText(lbl,x+7,y-6);}}});
-  drawTempLines((E,N,Z)=>P3(E,N,Z),true);drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N,Z)=>P3(E,N,Z));drawNpAdd((E,N,Z)=>P3(E,N,Z));if(npAdd)drawSnapMarker();drawRefKdPick((E,N,Z)=>P3(E,N,Z));
+  drawTempLines((E,N,Z)=>P3(E,N,Z),true);drawInverse((E,N,Z)=>P3(E,N,Z));drawGizmo();drawSelFig();drawFlash();drawUgwPickRing();drawOrdPick((E,N,Z)=>P3(E,N,Z));drawNpAdd((E,N,Z)=>P3(E,N,Z));drawDrawLine((E,N,Z)=>P3(E,N,Z));if(npAdd||dln)drawSnapMarker();drawRefKdPick((E,N,Z)=>P3(E,N,Z));
 }
 /* Marker-type overlay drawn AROUND a point's dot (dot stays visible in the
    center), keyed off the point's own description — square for any point
@@ -5256,6 +5284,7 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     $('simplCogoN').value=N.toFixed(3);$('simplCogoE').value=E.toFixed(3);
     if(isFinite(Z))$('simplCogoZ').value=Z.toFixed(3);
     endCogoPick(snap);return;}
+  if(dln){dlnPointerDown(e,sx,sy);return;}
   if(npAdd&&(npAdd.stage==='after'||npAdd.stage==='loc')){npClick(sx,sy);return;}
   if(ordPick){ordPickClick(pick(sx,sy));return;}
   if(addPt){const i=pick(sx,sy);const f=getFig(addPt.figId);
@@ -5319,6 +5348,11 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     hud(t+' · Esc '+(tempTool.a?'cancels this line':'stops'));draw();return;}
   if(polyTool&&!is3D&&!drag&&!pinch){polyTool.cur={sx,sy};const[E,N]=S2W(sx,sy);
     hud(`polygon: ${polyTool.pts.length} corner(s) · E ${E.toFixed(2)} N ${N.toFixed(2)} · ${polyTool.pts.length>=3?'double-click / Enter to close · ':''}Backspace undo · Esc cancel`);draw();return;}
+  if(dln&&!drag&&!pinch){dln.cur={sx,sy};dln.snap=dlnSnapAt(sx,sy);const s_=dln.snap;
+    if(s_)hud(`${dln.code} · ${s_.label} · E ${s_.E.toFixed(2)} N ${s_.N.toFixed(2)}${isFinite(s_.Z)?' Z '+s_.Z.toFixed(2):''} · click to place · Enter End · Esc cancel`);
+    else if(!is3D){const[E,N]=S2W(sx,sy);hud(`${dln.code} · free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Z from the box · Enter End · Esc cancel`);}
+    else hud(`${dln.code} · 3D free click lands at the box Z · drag to orbit · Enter End · Esc cancel`);
+    draw();return;}
   if(npAdd&&npAdd.stage==='loc'){npAdd.snap=npSnapAt(sx,sy);const s_=npAdd.snap;
     if(s_)hud(`${s_.label} · E ${s_.E.toFixed(2)} N ${s_.N.toFixed(2)}${isFinite(s_.Z)?' Z '+s_.Z.toFixed(2):''} · Enter = key in`);
     else if(!is3D){const[E,N]=S2W(sx,sy);hud(`free · E ${E.toFixed(2)} N ${N.toFixed(2)} · Enter = key in · Esc cancels`);}
@@ -5339,12 +5373,14 @@ cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect(),sx=e.cl
     b.style.left=Math.min(drag.x0,sx)+'px';b.style.top=Math.min(drag.y0,sy)+'px';
     b.style.width=Math.abs(sx-drag.x0)+'px';b.style.height=Math.abs(sy-drag.y0)+'px';return;}
   if(!drag)return;
+  if(drag.dlnClick&&!drag.moved){if(Math.hypot(sx-drag.sx,sy-drag.sy)<5)return;drag.moved=true;}
   if(drag.orbit){if(drag.shift){orbit.ox=drag.ox+(sx-drag.sx);orbit.oy=drag.oy+(sy-drag.sy);}
     else{orbit.az=drag.az+(sx-drag.sx)*0.008;orbit.el=Math.max(0.12,Math.min(1.55,drag.el-(sy-drag.sy)*0.006));}draw();}
   else if(drag.pan){if(is3D){orbit.ox=drag.x0+(sx-drag.sx);orbit.oy=drag.y0+(sy-drag.sy);}
     else{view.x=drag.x0+(sx-drag.sx);view.y=drag.y0+(sy-drag.sy);}draw();}
   else if(drag.move){const[E,N]=S2W(sx,sy);const p=PTS[drag.i];p.E=E;p.N=N;buildLinework();draw();}});
 function endInteract(e){const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
+  if(drag&&drag.dlnClick){const d=drag;drag=null;if(!d.moved)dlnPlace(d.sx,d.sy);else draw();return;}
   if(zw){$('zwbox').style.display='none';const dx=Math.abs(zw.x1-zw.x0),dy=Math.abs(zw.y1-zw.y0);
     if(dx>8&&dy>8){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio;
       if(is3D){                                          // screen-space box fit — no world-space inverse exists for the oblique orbit projection
@@ -5390,7 +5426,7 @@ function zoomBy(f){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRati
 /* ---------- ui ---------- */
 function hud(t){$('hud').textContent=t;}
 function setMode(m){
-  if(tempTool)endTempTool(true);if(polyTool)endPolyTool(true);
+  if(tempTool)endTempTool(true);if(polyTool)endPolyTool(true);if(dln&&!['orbit','sel','zoom','pan'].includes(m))cancelDrawLine('draw line cancelled');
   const wasOrbit=is3D;addPt=null;if(npAdd&&!['orbit','sel','zoom','pan'].includes(m))cancelNpAdd();if(ordPick&&m!=='orbit'&&m!=='sel'&&m!=='zoom'&&m!=='pan')ordPick=null;
   if(m==='orbit')is3D=true;else if(m!=='zoom')is3D=false;   // 'zoom' leaves the view as-is — window-zoom works in whichever view (2D or 3D) is already active
   mode=(m==='orbit')?'orbit':m;
@@ -5575,6 +5611,7 @@ const HELP_CANVAS_TOOLS=[
   ['◯ CIR','Draw a circle by center point + radius (C).'],
   ['⊙ CTR','Place a new point at the circumcircle center of 3 clicked points, or of an existing CIR-coded line\'s own first 3 vertices.'],
   ['⟋ TMP','Temp line (L) — click two spots (full snap) to draw a dashed construction line for computing. It snaps like any other line, so two temp lines give an intersection to place a point on. Click it (SEL) to see bearing/length, edit its ends (or azimuth + length), and create points along it — divide, every interval, or at a distance, with an optional offset and code; tick “make linework” to give the new points B/E so they draw a line. Temp lines are not exported.'],
+  ['✎ DRAW','Draw line (D): asks for the figure code (plus optional extra text for the first point, e.g. a curb code) and the first point #. Click points in 2D or 3D — clicks snap to existing points and lines and take their elevation; a free click uses the Z in the floating box (in 3D it lands on that elevation). Dragging still pans (2D) / orbits (3D). The floating box puts BC / OC / EC on the last vertex, ↶ Undo (Backspace) removes it, End (Enter) writes E on the last point, Close writes CLS. The first point gets B. The vertices become new NEZ points written at the end of the FBK (numbers in use are skipped); Ctrl+Z undoes the whole line.'],
   ['⬠ POLY','Polygon select (Y): click the corners; double-click, Enter or click the first corner to close (Backspace removes the last corner, Esc cancels). Then choose lidar points (shown classes, optional minimum spacing, numbering and description) and/or survey points inside, and export them as a PNEZD CSV — lidar Z includes the elevation adjustment.'],
   ['➤ DIR','Toggle direction arrows on the linework (A).'],
   ['🗺 MAP','Toggle the aerial imagery background (2D only).'],
@@ -5582,7 +5619,7 @@ const HELP_CANVAS_TOOLS=[
 ];
 const HELP_KEYS=[
   ['V','Select tool'],['M','Move tool'],['P','Pan tool'],['Z','Zoom window tool'],
-  ['O','3D orbit'],['I','Inverse tool'],['C','Draw circle'],['L','Temp line tool'],['Y','Polygon select (POLY)'],['A','Toggle direction arrows'],
+  ['O','3D orbit'],['I','Inverse tool'],['C','Draw circle'],['L','Temp line tool'],['Y','Polygon select (POLY)'],['D','Draw line (DRAW)'],['A','Toggle direction arrows'],
   ['F','Fit to the whole survey'],['G','Go to point #'],
   ['Ctrl+Z','Undo'],['Ctrl+Y or Ctrl+Shift+Z','Redo'],
   ['Delete / Backspace','Delete the box-selected points'],['Esc','Cancel a pick/insert in progress, or clear a box selection'],
@@ -5766,7 +5803,7 @@ function loadJobBuffer(buf,name){
 
 function loadFbkText(text,name){
   clearTimeout(asTimer);asTimer=null;curFile=name||'';
-  refDelOn=false;parse(text);sel=-1;selFig=null;tempLines=[];tempSel=-1;if(tempTool)endTempTool(true);figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
+  if(dln)cancelDrawLine('draw line cancelled (file loaded)');refDelOn=false;parse(text);sel=-1;selFig=null;tempLines=[];tempSel=-1;if(tempTool)endTempTool(true);figOrder={};figExtra={};figNEZ={};addPt=null;ordPick=null;npAdd=null;log=[];$('logbox').innerHTML='';$('logn').textContent=0;inspect();
   $('asStatus').textContent='';}
 $('fileInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();
   if(/\.job$/i.test(f.name)){rd.onload=()=>loadJobBuffer(rd.result,f.name);rd.readAsArrayBuffer(f);e.target.value='';return;}
@@ -5797,7 +5834,7 @@ window.addEventListener('keydown',e=>{
   // undo/redo shortcuts
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();performUndo();return;}
   if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||e.shiftKey&&e.key.toLowerCase()==='z')){e.preventDefault();performRedo();return;}
-  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show')||$('codeChkScrim').classList.contains('show')||$('lazScrim').classList.contains('show')||$('polyScrim').classList.contains('show'))return;
+  if($('scrim').classList.contains('show')||$('helpScrim').classList.contains('show')||$('jobScrim').classList.contains('show')||$('unkdReportScrim').classList.contains('show')||$('kdReviewScrim').classList.contains('show')||$('refKdScrim').classList.contains('show')||$('codeChkScrim').classList.contains('show')||$('lazScrim').classList.contains('show')||$('polyScrim').classList.contains('show')||$('dlnScrim').classList.contains('show'))return;
   if(e.target.tagName==='INPUT')return;const k=e.key.toLowerCase();
   if(k==='v')setMode('sel');else if(k==='m')setMode('move');else if(k==='p')setMode('pan');
   else if(k==='z')setMode('zoom');else if(k==='o')setMode('orbit');else if(k==='i')setMode('inv');
@@ -5806,7 +5843,8 @@ window.addEventListener('keydown',e=>{
   else if(k==='g'){if(!$('gotoBtn').disabled)openGoto();}
   else if(k==='c'){circleTool={centerPt:-1};openCircleTool();}
   else if(k==='l')startTempTool();
-  else if(k==='y')startPolyTool();});
+  else if(k==='y')startPolyTool();
+  else if(k==='d')startDrawLine();});
 /* ---------- build 136 — LAZ / LAS point cloud viewer + polygon select → PNEZD CSV ----------
    ☁ Load LAZ/LAS reads a LAS 1.0–1.4 file (point formats 0–10). A plain .las is read directly; a
    compressed .laz is decoded with laz-perf (WASM, fetched from jsDelivr the first time a .laz is
@@ -6141,7 +6179,7 @@ $('lazUnits').onchange=()=>{$('lazUnitMsg').textContent='';};
 /* ---------- ⬠ POLY polygon select ---------- */
 let polyTool=null,polyShape=null,polyCtx=null;           // polyTool={pts:[{E,N}],cur,lastT,lastXY} while drawing; polyShape=[{E,N}] once closed
 function startPolyTool(){
-  if(is3D)setMode('sel');if(tempTool)endTempTool(true);
+  if(is3D)setMode('sel');if(tempTool)endTempTool(true);if(dln)cancelDrawLine('draw line cancelled');
   if(polyTool){endPolyTool();return;}
   polyTool={pts:[],cur:null,lastT:0,lastXY:null};polyShape=null;selSet.clear();sel=-1;selFig=null;$('tPoly').classList.add('on');cv.style.cursor='crosshair';
   hud('polygon: click the corners · double-click, Enter or click the first corner to close · Backspace undoes a corner · Esc cancels');draw();}
@@ -6214,6 +6252,113 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'){e.preventDefault();e.stopPropagation();endPolyTool();}
   else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();closePoly();}
   else if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();e.stopPropagation();polyTool.pts.pop();hud(`polygon: ${polyTool.pts.length} corner(s)`);draw();}},true);
+
+/* ---------- build 138 — ✎ DRAW: draw a new line as NEZ points (2D or 3D) ----------
+   Owner: "add tool so CAD-draw a line in the FBK format NEZ, tack it at the end of the
+   loaded FBK; dynamic tool that I can draw in 2D or 3D view; ask user for code; the
+   selected pt could be a pt to draw on; add B to start the line and E or CLS to end it;
+   floating tool to add BC and EC or OC."
+   D / the DRAW tool asks for the figure code (and optional extra text for the first point,
+   e.g. a curb code), then each click places a vertex: 2D uses the full OSNAP engine
+   (snapPoint — an existing point gives its exact N/E/Z), 3D uses snap3D (points, drawn
+   lines, offset lanes); a free click takes the Z typed in the floating box (2D) or lands
+   on the horizontal plane at that Z (3D). A click that turns into a drag pans (2D) or
+   orbits (3D) instead. The floating box toggles BC / OC / EC on the last placed vertex
+   (or on the first one before any is placed), Undo removes the last vertex, End writes
+   E on the last point, Close writes CLS. Nothing is written until End/Close: then every
+   vertex becomes a new NEZ point (kind ctrl, srcLine −1) numbered from the start number,
+   skipping numbers in use — they export at the end of the FBK (step 3b) in draw order.
+   One saveState, so Undo removes the whole line. */
+let dlnLastCode='',dlnLastExtra='';
+const DLN_TAGS=['BC','OC','EC'];
+function startDrawLine(){
+  if(dln){cancelDrawLine('draw line cancelled');return;}
+  if(tempTool)endTempTool(true);if(polyTool)endPolyTool(true);if(cogoPick)endCogoPick(null);
+  $('dlnCode').value=dlnLastCode;$('dlnExtra').value=dlnLastExtra;$('dlnStart').value=getNextPointNumber();
+  $('dlnMsg').textContent='';$('dlnScrim').classList.add('show');setTimeout(()=>{$('dlnCode').focus();$('dlnCode').select();},30);}
+function dlnIdUsed(id){return PTS.some(p=>String(p.id)===String(id));}
+function beginDrawLine(){const code=$('dlnCode').value.trim().toUpperCase(),extra=$('dlnExtra').value.trim(),st=parseInt($('dlnStart').value,10);
+  if(!code||/\s/.test(code)){$('dlnMsg').textContent='Enter one figure code with no spaces (e.g. RBCB1, RWLK, TFNC1).';$('dlnCode').focus();return;}
+  if(!isFinite(st)||st<1){$('dlnMsg').textContent='First point # must be a positive whole number.';$('dlnStart').focus();return;}
+  dlnLastCode=code;dlnLastExtra=extra;$('dlnScrim').classList.remove('show');if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  dln={code,extra,start:st,verts:[],armed:new Set(),snap:null,cur:null};
+  if(!isFinite(parseFloat($('dlnZ').value))){const live=PTS.filter(p=>!p.deleted&&isFinite(p.Z));if(live.length)$('dlnZ').value=live[live.length-1].Z.toFixed(3);}
+  $('tDraw').classList.add('on');prevCursor=cv.style.cursor;cv.style.cursor='crosshair';syncDrawBox();
+  hud(`draw ${code}: click the first point (snaps to points/lines) · BC/OC/EC in the box · Enter = End · Backspace = undo · Esc = cancel`);draw();}
+function cancelDrawLine(msg){if(!dln)return;dln=null;$('tDraw').classList.remove('on');$('drawBox').classList.remove('show');cv.style.cursor=prevCursor||'crosshair';hud(msg||'draw line cancelled');draw();}
+function dlnZField(){const z=parseFloat($('dlnZ').value);return isFinite(z)?z:NaN;}
+// 3D: unproject a screen point onto the horizontal plane at elevation z0 (inverse of P3 with Z fixed)
+function unprojectAtZ(sx,sy,z0){const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,cA=Math.cos(orbit.az),sA=Math.sin(orbit.az),cE=Math.cos(orbit.el),sE=Math.sin(orbit.el);
+  const u=(z0-orbit.cz)*orbit.ve,x1=(sx-w/2-orbit.ox)/orbit.s,y1=(-(sy-h/2-orbit.oy)/orbit.s-u*cE)/sE;
+  return[x1*cA-y1*sA+orbit.cx,x1*sA+y1*cA+orbit.cy];}
+function dlnSnapAt(sx,sy){return is3D?snap3D(sx,sy):snapPoint(sx,sy);}
+function dlnLocate(sx,sy){const s=dlnSnapAt(sx,sy);
+  if(s){let Z=s.Z;if(!isFinite(Z))Z=dlnZField();return{E:s.E,N:s.N,Z,label:s.label,snapped:true};}
+  let Z=dlnZField();if(!isFinite(Z)&&dln.verts.length)Z=dln.verts[dln.verts.length-1].Z;
+  if(!is3D){const[E,N]=S2W(sx,sy);
+    if(!isFinite(Z)){let bd=Infinity;PTS.forEach(p=>{if(p.deleted||!isFinite(p.Z))return;const d=Math.hypot(p.E-E,p.N-N);if(d<bd){bd=d;Z=p.Z;}});}
+    return{E,N,Z,label:'free',snapped:false};}
+  if(!isFinite(Z))Z=orbit.cz;const[E,N]=unprojectAtZ(sx,sy,Z);return{E,N,Z,label:'free (on Z '+Z.toFixed(2)+')',snapped:false};}
+function dlnPlace(sx,sy){if(!dln)return;const L=dlnLocate(sx,sy);
+  if(!isFinite(L.Z)){hud('type an elevation in the Z box first (no point to take it from)');$('dlnZ').focus();return;}
+  if(L.snapped)$('dlnZ').value=L.Z.toFixed(3);
+  const last=dln.verts[dln.verts.length-1];if(last&&Math.hypot(last.E-L.E,last.N-L.N)<1e-4&&Math.abs(last.Z-L.Z)<1e-4){hud('same spot as the last vertex — click somewhere else');return;}
+  dln.verts.push({E:L.E,N:L.N,Z:L.Z,tags:dln.verts.length?new Set():new Set(dln.armed),label:L.label});dln.armed.clear();
+  syncDrawBox();hud(`${dln.code}: ${dln.verts.length} vertex(es) — last ${L.label} · E ${L.E.toFixed(2)} N ${L.N.toFixed(2)} Z ${L.Z.toFixed(2)}`);draw();}
+function dlnUndo(){if(!dln)return;if(!dln.verts.length){hud('nothing to undo');return;}dln.verts.pop();syncDrawBox();hud(`${dln.code}: ${dln.verts.length} vertex(es)`);draw();}
+function dlnToggleTag(t){if(!dln)return;const set=dln.verts.length?dln.verts[dln.verts.length-1].tags:dln.armed;
+  if(set.has(t))set.delete(t);else{if(t==='OC'){set.delete('BC');set.delete('EC');}else set.delete('OC');set.add(t);}
+  syncDrawBox();draw();}
+function dlnDesc(k,n,end){const v=dln.verts[k];return[dln.code,k===0?'B':'',...DLN_TAGS.filter(t=>v.tags.has(t)),k===n-1?end:'',k===0?dln.extra:''].filter(Boolean).join(' ');}
+function finishDrawLine(end){if(!dln)return;const n=dln.verts.length;
+  if(n<2){hud('a line needs at least 2 points');return;}if(end==='CLS'&&n<3){hud('Close (CLS) needs at least 3 points');return;}
+  const bc=dln.verts.filter(v=>v.tags.has('BC')).length,ec=dln.verts.filter(v=>v.tags.has('EC')).length;
+  if(bc!==ec&&!confirm(`This line has ${bc} BC and ${ec} EC — a curve needs both. Write it anyway?`))return;
+  saveState();let num=dln.start;const made=[];
+  dln.verts.forEach((v,k)=>{while(dlnIdUsed(String(num)))num++;const id=String(num++),desc=dlnDesc(k,n,end);
+    PTS.push({id,code:'NEZ',desc,N:v.N,E:v.E,Z:v.Z,srcLine:-1,kind:'ctrl',deleted:false,edited:true});made.push(PTS.length-1);
+    logEdit('code',`NEZ ${id} ${v.N.toFixed(3)} ${v.E.toFixed(3)} ${v.Z.toFixed(3)} "${desc}"`);});
+  logEdit('code',`drew ${dln.code} line: ${n} NEZ pt(s) ${PTS[made[0]].id}–${PTS[made[made.length-1]].id} (${end})`);
+  const code=dln.code;dln=null;$('tDraw').classList.remove('on');$('drawBox').classList.remove('show');cv.style.cursor=prevCursor||'crosshair';
+  buildLinework();flagDirty();
+  const f=figuresOfPoint(made[0])[0];sel=-1;selSet.clear();if(f){selFig=f.id;inspectFig(f);}else{selFig=null;inspect();}draw();
+  hud(`${code}: ${n} new NEZ point(s) ${PTS[made[0]].id}–${PTS[made[made.length-1]].id} added (${end}) — they export at the end of the FBK · Ctrl+Z undoes`);}
+function syncDrawBox(){const box=$('drawBox');box.classList.toggle('show',!!dln);if(!dln)return;
+  const n=dln.verts.length,set=n?dln.verts[n-1].tags:dln.armed;
+  $('dlnTitle').textContent=`DRAW ${dln.code} · ${n} pt${n===1?'':'s'}`;
+  $('dlnTarget').textContent=n?`tags on vertex ${n}:`:'tags for the first vertex:';
+  DLN_TAGS.forEach(t=>$('dlnTag'+t).classList.toggle('on',set.has(t)));
+  $('dlnUndo').disabled=!n;$('dlnEnd').disabled=n<2;$('dlnCls').disabled=n<3;}
+function drawDrawLine(proj){if(!dln)return;const vs=dln.verts.map(v=>({E:v.E,N:v.N,Z:v.Z,bc:v.tags.has('BC'),ec:v.tags.has('EC'),oc:v.tags.has('OC')}));
+  let tail=null;if(dln.cur){const s=dln.snap;if(s)tail={E:s.E,N:s.N,Z:isFinite(s.Z)?s.Z:(vs.length?vs[vs.length-1].Z:0)};
+    else if(!is3D){const[E,N]=S2W(dln.cur.sx,dln.cur.sy);tail={E,N,Z:vs.length?vs[vs.length-1].Z:0};}
+    else{const z=isFinite(dlnZField())?dlnZField():(vs.length?vs[vs.length-1].Z:orbit.cz);const[E,N]=unprojectAtZ(dln.cur.sx,dln.cur.sy,z);tail={E,N,Z:z};}}
+  const all=tail?vs.concat([tail]):vs;ctx.save();
+  if(all.length>=2){let pl=null;try{pl=figurePolylineFromVerts({circle:false},all).pts;}catch(err){pl=null;}if(!pl||pl.length<2)pl=all;
+    ctx.beginPath();pl.forEach((p,k)=>{const s=proj(p.E,p.N,p.Z);k?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);});
+    ctx.strokeStyle=codeColor(dln.code);ctx.lineWidth=2.2;ctx.setLineDash([7,4]);ctx.stroke();ctx.setLineDash([]);}
+  vs.forEach((v,k)=>{const s=proj(v.E,v.N,v.Z);ctx.beginPath();ctx.arc(s[0],s[1],5,0,7);ctx.fillStyle='#F1B434';ctx.fill();ctx.strokeStyle='#111';ctx.lineWidth=1;ctx.stroke();
+    const tg=[k===0?'B':'',...DLN_TAGS.filter(t=>dln.verts[k].tags.has(t))].filter(Boolean).join(' ');
+    ctx.font='700 10px ui-monospace,monospace';ctx.fillStyle='#F1B434';ctx.fillText(`${k+1}${tg?' '+tg:''}`,s[0]+8,s[1]-7);});
+  ctx.restore();}
+// pointer glue: a click places a vertex, a drag pans (2D) / orbits (3D)
+function dlnPointerDown(e,sx,sy){
+  if(is3D){drag={orbit:true,sx,sy,az:orbit.az,el:orbit.el,ox:orbit.ox,oy:orbit.oy,shift:e.shiftKey,dlnClick:true};}
+  else drag={pan:true,sx,sy,x0:view.x,y0:view.y,dlnClick:true};}
+$('tDraw').onclick=startDrawLine;
+$('dlnGo').onclick=beginDrawLine;$('dlnCancel').onclick=()=>$('dlnScrim').classList.remove('show');
+$('dlnScrim').onclick=e=>{if(e.target===$('dlnScrim'))$('dlnScrim').classList.remove('show');};
+['dlnCode','dlnExtra','dlnStart'].forEach(id=>$(id).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();beginDrawLine();}}));
+DLN_TAGS.forEach(t=>$('dlnTag'+t).onclick=()=>dlnToggleTag(t));
+$('dlnUndo').onclick=dlnUndo;$('dlnEnd').onclick=()=>finishDrawLine('E');$('dlnCls').onclick=()=>finishDrawLine('CLS');$('dlnX').onclick=()=>cancelDrawLine();
+$('dlnZ').addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'||e.key==='Escape'){e.preventDefault();e.target.blur();}});
+makeDraggable($('drawBox'),$('dlnTitle'),()=>document.querySelector('.stage').getBoundingClientRect());
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&$('dlnScrim').classList.contains('show')){e.preventDefault();e.stopPropagation();$('dlnScrim').classList.remove('show');return;}
+  if(!dln)return;const t=e.target;if(t&&(/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)||t.isContentEditable))return;
+  if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(!dln.verts.length||confirm(`Discard the ${dln.verts.length} vertex(es) drawn so far?`))cancelDrawLine();}
+  else if(e.key==='Enter'){e.preventDefault();e.stopPropagation();finishDrawLine('E');}
+  else if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();e.stopPropagation();dlnUndo();}},true);
 
 window.addEventListener('resize',resize);
 resize();
